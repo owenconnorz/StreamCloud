@@ -320,7 +320,7 @@ fun WatchPartyPlayerDialog(
             Surface(
                 Modifier.width(panelWidth).fillMaxHeight(),
                 shape = panelShape,
-                color = Color(0xFF1B1A1F),
+                color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 8.dp,
             ) {
                 Column(

@@ -119,6 +119,7 @@ fun LibraryScreen(
     onDirectMediaClick: (url: String, title: String) -> Unit = { _, _ -> },
     onAdultProviderClick: (provider: String, url: String, title: String) -> Unit = { _, _, _ -> },
     tvNavFocusRequester: FocusRequester? = null,
+    onMoviePaletteModeChanged: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
@@ -256,6 +257,9 @@ fun LibraryScreen(
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var sectionMode by remember(isTv) {
         mutableStateOf(if (isTv) "Movies" else "Music")
+    }
+    LaunchedEffect(sectionMode) {
+        onMoviePaletteModeChanged(sectionMode == "Movies")
     }
     val watchlistItems by db.watchlist().all().collectAsState(initial = emptyList())
     val downloadedMovies by db.movieDownloads().all().collectAsState(initial = emptyList())

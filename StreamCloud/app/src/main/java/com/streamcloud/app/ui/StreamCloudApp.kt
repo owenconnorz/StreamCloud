@@ -189,8 +189,11 @@ fun StreamCloudApp() {
     val playerSurfaceState = com.streamcloud.app.ui.player.rememberPlayerSurfaceState()
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
+    var libraryMoviePaletteActive by remember {
+        mutableStateOf(LocalUiFormFactor.current == UiFormFactor.Tv)
+    }
     val useSelectedAppPalette = currentRoute == Tab.Movies.route ||
-        currentRoute == Tab.Library.route ||
+        (currentRoute == Tab.Library.route && libraryMoviePaletteActive) ||
         currentRoute == Tab.Settings.route
     var adultHomeNavigationVisible by remember { mutableStateOf(false) }
     var settingsHasSubPage by remember { mutableStateOf(false) }
@@ -1274,6 +1277,7 @@ fun StreamCloudApp() {
                 composable(Tab.Library.route)  {
                     LibraryScreen(
                         tvNavFocusRequester = tvNavHeroFocus,
+                        onMoviePaletteModeChanged = { libraryMoviePaletteActive = it },
                         onOpenPlaylist = { id, title ->
                             val i = URLEncoder.encode(id, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
@@ -1541,19 +1545,21 @@ fun StreamCloudApp() {
                             }
                     }
                     if (resolvedUrl != null) {
-                        NativePlayerScreen(
-                            streamUrl = resolvedUrl!!,
-                            title = title,
-                            headers = resolvedHeaders,
-                            sources = resolvedSources,
-                            onBack = { nav.popBackStack() },
-                            forceDirectPlay = id.startsWith("pornhub://"),
-                            onRefresh = if (id.startsWith("pornhub://")) {
-                                { resolveAttempt++ }
-                            } else {
-                                null
-                            },
-                        )
+                        com.streamcloud.app.ui.theme.SelectedAppPaletteTheme {
+                            NativePlayerScreen(
+                                streamUrl = resolvedUrl!!,
+                                title = title,
+                                headers = resolvedHeaders,
+                                sources = resolvedSources,
+                                onBack = { nav.popBackStack() },
+                                forceDirectPlay = id.startsWith("pornhub://"),
+                                onRefresh = if (id.startsWith("pornhub://")) {
+                                    { resolveAttempt++ }
+                                } else {
+                                    null
+                                },
+                            )
+                        }
                     } else if (resolveError != null) {
                         Column(
                             Modifier.fillMaxSize()
@@ -1598,11 +1604,13 @@ fun StreamCloudApp() {
                 ) { entry ->
                     val url   = URLDecoder.decode(entry.arguments!!.getString("url")!!,   "UTF-8")
                     val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
-                    NativePlayerScreen(
-                        streamUrl = url,
-                        title = title,
-                        onBack = { nav.popBackStack() },
-                    )
+                    com.streamcloud.app.ui.theme.SelectedAppPaletteTheme {
+                        NativePlayerScreen(
+                            streamUrl = url,
+                            title = title,
+                            onBack = { nav.popBackStack() },
+                        )
+                    }
                 }
 
 
@@ -1633,6 +1641,7 @@ fun StreamCloudApp() {
 
 
                     var switchKey by remember(initial) { mutableStateOf(0) }
+                    com.streamcloud.app.ui.theme.SelectedAppPaletteTheme {
                     NativePlayerScreen(
                         streamUrl = currentUrl,
                         onWatchPartyMedia = { media ->
@@ -1705,6 +1714,7 @@ fun StreamCloudApp() {
                             }
                         },
                     )
+                    }
                 }
                 composable(Tab.Settings.route) {
                     com.streamcloud.app.ui.theme.StaticAppTheme {

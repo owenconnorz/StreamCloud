@@ -1,3 +1,11 @@
+## Latest — Changes since V2233
+
+### Selected palette consistency
+- **Movies home glow follows the selected palette** — the hero banner highlight uses the configured accent instead of artwork-derived colors.
+- **Movie and music libraries keep separate themes** — the selected palette applies to Movie Library; Music Library retains its dynamic artwork theme.
+- **Movie playback pop-ups follow the palette** — Continue Watching actions, source selection, episode/up-next panels, and playback errors use palette-aware surfaces, text, and focus colors.
+- **Watch Party player panel follows the palette** — its dialog surface now uses the same selected app colors.
+
 ## Latest — Changes since V2229
 
 ### Movies home, Library, and Settings appearance

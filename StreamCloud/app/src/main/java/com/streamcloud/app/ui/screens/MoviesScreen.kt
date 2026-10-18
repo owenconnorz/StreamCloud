@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -234,7 +235,7 @@ fun MoviesScreen(
             .mapTo(mutableSetOf()) { it.tmdbId }
     }
     val settingsRepo = remember { SettingsRepository(context) }
-    val moviesThemeName by settingsRepo.moviesTheme.collectAsState(initial = "modern_blue")
+    val appearancePalette by settingsRepo.colorPalette.collectAsState(initial = "modern_blue")
     val posterStyle by settingsRepo.posterStyle.collectAsState(initial = "portrait")
     var query by remember { mutableStateOf("") }
     var searchExpanded by remember { mutableStateOf(false) }
@@ -500,7 +501,8 @@ fun MoviesScreen(
             activeHeroBanner = state.heroBanner.firstOrNull()
         }
     }
-    MoviesThemeWrapper(moviesThemeName) {
+
+    MoviesThemeWrapper(appearancePalette) {
     Box(
         Modifier
             .fillMaxSize()
@@ -1360,56 +1362,70 @@ private fun HeroPager(
                 currentPage = (currentPage + 1) % items.size
             }
         }
+        val heroShape = RoundedCornerShape(24.dp)
+        val heroGlowColor = MaterialTheme.colorScheme.primary
         Box(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = tvHeroInset)
-                .height(tvHeroHeight)
-                .clip(RoundedCornerShape(24.dp)),
+                .height(tvHeroHeight),
         ) {
-            Crossfade(
-                targetState = currentPage,
-                modifier = Modifier.fillMaxSize(),
-                label = "tvHeroBanner",
-            ) { page ->
-                val item = items.getOrNull(page) ?: return@Crossfade
-                HeroBannerSlide(
-                    item = item,
-                    onClick = { onClick(item) },
-                    titleLogoUrl = titleLogoUrlFor(item),
-                    titleLogoRequestKey = titleLogoRequestKeyFor(item),
-                    onRequestTitleLogo = { onRequestTitleLogoFor(item) },
-                    isCurrentPage = page == currentPage,
-                    // Only page 0 carries the startup focus requester. Crossfade composes
-                    // both old and new content during the transition, so attaching the same
-                    // requester to every page would cause a duplicate-requester error.
-                    buttonFocusRequester = if (page == 0) initialFocusRequester else null,
-                    navFocusRequester = if (page == currentPage) navFocusRequester else null,
-                    showTrailerPreview = page == currentPage,
-                    onButtonFocusChanged = { focused ->
-                        buttonHasFocus = focused
-                        onInitialItemFocusChanged(focused)
-                    },
-                )
-            }
-            Row(
+            Box(
                 Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 32.dp, bottom = 18.dp),
-            ) {
-                items.forEachIndexed { i, _ ->
-                    val active = i == currentPage
-                    Box(
-                        Modifier
-                            .padding(horizontal = 4.dp)
-                            .height(6.dp)
-                            .width(if (active) 22.dp else 6.dp)
-                            .clip(RoundedCornerShape(50))
-                            .background(
-                                if (active) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                            )
+                    .fillMaxSize()
+                    .shadow(
+                        elevation = 22.dp,
+                        shape = heroShape,
+                        clip = false,
+                        ambientColor = heroGlowColor.copy(alpha = 0.68f),
+                        spotColor = heroGlowColor.copy(alpha = 0.52f),
                     )
+                    .clip(heroShape),
+            ) {
+                Crossfade(
+                    targetState = currentPage,
+                    modifier = Modifier.fillMaxSize(),
+                    label = "tvHeroBanner",
+                ) { page ->
+                    val item = items.getOrNull(page) ?: return@Crossfade
+                    HeroBannerSlide(
+                        item = item,
+                        onClick = { onClick(item) },
+                        titleLogoUrl = titleLogoUrlFor(item),
+                        titleLogoRequestKey = titleLogoRequestKeyFor(item),
+                        onRequestTitleLogo = { onRequestTitleLogoFor(item) },
+                        isCurrentPage = page == currentPage,
+                        // Only page 0 carries the startup focus requester. Crossfade composes
+                        // both old and new content during the transition, so attaching the same
+                        // requester to every page would cause a duplicate-requester error.
+                        buttonFocusRequester = if (page == 0) initialFocusRequester else null,
+                        navFocusRequester = if (page == currentPage) navFocusRequester else null,
+                        showTrailerPreview = page == currentPage,
+                        onButtonFocusChanged = { focused ->
+                            buttonHasFocus = focused
+                            onInitialItemFocusChanged(focused)
+                        },
+                    )
+                }
+                Row(
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 32.dp, bottom = 18.dp),
+                ) {
+                    items.forEachIndexed { i, _ ->
+                        val active = i == currentPage
+                        Box(
+                            Modifier
+                                .padding(horizontal = 4.dp)
+                                .height(6.dp)
+                                .width(if (active) 22.dp else 6.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    if (active) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                )
+                        )
+                    }
                 }
             }
         }
@@ -1431,7 +1447,16 @@ private fun HeroPager(
         Column(Modifier.fillMaxWidth()) {
             HorizontalPager(
                 state = pagerState,
-                modifier = Modifier.fillMaxWidth().height(520.dp + statusBarHeight),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(
+                        elevation = 18.dp,
+                        shape = RoundedCornerShape(18.dp),
+                        clip = false,
+                        ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                        spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f),
+                    )
+                    .height(520.dp + statusBarHeight),
                 pageSpacing = 0.dp,
             ) { page ->
                 val item = items[page]
@@ -2845,7 +2870,7 @@ private fun CwOptionsDialog(
             .fillMaxWidth(0.78f)
             .widthIn(max = 560.dp),
         shape = RoundedCornerShape(22.dp),
-        color = Color(0xF0272B3B),
+        color = MaterialTheme.colorScheme.surface,
         tonalElevation = 8.dp,
     ) {
         Column(Modifier.padding(horizontal = 22.dp, vertical = 20.dp)) {
@@ -2853,7 +2878,7 @@ private fun CwOptionsDialog(
                 "Choose what you want to do with this item.",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(bottom = 12.dp),
             )
             CwDialogAction(
@@ -2877,24 +2902,39 @@ private fun CwDialogAction(
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(16.dp)
+    var focused by remember { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .height(52.dp)
             .clip(shape)
-            .background(Color.White.copy(alpha = 0.055f))
             .then(
                 if (focusRequester != null) Modifier.focusRequester(focusRequester)
                 else Modifier
+            )
+            .onFocusChanged { focused = it.isFocused }
+            .background(
+                if (focused) colors.primary
+                else colors.surfaceVariant.copy(alpha = 0.42f),
             )
             .tvFocusBorder(shape, showOutline = false)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp),
     ) {
-        Icon(icon, null, tint = Color(0xFF9AC9FF), modifier = Modifier.size(20.dp))
+        Icon(
+            icon,
+            null,
+            tint = if (focused) colors.onPrimary else colors.primary,
+            modifier = Modifier.size(20.dp),
+        )
         Spacer(Modifier.width(14.dp))
-        Text(label, style = MaterialTheme.typography.bodyLarge, color = Color.White)
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (focused) colors.onPrimary else colors.onSurface,
+        )
     }
     Spacer(Modifier.height(7.dp))
 }

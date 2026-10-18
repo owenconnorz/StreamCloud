@@ -1057,7 +1057,7 @@ fun NativePlayerScreen(
                     .align(Alignment.Center)
                     .padding(24.dp),
                 shape = RoundedCornerShape(20.dp),
-                color = Color(0xEE191919),
+                color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 6.dp,
             ) {
                 Column(
@@ -1066,13 +1066,13 @@ fun NativePlayerScreen(
                 ) {
                     Text(
                         "Playback failed",
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
                         message,
-                        color = Color.White.copy(alpha = 0.8f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
                     )
@@ -1754,6 +1754,7 @@ private fun NextEpisodePill(
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(18.dp)
+    val colors = MaterialTheme.colorScheme
     val episodeLabel = "S${episode.seasonNumber}E${episode.episodeNumber} · " +
         (episode.episodeTitle?.takeIf { it.isNotBlank() } ?: "Episode ${episode.episodeNumber}")
 
@@ -1763,7 +1764,7 @@ private fun NextEpisodePill(
             .tvFocusBorder(shape)
             .clickable(onClick = onClick),
         shape = shape,
-        color = Color.White.copy(alpha = 0.96f),
+        color = colors.primaryContainer,
         shadowElevation = 10.dp,
     ) {
         Row(
@@ -1774,19 +1775,19 @@ private fun NextEpisodePill(
             Icon(
                 Icons.Default.SkipNext,
                 contentDescription = "Play next episode",
-                tint = Color(0xFF17171A),
+                tint = colors.onPrimaryContainer,
                 modifier = Modifier.size(22.dp),
             )
             Column(Modifier.weight(1f)) {
                 Text(
                     "Up next",
-                    color = Color(0xFF55555B),
+                    color = colors.onPrimaryContainer.copy(alpha = 0.72f),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
                     episodeLabel,
-                    color = Color(0xFF17171A),
+                    color = colors.onPrimaryContainer,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -1823,7 +1824,7 @@ private fun NextEpisodeDialog(
         Surface(
             modifier = Modifier.fillMaxWidth(0.92f).widthIn(max = 560.dp),
             shape = RoundedCornerShape(24.dp),
-            color = Color(0xF21B1B1F),
+            color = MaterialTheme.colorScheme.surface,
             shadowElevation = 24.dp,
         ) {
             Column(
@@ -1854,12 +1855,12 @@ private fun NextEpisodeDialog(
                     ) {
                         Text(
                             "Episode finished",
-                            color = Color.White.copy(alpha = 0.65f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelMedium,
                         )
                         Text(
                             episode.title,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             maxLines = 2,
@@ -1867,7 +1868,7 @@ private fun NextEpisodeDialog(
                         )
                         Text(
                             episodeLabel,
-                            color = Color.White.copy(alpha = 0.78f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyMedium,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
@@ -1875,7 +1876,7 @@ private fun NextEpisodeDialog(
                         Text(
                             countdownSeconds?.let { "Next episode starts in ${it}s" }
                                 ?: "Autoplay is off. Choose when to play next.",
-                            color = Color.White.copy(alpha = 0.65f),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
@@ -2005,31 +2006,32 @@ private fun PlayerSidePanel(
     onEpisodeClick: (BingeEpisode) -> Unit, onSourceClick: (PlayerSource) -> Unit,
     onClose: () -> Unit,
 ) {
+    val colors = MaterialTheme.colorScheme
     val tabs = buildList {
         if (bingeEpisodes.size > 1) add("Episodes")
         if (sources.isNotEmpty()) add("Sources")
     }
-    Column(Modifier.width(300.dp).fillMaxHeight().background(Color(0xF0111111))) {
+    Column(Modifier.width(300.dp).fillMaxHeight().background(colors.surface)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             tabs.forEachIndexed { idx, tab ->
                 val selected = idx == activeTabIndex
                 Box(Modifier.clip(RoundedCornerShape(50))
-                    .background(if (selected) Color.White.copy(alpha = 0.15f) else Color.Transparent)
+                    .background(if (selected) colors.primary.copy(alpha = 0.2f) else Color.Transparent)
                     .clickable { onTabSelected(idx) }.padding(horizontal = 12.dp, vertical = 6.dp)) {
-                    Text(tab, color = if (selected) Color.White else Color.White.copy(alpha = 0.5f),
+                    Text(tab, color = if (selected) colors.onSurface else colors.onSurfaceVariant,
                         style = MaterialTheme.typography.labelLarge)
                 }
             }
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
+            IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Close", tint = colors.onSurface) }
         }
-        HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
+        HorizontalDivider(color = colors.outlineVariant)
         when (tabs.getOrNull(activeTabIndex)) {
             "Episodes" -> LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
                 itemsIndexed(bingeEpisodes) { idx, ep ->
                     val isCurrent = idx == currentBingeIndex
                     Row(Modifier.fillMaxWidth()
-                        .background(if (isCurrent) Color.White.copy(alpha = 0.10f) else Color.Transparent)
+                        .background(if (isCurrent) colors.primaryContainer else Color.Transparent)
                         .clickable { onEpisodeClick(ep) }.padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         if (!ep.posterUrl.isNullOrBlank()) {
@@ -2039,13 +2041,13 @@ private fun PlayerSidePanel(
                         }
                         Column(Modifier.weight(1f)) {
                             Text("S${ep.seasonNumber} E${ep.episodeNumber}",
-                                color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.55f),
+                                color = if (isCurrent) colors.primary else colors.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelSmall)
-                            Text(ep.episodeTitle ?: ep.title, color = Color.White,
+                            Text(ep.episodeTitle ?: ep.title, color = colors.onSurface,
                                 style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
                         if (isCurrent) Icon(Icons.Default.PlayArrow, "Now playing",
-                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                            tint = colors.primary, modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -2053,20 +2055,20 @@ private fun PlayerSidePanel(
                 items(sources) { src ->
                     val isSelected = src.id == selectedSourceId
                     Row(Modifier.fillMaxWidth()
-                        .background(if (isSelected) Color.White.copy(alpha = 0.12f) else Color.Transparent)
+                        .background(if (isSelected) colors.primary.copy(alpha = 0.18f) else Color.Transparent)
                         .clickable { onSourceClick(src) }.padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Icon(if (src.isMagnet) Icons.Default.Bolt else Icons.Default.PlayArrow, null,
-                            tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.White,
+                            tint = if (isSelected) colors.primary else colors.onSurfaceVariant,
                             modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(src.label, color = Color.White, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
+                            Text(src.label, color = colors.onSurface, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
                             Text(src.addonName + (src.qualityTag?.let { " · $it" } ?: ""),
-                                color = Color.White.copy(alpha = 0.55f), style = MaterialTheme.typography.bodySmall)
+                                color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                         }
                         src.fileSizeBytes?.let {
-                            Text(PlayerSource.formatFileSize(it), color = Color.White.copy(alpha = 0.5f),
+                            Text(PlayerSource.formatFileSize(it), color = colors.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall)
                         }
                     }
@@ -2089,6 +2091,7 @@ private fun SourcesPickerSheet(
     onPick: (PlayerSource) -> Unit, onDismiss: () -> Unit,
     onRefresh: (() -> Unit)? = null, nuvioScanning: Boolean = false,
 ) {
+    val colors = MaterialTheme.colorScheme
     val isTv           = LocalUiFormFactor.current == UiFormFactor.Tv
     val showAsSidePanel = isTv || sidePanelOnPhone
     val safeSources    = remember(sources) { sources.distinctBy { it.id } }
@@ -2137,26 +2140,26 @@ private fun SourcesPickerSheet(
                     .weight(0.58f)
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp))
-                    .background(Color(0xFF1B1A1F))
+                    .background(colors.surface)
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { onRefresh?.invoke() }, enabled = onRefresh != null && !nuvioScanning) {
-                        if (nuvioScanning) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                        else Icon(Icons.Default.Refresh, "Reload", tint = if (onRefresh != null) Color.White else Color.White.copy(alpha = 0.3f))
+                        if (nuvioScanning) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = colors.primary, strokeWidth = 2.dp)
+                        else Icon(Icons.Default.Refresh, "Reload", tint = if (onRefresh != null) colors.onSurface else colors.onSurface.copy(alpha = 0.3f))
                     }
-                    Text("Sources", color = Color.White, style = MaterialTheme.typography.titleLarge,
+                    Text("Sources", color = colors.onSurface, style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f).padding(start = 8.dp))
-                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close", tint = colors.onSurface) }
                 }
                 AnimatedVisibility(visible = nuvioScanning) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.08f))
+                        .clip(RoundedCornerShape(8.dp)).background(colors.surfaceVariant.copy(alpha = 0.55f))
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.White.copy(alpha = 0.7f), strokeWidth = 2.dp)
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), color = colors.primary, strokeWidth = 2.dp)
                         Spacer(Modifier.width(10.dp))
-                        Text("Scanning Nuvio providers…", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+                        Text("Scanning Nuvio providers…", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 if (currentAddonError != null) {
@@ -2205,32 +2208,36 @@ private fun SourcesPickerSheet(
                                 nuvioScanning -> "Scanning for streams…"
                                 currentAddonError != null -> "No streams — $activeFilter returned an error."
                                 else -> "No streams from $activeFilter."
-                            }, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(20.dp))
+                            }, color = colors.onSurfaceVariant, modifier = Modifier.padding(20.dp))
                         }
                     }
                 }
             }
         }
     } else {
-        ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Color(0xFF111111), scrimColor = Color.Black.copy(alpha = 0.7f)) {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            containerColor = colors.surface,
+            scrimColor = Color.Black.copy(alpha = 0.7f),
+        ) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { onRefresh?.invoke() }, enabled = onRefresh != null && !nuvioScanning) {
-                        if (nuvioScanning) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                        else Icon(Icons.Default.Refresh, "Reload", tint = if (onRefresh != null) Color.White else Color.White.copy(alpha = 0.3f))
+                        if (nuvioScanning) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = colors.primary, strokeWidth = 2.dp)
+                        else Icon(Icons.Default.Refresh, "Reload", tint = if (onRefresh != null) colors.onSurface else colors.onSurface.copy(alpha = 0.3f))
                     }
-                    Text("Sources", color = Color.White, style = MaterialTheme.typography.titleLarge,
+                    Text("Sources", color = colors.onSurface, style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f).padding(start = 8.dp))
-                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close", tint = Color.White) }
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close", tint = colors.onSurface) }
                 }
                 AnimatedVisibility(visible = nuvioScanning) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.08f))
+                        .clip(RoundedCornerShape(8.dp)).background(colors.surfaceVariant.copy(alpha = 0.55f))
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.White.copy(alpha = 0.7f), strokeWidth = 2.dp)
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), color = colors.primary, strokeWidth = 2.dp)
                         Spacer(Modifier.width(10.dp))
-                        Text("Scanning Nuvio providers…", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+                        Text("Scanning Nuvio providers…", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 // Per-addon error banner
@@ -2273,7 +2280,7 @@ private fun SourcesPickerSheet(
                                 nuvioScanning -> "Scanning for streams…"
                                 currentAddonError != null -> "No streams — $activeFilter returned an error."
                                 else -> "No streams from $activeFilter."
-                            }, color = Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(20.dp))
+                            }, color = colors.onSurfaceVariant, modifier = Modifier.padding(20.dp))
                         }
                     }
                 }
@@ -2290,15 +2297,33 @@ private fun SourceFilterChip(
     onClick: () -> Unit,
     focusRequester: FocusRequester? = null,
 ) {
+    val colors = MaterialTheme.colorScheme
     Box(Modifier
         .clip(RoundedCornerShape(50))
         .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
         .tvFocusBorder(RoundedCornerShape(50))
-        .background(when { selected -> Color.White; hasError -> Color(0xFF3B1515); else -> Color.White.copy(alpha = 0.12f) })
+        .background(
+            when {
+                selected -> colors.primary
+                hasError -> Color(0xFF3B1515)
+                else -> colors.surfaceVariant.copy(alpha = 0.5f)
+            },
+        )
         .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(label, color = if (selected) Color.Black else Color.White, style = MaterialTheme.typography.labelLarge)
-            if (hasError && !selected) Icon(Icons.Default.ErrorOutline, null, tint = Color(0xFFFF6B6B), modifier = Modifier.size(12.dp))
+            Text(
+                label,
+                color = if (selected) colors.onPrimary else colors.onSurface,
+                style = MaterialTheme.typography.labelLarge,
+            )
+            if (hasError && !selected) {
+                Icon(
+                    Icons.Default.ErrorOutline,
+                    null,
+                    tint = Color(0xFFFF6B6B),
+                    modifier = Modifier.size(12.dp),
+                )
+            }
         }
     }
 }
@@ -2310,24 +2335,34 @@ private fun StreamPickerRow(
     focusRequester: FocusRequester? = null,
     onClick: () -> Unit,
 ) {
+    val colors = MaterialTheme.colorScheme
     Row(verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
             .tvFocusBorder(RoundedCornerShape(12.dp))
-            .background(if (selected) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.06f))
+            .background(
+                if (selected) colors.primary.copy(alpha = 0.22f)
+                else colors.surfaceVariant.copy(alpha = 0.46f),
+            )
             .clickable(onClick = onClick).padding(12.dp)) {
         Icon(if (src.isMagnet) Icons.Default.Bolt else Icons.Default.PlayArrow, null,
-            tint = if (selected) MaterialTheme.colorScheme.primary else Color.White)
+            tint = colors.primary)
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(src.label, color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 3)
+            Text(src.label, color = colors.onSurface, style = MaterialTheme.typography.titleMedium, maxLines = 3)
             Text("${src.addonName} · ${if (src.isMagnet) "Torrent" else "Direct"}" + (src.qualityTag?.let { " · $it" } ?: ""),
-                color = Color.White.copy(alpha = 0.65f), style = MaterialTheme.typography.bodyMedium)
+                color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
             if (!src.debridHost.isNullOrBlank()) StreamBadge("⚡", Color(0xFFFFC107))
-            src.fileSizeBytes?.let { StreamBadge(PlayerSource.formatFileSize(it), Color.White.copy(alpha = 0.20f)) }
+            src.fileSizeBytes?.let {
+                StreamBadge(
+                    PlayerSource.formatFileSize(it),
+                    colors.surfaceVariant,
+                    textColor = colors.onSurfaceVariant,
+                )
+            }
             src.qualityTag?.let { q ->
                 StreamBadge(q, when (q) {
                     "4K" -> Color(0xFF6200EE); "1440p" -> Color(0xFF0057B7)
@@ -2339,9 +2374,9 @@ private fun StreamPickerRow(
 }
 
 @Composable
-private fun StreamBadge(label: String, bg: Color) {
+private fun StreamBadge(label: String, bg: Color, textColor: Color = Color.White) {
     Box(Modifier.clip(RoundedCornerShape(4.dp)).background(bg).padding(horizontal = 5.dp, vertical = 2.dp)) {
-        Text(label, color = Color.White, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        Text(label, color = textColor, style = MaterialTheme.typography.labelSmall, maxLines = 1)
     }
 }
 
