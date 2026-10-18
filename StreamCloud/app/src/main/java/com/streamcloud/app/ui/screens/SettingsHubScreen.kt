@@ -3633,7 +3633,7 @@ private fun TvSettingsSidebar(
             Icon(
                 Icons.Default.Settings,
                 contentDescription = null,
-                tint = Color(0xFF93C9FF),
+                tint = Color.White,
                 modifier = Modifier.size(20.dp),
             )
             Text(
@@ -3683,7 +3683,7 @@ private fun TvSettingsSidebar(
                     Icon(
                         entry.icon,
                         contentDescription = null,
-                        tint = if (selected) TvSettingsAccent else Color(0xFF94C8F5),
+                        tint = Color.White,
                         modifier = Modifier.size(17.dp),
                     )
                     Text(
