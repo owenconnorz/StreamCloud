@@ -661,6 +661,7 @@ fun StreamCloudApp() {
                     MoviesScreen(
                         initialFocusRequester = firstMovieCardFocus,
                         initialFocusEnabled = !showProfilePicker,
+                        allowTvIdleScreen = !showMiniPlayer,
                         tvNavHeroFocus = tvNavHeroFocus,
                         tvNavSafeFocusRequester = firstTvNavFocus.takeIf { isTv },
                         tvNavSafeFocusReceived = tvNavHasFocus,

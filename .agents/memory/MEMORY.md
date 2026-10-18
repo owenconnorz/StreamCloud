@@ -25,3 +25,4 @@
 - [Nuvio up-next UI](nuvio-up-next-ui.md) — Use a compact final-minute chip; start the autoplay countdown only after playback ends.
 - [Expanded movie-home cards](expanded-movie-home-cards.md) — Focused cards use static artwork and title logos; keep trailer previews on detail screens.
 - [Adult tab navigation visibility](adult-tab-navigation-visibility.md) — Show app navigation only on Pornhub and Eporner home screens, not Pornhub Shorts, Reddit, or RedGifs.
+- [Fire TV idle recommendations](fire-tv-idle-recommendations.md) — Use an in-app idle screen; StreamCloud cannot overlay Amazon Gallery after Fire OS takes control.

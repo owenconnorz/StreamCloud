@@ -1,6 +1,7 @@
 @file:OptIn(androidx.media3.common.util.UnstableApi::class)
 package com.streamcloud.app.ui.screens
 
+import android.os.SystemClock
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -46,7 +47,10 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import com.streamcloud.app.ui.theme.LocalTvFocusColor
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
@@ -59,6 +63,7 @@ import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.rememberBannerPalette
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -97,6 +102,9 @@ private data class PosterSheetItem(
     val posterUrl: String?,
     val mediaType: String,
 )
+
+private const val TV_IDLE_RECOMMENDATION_DELAY_MS = 2 * 60_000L
+private const val TV_IDLE_RECOMMENDATION_ROTATE_MS = 25_000L
 
 private fun TmdbMovie.watchedMediaType(): String = if (title != null) "movie" else "tv"
 
@@ -166,6 +174,7 @@ internal fun Modifier.tvOkPress(
 fun MoviesScreen(
     initialFocusRequester: FocusRequester? = null,
     initialFocusEnabled: Boolean = true,
+    allowTvIdleScreen: Boolean = true,
     // Always attached to the current hero Play button so the TV nav D-pad Down
     // can jump here even when initialFocusRequester targets something else.
     tvNavHeroFocus: FocusRequester? = null,
@@ -230,6 +239,36 @@ fun MoviesScreen(
     val posterStyle by settingsRepo.posterStyle.collectAsState(initial = "portrait")
     var query by remember { mutableStateOf("") }
     var searchExpanded by remember { mutableStateOf(false) }
+    val tvIdleRecommendations = remember(
+        state.trending,
+        state.popular,
+        state.topRated,
+        state.nowPlaying,
+        state.collections,
+    ) {
+        (
+            state.trending +
+                state.popular +
+                state.topRated +
+                state.nowPlaying +
+                state.collections.flatMap { it.items }
+            )
+            .asSequence()
+            .filter { !it.backdropUrl.isNullOrBlank() || !it.posterUrl.isNullOrBlank() }
+            .distinctBy { "${it.watchedMediaType()}:${it.id}" }
+            .take(16)
+            .toList()
+    }
+    var tvIdleScreenVisible by remember { mutableStateOf(false) }
+    var tvIdleRecommendationIndex by remember { mutableIntStateOf(0) }
+    var lastTvInteractionAt by remember {
+        mutableLongStateOf(SystemClock.elapsedRealtime())
+    }
+    val idleScreenView = LocalView.current
+    DisposableEffect(idleScreenView, tvIdleScreenVisible) {
+        idleScreenView.setKeepScreenOn(tvIdleScreenVisible)
+        onDispose { idleScreenView.setKeepScreenOn(false) }
+    }
     var cwSheetEntry by remember { mutableStateOf<WatchProgressEntity?>(null) }
     var focusedCwEntry by remember { mutableStateOf<WatchProgressEntity?>(null) }
     val continueWatchingBackdropCache = remember {
@@ -293,6 +332,41 @@ fun MoviesScreen(
     var watchlistPickerEntry by remember { mutableStateOf<WatchlistEntity?>(null) }
     val cwSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val posterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val tvIdleScreenEligible = isTv &&
+        allowTvIdleScreen &&
+        initialFocusEnabled &&
+        query.isBlank() &&
+        !searchExpanded &&
+        cwSheetEntry == null &&
+        posterSheet == null &&
+        watchlistPickerEntry == null
+    LaunchedEffect(lifecycleOwner, tvIdleScreenEligible, tvIdleRecommendations.size) {
+        if (!tvIdleScreenEligible || tvIdleRecommendations.isEmpty()) {
+            tvIdleScreenVisible = false
+            return@LaunchedEffect
+        }
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                kotlinx.coroutines.delay(500L)
+                if (
+                    !tvIdleScreenVisible &&
+                    SystemClock.elapsedRealtime() - lastTvInteractionAt >=
+                    TV_IDLE_RECOMMENDATION_DELAY_MS
+                ) {
+                    tvIdleRecommendationIndex = 0
+                    tvIdleScreenVisible = true
+                }
+            }
+        }
+    }
+    LaunchedEffect(tvIdleScreenVisible, tvIdleRecommendations.size) {
+        if (!tvIdleScreenVisible || tvIdleRecommendations.size < 2) return@LaunchedEffect
+        while (true) {
+            kotlinx.coroutines.delay(TV_IDLE_RECOMMENDATION_ROTATE_MS)
+            tvIdleRecommendationIndex =
+                (tvIdleRecommendationIndex + 1) % tvIdleRecommendations.size
+        }
+    }
     LaunchedEffect(lifecycleOwner, nuvioUserId, isTv, searchExpanded) {
         if (isTv || nuvioUserId.isBlank() || searchExpanded) return@LaunchedEffect
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -468,6 +542,23 @@ fun MoviesScreen(
                     Modifier
                 },
             )
+            .onPreviewKeyEvent { event ->
+                if (isTv && event.type == KeyEventType.KeyDown) {
+                    lastTvInteractionAt = SystemClock.elapsedRealtime()
+                }
+                false
+            }
+            .pointerInput(isTv) {
+                if (!isTv) return@pointerInput
+                awaitPointerEventScope {
+                    while (true) {
+                        val pointerEvent = awaitPointerEvent(PointerEventPass.Initial)
+                        if (pointerEvent.changes.any { it.pressed && !it.previousPressed }) {
+                            lastTvInteractionAt = SystemClock.elapsedRealtime()
+                        }
+                    }
+                }
+            }
             // Keep vertical D-pad movement in focus traversal instead of
             // letting the parent list scroll independently.
             .tvDpadRepeatThrottle(handleInitialPresses = true),
@@ -1187,6 +1278,27 @@ fun MoviesScreen(
                 onPluginsClick = onPluginsClick,
                 hasPlugins = state.installedPlugins.isNotEmpty(),
             )
+        }
+        if (tvIdleScreenVisible && tvIdleRecommendations.isNotEmpty()) {
+            val idleIndex = tvIdleRecommendationIndex % tvIdleRecommendations.size
+            val idleItem = tvIdleRecommendations.getOrNull(idleIndex)
+            if (idleItem != null) {
+                TvIdleRecommendationDialog(
+                    item = idleItem,
+                    index = idleIndex,
+                    count = tvIdleRecommendations.size,
+                    onOpen = {
+                        tvIdleScreenVisible = false
+                        lastTvInteractionAt = SystemClock.elapsedRealtime()
+                        if (idleItem.title != null) onMovieClick(idleItem.id)
+                        else onTvClick(idleItem.id)
+                    },
+                    onWake = {
+                        tvIdleScreenVisible = false
+                        lastTvInteractionAt = SystemClock.elapsedRealtime()
+                    },
+                )
+            }
         }
     }
     } // MoviesThemeWrapper
