@@ -300,7 +300,6 @@ fun MoviesScreen(
         }
     }
     val moviesListState = rememberLazyListState()
-    val moviesListState = rememberLazyListState()
         val topBarVisibilityChanged by rememberUpdatedState(onTvTopBarVisibilityChanged)
         val topBarScrollThresholdPx = with(LocalDensity.current) { 16.dp.roundToPx() }
         LaunchedEffect(isTv, moviesListState, topBarScrollThresholdPx) {
@@ -344,7 +343,7 @@ fun MoviesScreen(
             }
         }
         var tvNavHeroHasFocus by remember { mutableStateOf(false) }
-    // When the TV nav bar regains focus, scroll back to the top so the hero is fully visible.
+        // When the TV nav bar regains focus, scroll back to the top so the hero is fully visible.
     // When TV focus returns to the nav bar, jump to the top immediately. An
     // animated scroll can still be running when the next Down handoff starts.
     LaunchedEffect(navScrollToTopVersion) {
