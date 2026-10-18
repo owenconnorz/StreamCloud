@@ -1,3 +1,10 @@
+## Latest — Changes since V2229
+
+### Movies home, Library, and Settings appearance
+- **Reference palette colors match the supplied designs** — Modern Blue, Purple Aurora, Sunset Orange, Forest Green, and Light Clean use the specified background, surface, navigation-highlight, primary-text, and secondary-text colors.
+- **Palette scope is limited to the requested screens** — Movies home, Library, and Settings use the selected palette; Music and movie/TV details keep their existing artwork-based styling.
+- **Banner-derived color washes are removed from Movies home** — the page and hero no longer shift tint with the current artwork.
+- **Palette values have regression tests** — added coverage for the reference color roles and legacy palette normalization.
 ## Latest — Changes since V2225
 
 ### Appearance and color palettes
