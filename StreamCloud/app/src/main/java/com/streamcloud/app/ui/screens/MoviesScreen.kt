@@ -562,6 +562,9 @@ fun MoviesScreen(
                             showProgress = true,
                         )
                     }
+                    item(key = "movies_loading_placeholder") {
+                        MoviesLoadingPlaceholder()
+                    }
                 }
                 if (visibleContinueWatching.isNotEmpty()) {
                     item(key = "continue_watching_t") { SectionTitle("Continue Watching") }
@@ -1341,6 +1344,37 @@ private fun MoviesRecoveryCard(
 }
 
 @Composable
+private fun MoviesLoadingPlaceholder() {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val posterWidth = if (isTv) 152.dp else 124.dp
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp, bottom = 24.dp),
+    ) {
+        Text(
+            text = "Preparing recommendations",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 20.dp, bottom = 12.dp),
+        )
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            userScrollEnabled = false,
+        ) {
+            items(6) {
+                Box(
+                    modifier = Modifier
+                        .width(posterWidth)
+                        .height(posterWidth * 1.5f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f)),
+                )
+            }
+        }
+    }
+}@Composable
 private fun HeroBannerSlide(
     item: HeroBannerItem,
     modifier: Modifier = Modifier,

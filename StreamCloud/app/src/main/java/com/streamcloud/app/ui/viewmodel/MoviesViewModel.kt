@@ -62,6 +62,15 @@ const val SOURCE_BUILTIN = "builtin"
 private const val HOME_COLLECTION_TIMEOUT_MS = 30_000L
 private const val HOME_COLLECTION_STALE_AFTER_MS = 15 * 60 * 1000L
 
+internal fun isPersistedHomeCollectionCacheFresh(
+    savedAtMillis: Long,
+    nowMillis: Long,
+    staleAfterMillis: Long,
+): Boolean {
+    val ageMillis = nowMillis - savedAtMillis
+    return savedAtMillis > 0L && ageMillis >= 0L && ageMillis < staleAfterMillis
+}
+
 data class HeroBannerItem(
     val imageUrl: String,
     val title: String,
@@ -333,7 +342,6 @@ class MoviesViewModel(
             }
                 .distinctUntilChanged()
                 .collect { config ->
-                    homeCollectionCacheReady.await()
                     startDiscoverLoad(config)
                 }
         }
@@ -433,7 +441,6 @@ class MoviesViewModel(
             ) { csv, hideUnreleased ->
                 homeCollectionConfig(csv, hideUnreleased)
             }.first()
-            homeCollectionCacheReady.await()
             startDiscoverLoad(config, force = true)
         }
     }
@@ -446,7 +453,6 @@ class MoviesViewModel(
             ) { csv, hideUnreleased ->
                 homeCollectionConfig(csv, hideUnreleased)
             }.first()
-            homeCollectionCacheReady.await()
             startDiscoverLoad(config)
         }
     }
@@ -464,14 +470,13 @@ class MoviesViewModel(
         if (discoverJob?.isActive == true) {
             if (!force && activeDiscoverConfig == config) return
             discoverJob?.cancel()
-        } else if (!force && isDiscoverConfigFresh(config)) {
-            return
         }
 
         activeDiscoverConfig = config
         discoverJob = viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             try {
+                homeCollectionCacheReady.await()
                 val collections: List<HomeCollection> =
                     config.ids.mapNotNull { HomeCollections.byId(it) }
                 val today = java.time.LocalDate.now().toString()
@@ -490,6 +495,12 @@ class MoviesViewModel(
                     config.ids.mapNotNull(rowsById::get),
                     loading = true,
                 )
+
+                if (!force && isDiscoverConfigFresh(config)) {
+                    applyCollectionRows(config.ids.mapNotNull(rowsById::get), loading = false)
+                    _state.update { it.copy(error = null) }
+                    return@launch
+                }
 
                 coroutineScope {
                     collections.map { def ->
@@ -558,9 +569,14 @@ class MoviesViewModel(
                     else -> null
                 }
                 _state.update { it.copy(error = loadError) }
-                if (failures.isEmpty()) {
+                if (failures.isEmpty() && collections.all { it.id in homeCollectionRowsCache }) {
                     lastSuccessfulDiscoverConfig = config
                     lastSuccessfulDiscoverAt = SystemClock.elapsedRealtime()
+                    withContext(Dispatchers.IO) {
+                        homeCollectionCachePreferences().edit()
+                            .putLong(homeCollectionFreshnessKey(config), System.currentTimeMillis())
+                            .apply()
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -587,11 +603,31 @@ class MoviesViewModel(
         return visibleItems.takeIf { it.isNotEmpty() }?.let { row.copy(items = it) }
     }
 
-    private fun isDiscoverConfigFresh(config: HomeCollectionConfig): Boolean {
-        if (lastSuccessfulDiscoverConfig != config) return false
-        val lastSuccessAt = lastSuccessfulDiscoverAt ?: return false
-        return SystemClock.elapsedRealtime() - lastSuccessAt < HOME_COLLECTION_STALE_AFTER_MS
+    private suspend fun isDiscoverConfigFresh(config: HomeCollectionConfig): Boolean {
+        if (lastSuccessfulDiscoverConfig == config) {
+            val lastSuccessAt = lastSuccessfulDiscoverAt
+            if (
+                lastSuccessAt != null &&
+                SystemClock.elapsedRealtime() - lastSuccessAt < HOME_COLLECTION_STALE_AFTER_MS
+            ) {
+                return true
+            }
+        }
+
+        val collectionIds = config.ids.filter { HomeCollections.byId(it) != null }
+        if (collectionIds.any { it !in homeCollectionRowsCache }) return false
+        val savedAtMillis = withContext(Dispatchers.IO) {
+            homeCollectionCachePreferences().getLong(homeCollectionFreshnessKey(config), 0L)
+        }
+        return isPersistedHomeCollectionCacheFresh(
+            savedAtMillis = savedAtMillis,
+            nowMillis = System.currentTimeMillis(),
+            staleAfterMillis = HOME_COLLECTION_STALE_AFTER_MS,
+        )
     }
+
+    private fun homeCollectionFreshnessKey(config: HomeCollectionConfig): String =
+        "freshness:${config.ids.sorted().joinToString(",")}"
 
     private fun loadPersistedHomeCollectionRows(): Map<String, CollectionRow> =
         HomeCollections.ALL.mapNotNull { collection ->

@@ -51,6 +51,7 @@ object PluginRuntime {
     fun fetchCountFor(filePath: String): Int = fetchCountByPlugin[filePath]?.get() ?: 0
 
     suspend fun load(context: Context, filePath: String): List<MainAPI> = withContext(Dispatchers.IO) {
+        CloudStreamExtractorBootstrap.awaitReady(context.applicationContext)
         cache[filePath]?.let { return@withContext it.apis }
 
         installPrefs(context)

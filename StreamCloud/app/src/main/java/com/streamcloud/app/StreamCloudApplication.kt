@@ -68,12 +68,7 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
         com.streamcloud.app.data.ytmusic.StreamUrlCache.initialize(applicationContext)
         com.streamcloud.app.audio.MusicController.prewarm(applicationContext)
 
-        runCatching { com.lagradost.cloudstream3.installPrefs(this) }
-            .onFailure { Log.e("StreamCloud", "installPrefs failed", it) }
-        runCatching { com.lagradost.cloudstream3.extractors.registerAllExtractors() }
-            .onFailure { Log.e("StreamCloud", "registerAllExtractors failed", it) }
-        runCatching { com.lagradost.cloudstream3.extractors.registerExtraExtractors() }
-            .onFailure { Log.e("StreamCloud", "registerExtraExtractors failed", it) }
+        com.streamcloud.app.data.plugins.CloudStreamExtractorBootstrap.start(applicationContext)
 
         scope.launch {
             val cookie = ServiceLocator.get(this@StreamCloudApplication).settings.spotifyCookie.first()
