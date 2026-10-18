@@ -1,3 +1,13 @@
+## Latest — Changes since V2219
+
+### Android TV Continue Watching
+- **Wide landscape cards** — TV Continue Watching cards now use wide artwork instead of portrait posters, with title and episode/movie progress information kept readable. Backdrop artwork is used when available, with the saved poster as a fallback; the mobile layout is unchanged.
+
+### Fire TV and Android TV idle recommendations
+- **A title appears after two minutes without remote input** — On the TV Movies home, a full-screen recommendation shows artwork, title, release information, rating, overview, and the current clock/date. The featured artwork rotates periodically.
+- **Remote controls work as expected** — OK opens the recommended title’s details; other remote input dismisses the idle screen. It is limited to the Movies home and is suppressed while search, dialogs, or the mini-player are active. The display is kept on only while the in-app idle screen is visible.
+- **Remote-key handling is fixed** — The idle-screen controls now compile and respond correctly on both Android TV and mobile build variants.
+
 ## Latest — Changes since V2215
 
 ### Android TV
