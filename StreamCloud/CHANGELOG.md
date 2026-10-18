@@ -1,3 +1,11 @@
+## Latest — Changes since V2215
+
+### Android TV
+- **Clock and quick controls in the top bar** — Search and Settings now sit on the right beside a live local-time clock, while the main destinations stay centered.
+- **Navigation stays out of the way while browsing** — The Movies top bar hides as you scroll down and returns when you scroll upward, reach the top, or restore remote focus.
+- **Smoother poster-row browsing** — Focused TV posters move into place with a short tween instead of spring-like overshoot.
+- **Release-build fix** — Corrected the duplicate Movies list-state declaration; the mobile and TV release builds and mobile unit tests pass.
+
 ## Latest — Changes since V2210
 
 ### Movies home
