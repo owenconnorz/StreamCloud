@@ -2036,6 +2036,11 @@ private fun ContinueWatchingCard(
     val pct = if (entry.durationMs > 0L)
         (entry.positionMs.toFloat() / entry.durationMs.toFloat()).coerceIn(0f, 1f)
     else 0f
+    val watchedPercent = if (entry.durationMs > 0L) {
+        (pct * 100f + 0.5f).toInt().coerceAtLeast(1)
+    } else {
+        0
+    }
     val landscapeImageUrl by androidx.compose.runtime.produceState(
         initialValue = cachedBackdropUrl ?: entry.posterUrl,
         entry.tmdbId,
@@ -2048,7 +2053,7 @@ private fun ContinueWatchingCard(
             value = cachedBackdropUrl
             return@produceState
         }
-        if (!isTv || entry.tmdbId <= 0L || tmdbApiKey.isBlank()) {
+        if (entry.tmdbId <= 0L || tmdbApiKey.isBlank()) {
             return@produceState
         }
         val details = runCatching {
@@ -2069,134 +2074,78 @@ private fun ContinueWatchingCard(
     val cardModifier = modifier
         .onFocusChanged { onFocusChanged(it.isFocused || it.hasFocus) }
         .width(320.dp)
-        .then(if (isTv) Modifier.height(124.dp) else Modifier)
+        .height(124.dp)
         .tvOkPress(onClick, onLongPress)
         .tvFocusBorder(RoundedCornerShape(14.dp))
         .clip(RoundedCornerShape(14.dp))
         .background(MaterialTheme.colorScheme.surface)
         .combinedClickable(onClick = onClick, onLongClick = onLongPress)
 
-    if (isTv) {
-        Box(cardModifier) {
-            AsyncImage(
-                model = landscapeImageUrl,
-                contentDescription = entry.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-            )
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(
-                                Color.Black.copy(alpha = 0.88f),
-                                Color.Black.copy(alpha = 0.62f),
-                                Color.Black.copy(alpha = 0.16f),
-                            ),
+    Box(cardModifier) {
+        AsyncImage(
+            model = landscapeImageUrl,
+            contentDescription = entry.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color.Black.copy(alpha = 0.88f),
+                            Color.Black.copy(alpha = 0.62f),
+                            Color.Black.copy(alpha = 0.16f),
                         ),
                     ),
+                ),
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 11.dp),
+        ) {
+            Text(
+                entry.title,
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = if (isTv) 1 else 2,
+                overflow = TextOverflow.Ellipsis,
             )
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 14.dp, vertical = 11.dp),
-            ) {
+            Text(
+                if (isTv) continueWatchingLandscapeSubtitle(entry) else watchProgressDisplayLabel(entry),
+                color = Color.White.copy(alpha = 0.82f),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.weight(1f))
+            if (!isTv) {
                 Text(
-                    entry.title,
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    continueWatchingLandscapeSubtitle(entry),
+                    "$watchedPercent% watched",
                     color = Color.White.copy(alpha = 0.82f),
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.weight(1f))
+            }
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(5.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.White.copy(alpha = 0.26f)),
+            ) {
                 Box(
                     Modifier
-                        .fillMaxWidth()
-                        .height(5.dp)
+                        .fillMaxWidth(pct.coerceAtLeast(0.02f))
+                        .fillMaxHeight()
                         .clip(RoundedCornerShape(50))
-                        .background(Color.White.copy(alpha = 0.26f)),
-                ) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth(pct.coerceAtLeast(0.02f))
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(50))
-                            .background(MaterialTheme.colorScheme.primary),
-                    )
-                }
-            }
-        }
-    } else {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = cardModifier.padding(8.dp),
-        ) {
-            AsyncImage(
-                model = entry.posterUrl,
-                contentDescription = entry.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(width = 84.dp, height = 116.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-            )
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    entry.title,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                        .background(MaterialTheme.colorScheme.primary),
                 )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    watchProgressDisplayLabel(entry),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Spacer(Modifier.height(14.dp))
-                if (entry.durationMs > 0L) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(50))
-                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)),
-                    ) {
-                        Box(
-                            Modifier
-                                .fillMaxWidth(pct.coerceAtLeast(0.02f))
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(50))
-                                .background(MaterialTheme.colorScheme.primary),
-                        )
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        "${(pct * 100f + 0.5f).toInt().coerceAtLeast(1)}% watched",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                } else {
-                    Text(
-                        "0% watched",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
             }
         }
     }
