@@ -65,7 +65,7 @@ fun MovieSearchScreen(
 ) {
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
-    val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "violet")
+    val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "modern_blue")
     val activeProfile by sl.profiles.activeProfile.collectAsState(initial = null)
     val nuvioUserId by sl.settings.nuvioUserId.collectAsState(initial = "")
     val storageScopeKey = "$nuvioUserId:${activeProfile?.id ?: "default"}"

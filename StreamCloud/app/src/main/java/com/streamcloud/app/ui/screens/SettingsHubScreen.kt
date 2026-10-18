@@ -95,8 +95,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import com.streamcloud.app.ui.theme.AllMoviesThemes
 import com.streamcloud.app.ui.theme.MoviesThemePicker
+import com.streamcloud.app.ui.theme.normalizeAppColorPaletteId
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -140,10 +140,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.material.icons.filled.Dashboard
 
-private val HubIconBg  = Color(0xFF1B2D52)
-private val HubIconFg  = Color(0xFF5B8DEF)
-
-private val ColourAppearance = Color(0xFF5B8DEF)
 private val ColourAccount    = Color(0xFF4CAF88)
 private val ColourPlayer     = Color(0xFFB49BFF)
 private val ColourAi         = Color(0xFFFFD479)
@@ -158,11 +154,6 @@ private enum class SettingsPage {
     ListenTogether, WatchParty, Content, Privacy, Adult,
     Storage, BackupRestore, About, Logs, HomeLayout, AndroidAuto
 }
-
-private val TvSettingsAccent = Color(0xFFB84BEF)
-private val TvSettingsBackground = Color(0xFF0D0C11)
-private val TvSettingsPanel = Color(0xFF1B1A20)
-private val TvSettingsCard = Color(0xFF25242B)
 
 private data class TvSettingsNavEntry(
     val key: String,
@@ -237,7 +228,7 @@ fun SettingsHubScreen(
     var bassBoost           by remember { mutableStateOf(false) }
     var enabledCollections  by remember { mutableStateOf<Set<String>>(emptySet()) }
     var themeMode           by remember { mutableStateOf("dark") }
-    var colorPalette        by remember { mutableStateOf("default") }
+    var colorPalette        by remember { mutableStateOf("modern_blue") }
     var highRefreshRate     by remember { mutableStateOf(true) }
     var dynamicMiniTheme    by remember { mutableStateOf(true) }
     var navLabels           by remember { mutableStateOf(true) }
@@ -259,7 +250,7 @@ fun SettingsHubScreen(
     var canvasEnabled       by remember { mutableStateOf(false) }
     var ytMusicCanvasEnabled by remember { mutableStateOf(false) }
     var posterStyle         by remember { mutableStateOf("portrait") }
-    var moviesTheme         by remember { mutableStateOf("violet") }
+    var moviesTheme         by remember { mutableStateOf("modern_blue") }
     var pluginsCacheBytes   by remember { mutableStateOf(0L) }
     var smartTrimmer        by remember { mutableStateOf(false) }
     var videoCacheMaxMb     by remember { mutableStateOf("unlimited") }
@@ -371,7 +362,7 @@ fun SettingsHubScreen(
         eqPreset            = sl.settings.eqPreset.first()
         bassBoost           = sl.settings.bassBoost.first()
         themeMode           = sl.settings.theme.first()
-        colorPalette        = sl.settings.colorPalette.first()
+        colorPalette        = normalizeAppColorPaletteId(sl.settings.colorPalette.first())
         highRefreshRate     = sl.settings.highRefreshRate.first()
         dynamicMiniTheme    = sl.settings.dynamicMiniPlayerTheme.first()
         navLabels           = sl.settings.navLabels.first()
@@ -389,7 +380,7 @@ fun SettingsHubScreen(
         canvasEnabled       = sl.settings.canvasEnabled.first()
         ytMusicCanvasEnabled = sl.settings.ytMusicCanvasEnabled.first()
         posterStyle         = sl.settings.posterStyle.first()
-        moviesTheme         = sl.settings.moviesTheme.first()
+        moviesTheme         = normalizeAppColorPaletteId(sl.settings.moviesTheme.first())
         safeSearch          = sl.settings.safeSearch.first()
         explicitContent     = sl.settings.explicitContent.first()
         contentLanguage     = sl.settings.contentLanguage.first()
@@ -830,12 +821,13 @@ fun SettingsHubScreen(
                     MoviesThemePicker(
                         selected = moviesTheme,
                         onSelect = { id ->
-                            moviesTheme = id
-                            scope.launch { sl.settings.setMoviesTheme(id) }
+                            val paletteId = normalizeAppColorPaletteId(id)
+                            moviesTheme = paletteId
+                            scope.launch { sl.settings.setMoviesTheme(paletteId) }
                         },
                     )
                     Text(
-                        "This theme also controls the colored TV controller focus pill.",
+                        "The app-wide Color Palette also updates this accent. This controls movie-screen accents and the TV focus pill.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -1075,16 +1067,27 @@ fun SettingsHubScreen(
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                             color = MaterialTheme.colorScheme.onSurface,
                         )
+                        Text(
+                            "Applies across Movies, Library and Settings.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
                         Spacer(Modifier.height(14.dp))
                         MoviesThemePicker(
                             selected = colorPalette,
                             onSelect = { id ->
-                                colorPalette = id
+                                val paletteId = normalizeAppColorPaletteId(id)
+                                colorPalette = paletteId
+                                moviesTheme = paletteId
                                 if (dynamicColor) {
                                     dynamicColor = false
                                     scope.launch { sl.settings.setDynamicColor(false) }
                                 }
-                                scope.launch { sl.settings.setColorPalette(id) }
+                                scope.launch {
+                                    sl.settings.setColorPalette(paletteId)
+                                    sl.settings.setMoviesTheme(paletteId)
+                                }
                             },
                         )
                     }
@@ -1092,7 +1095,7 @@ fun SettingsHubScreen(
                 Spacer(Modifier.height(16.dp))
                 SettingsGroup {
                     SettingToggle(
-                        icon = Icons.Default.Speed, tint = ColourAppearance,
+                        icon = Icons.Default.Speed, tint = MaterialTheme.colorScheme.primary,
                         title = "Enable high refresh rate",
                         subtitle = "Force the display to run at its highest supported rate (e.g. 120 Hz)",
                         checked = highRefreshRate,
@@ -1103,7 +1106,7 @@ fun SettingsHubScreen(
                 SettingsGroup {
                     SubSectionLabel("Mini-player")
                     SettingToggle(
-                        icon = Icons.Default.Palette, tint = ColourAppearance,
+                        icon = Icons.Default.Palette, tint = MaterialTheme.colorScheme.primary,
                         title = "Dynamic theme",
                         subtitle = "Tint the mini-player background and progress ring with album art colours",
                         checked = dynamicMiniTheme,
@@ -1111,7 +1114,7 @@ fun SettingsHubScreen(
                     )
                     SettingDivider()
                     SettingToggle(
-                        icon = Icons.Default.Visibility, tint = ColourAppearance,
+                        icon = Icons.Default.Visibility, tint = MaterialTheme.colorScheme.primary,
                         title = "Navigation labels",
                         subtitle = "Show text labels below icons in the navigation bar",
                         checked = navLabels,
@@ -1119,7 +1122,7 @@ fun SettingsHubScreen(
                     )
                     SettingDivider()
                     SettingToggle(
-                        icon = Icons.Default.Layers, tint = ColourAppearance,
+                        icon = Icons.Default.Layers, tint = MaterialTheme.colorScheme.primary,
                         title = "Liquid glass navigation bar",
                         subtitle = "Frosted-glass blur behind the navigation pill (like Nuvio)",
                         checked = navLiquidGlass,
@@ -1130,7 +1133,7 @@ fun SettingsHubScreen(
                 SettingsGroup {
                     SubSectionLabel("Player")
                     SettingToggle(
-                        icon = Icons.Default.Palette, tint = ColourAppearance,
+                        icon = Icons.Default.Palette, tint = MaterialTheme.colorScheme.primary,
                         title = "New player design",
                         checked = newPlayerDesign,
                         onChange = { newPlayerDesign = it; scope.launch { sl.settings.setNewPlayerDesign(it) } },
@@ -1173,7 +1176,7 @@ fun SettingsHubScreen(
                     )
                     SettingDivider()
                     SettingNav(
-                        icon = Icons.Default.Reorder, tint = ColourAppearance,
+                        icon = Icons.Default.Reorder, tint = MaterialTheme.colorScheme.primary,
                         title = "Navigation bar",
                         subtitle = "Reorder tabs",
                         onClick = { showNavOrderDialog = true },
@@ -2431,10 +2434,15 @@ fun SettingsHubScreen(
                                 Modifier
                                     .size(56.dp)
                                     .clip(RoundedCornerShape(16.dp))
-                                    .background(HubIconBg),
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Icon(Icons.Default.MusicNote, null, tint = HubIconFg, modifier = Modifier.size(28.dp))
+                                Icon(
+                                    Icons.Default.MusicNote,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(28.dp),
+                                )
                             }
                             Spacer(Modifier.width(16.dp))
                             Column {
@@ -3110,8 +3118,14 @@ private fun SettingsHubList(onNavigate: (SettingsPage) -> Unit, onOpenPlugins: (
             ),
         )),
         HubSection("GENERAL", listOf(
-            HubItem(Icons.Default.Palette,     "Appearance",         "Theme, colours, navigation, display",       ColourAppearance, onClick = { onNavigate(SettingsPage.Appearance) }),
-            HubItem(Icons.Default.Shield,      "Privacy",            "Listening history and browsing privacy",    ColourPrivacy,    onClick = { onNavigate(SettingsPage.Privacy) }),
+            HubItem(
+                Icons.Default.Palette,
+                "Appearance",
+                "Theme, colours, navigation, display",
+                MaterialTheme.colorScheme.primary,
+                onClick = { onNavigate(SettingsPage.Appearance) },
+            ),
+            HubItem(Icons.Default.Shield,      "Privacy",            "Listening history and browsing privacy",     ColourPrivacy,    onClick = { onNavigate(SettingsPage.Privacy) }),
             HubItem(Icons.Default.Storage,     "Storage",            "Cache management and storage usage",        ColourStorage,    onClick = { onNavigate(SettingsPage.Storage) }),
             HubItem(Icons.Default.CloudUpload, "Backup and restore", "Back up or restore your app data",          ColourSystem,     onClick = { onNavigate(SettingsPage.BackupRestore) }),
         )),
@@ -3369,7 +3383,7 @@ private fun HubRow(
     subtitle: String? = null,
     badge: String? = null,
     badgeError: Boolean = false,
-    iconTint: Color = HubIconFg,
+    iconTint: Color? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -3394,7 +3408,11 @@ private fun HubRow(
             Icon(
                 icon,
                 contentDescription = null,
-                tint = if (badgeError && !badge.isNullOrBlank()) MaterialTheme.colorScheme.error else iconTint,
+                tint = if (badgeError && !badge.isNullOrBlank()) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    iconTint ?: MaterialTheme.colorScheme.primary
+                },
                 modifier = Modifier.size(21.dp),
             )
         }
@@ -3438,25 +3456,7 @@ private fun SubPageScaffold(
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val tvNavigation = LocalTvSettingsNavigation.current
     if (isTv && tvNavigation != null) {
-        val baseColors = MaterialTheme.colorScheme
-        val tvColors = baseColors.copy(
-            primary = TvSettingsAccent,
-            onPrimary = Color.White,
-            primaryContainer = Color(0xFF3B2346),
-            onPrimaryContainer = Color(0xFFF8E9FF),
-            secondary = Color(0xFFD6B2FF),
-            onSecondary = Color(0xFF24152D),
-            secondaryContainer = Color(0xFF35273E),
-            onSecondaryContainer = Color.White,
-            background = TvSettingsBackground,
-            onBackground = Color(0xFFF6F2F8),
-            surface = TvSettingsPanel,
-            onSurface = Color(0xFFF6F2F8),
-            surfaceVariant = Color(0xFF29272F),
-            onSurfaceVariant = Color(0xFFB9B3C1),
-            surfaceContainerHigh = TvSettingsCard,
-            outlineVariant = Color(0xFF45404B),
-        )
+        val tvColors = MaterialTheme.colorScheme
         val displayTitle = when (tvNavigation.selectedKey) {
             "integrations" -> "Integrations"
             "layout" -> "Layout"
@@ -3480,7 +3480,7 @@ private fun SubPageScaffold(
             Row(
                 Modifier
                     .fillMaxSize()
-                    .background(TvSettingsBackground)
+                    .background(MaterialTheme.colorScheme.background)
                     .padding(horizontal = 34.dp, vertical = 24.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -3492,7 +3492,7 @@ private fun SubPageScaffold(
                 Surface(
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                     shape = RoundedCornerShape(26.dp),
-                    color = TvSettingsPanel,
+                    color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 0.dp,
                 ) {
                     Column(
@@ -3578,7 +3578,7 @@ private fun TvAboutBrandCard() {
                 .clip(RoundedCornerShape(18.dp))
                 .background(
                     Brush.linearGradient(
-                        listOf(TvSettingsAccent, Color(0xFF715CE8)),
+                        listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary),
                     ),
                 ),
             contentAlignment = Alignment.Center,
@@ -3665,12 +3665,14 @@ private fun TvSettingsSidebar(
                         }
                         .tvFocusBorder(shape, showOutline = false, showFocusFill = false)
                         .clip(shape)
-                        .background(if (selected) Color(0xFF30233A) else Color.Transparent)
+                        .background(
+                            if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                        )
                         .border(
                             width = if (selected || focused) 1.5.dp else 0.dp,
                             color = when {
-                                selected -> TvSettingsAccent
-                                focused -> TvSettingsAccent.copy(alpha = 0.62f)
+                                selected -> MaterialTheme.colorScheme.primary
+                                focused -> MaterialTheme.colorScheme.primary.copy(alpha = 0.62f)
                                 else -> Color.Transparent
                             },
                             shape = shape,
@@ -3691,7 +3693,8 @@ private fun TvSettingsSidebar(
                         style = MaterialTheme.typography.titleSmall.copy(
                             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                         ),
-                        color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )
@@ -3853,12 +3856,11 @@ private fun SubSectionLabel(title: String) {
 
 @Composable
 private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
-    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(if (isTv) TvSettingsCard else MaterialTheme.colorScheme.surfaceContainerHigh),
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         content = content,
     )
 }

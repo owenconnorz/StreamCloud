@@ -147,7 +147,7 @@ fun MovieDetailScreen(
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
     val scope = rememberCoroutineScope()
-    val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "violet")
+    val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "modern_blue")
     val autoplayBestStream by sl.settings.autoplayBestStream.collectAsState(initial = false)
 
     var movie by remember { mutableStateOf<TmdbMovie?>(null) }

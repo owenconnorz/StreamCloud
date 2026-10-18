@@ -7,7 +7,6 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
@@ -46,54 +45,6 @@ internal val AioColors = darkColorScheme(
     outlineVariant = Outline,
     error = Color(0xFFEF4444),
     onError = TextPrimary,
-)
-
-private val AioLightColors = lightColorScheme(
-    primary = Color(0xFFC97B6C),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFFFDAD5),
-    onPrimaryContainer = Color(0xFF3A0905),
-    secondary = Color(0xFF5D8E8B),
-    onSecondary = Color.White,
-    tertiary = Color(0xFFB85850),
-    onTertiary = Color.White,
-    background = Color(0xFFFCF8F7),
-    onBackground = Color(0xFF201A19),
-    surface = Color(0xFFF5EFED),
-    onSurface = Color(0xFF201A19),
-    surfaceContainerHigh = Color(0xFFEDE5E3),
-    surfaceVariant = Color(0xFFE8E0DE),
-    onSurfaceVariant = Color(0xFF534341),
-    outline = Color(0xFF857370),
-    outlineVariant = Color(0xFFD8C2BF),
-    error = Color(0xFFBA1A1A),
-    onError = Color.White,
-)
-
-internal data class PaletteAccents(
-    val primary: Color,
-    val primaryContainer: Color,
-    val secondary: Color,
-)
-
-internal val palettes: Map<String, PaletteAccents> = mapOf(
-    "default" to PaletteAccents(Salmon,               SalmonDark,              Teal),
-    "warm"    to PaletteAccents(Color(0xFFD4824A),    Color(0xFF8B4513),       Color(0xFFE8B87A)),
-    "coral"   to PaletteAccents(Color(0xFFD45858),    Color(0xFF8B3A35),       Color(0xFFE8A0A0)),
-    "violet"  to PaletteAccents(Color(0xFF7B54C2),    Color(0xFF3E2070),       Color(0xFFB8A0DC)),
-    "blue"    to PaletteAccents(Color(0xFF3B6CAC),    Color(0xFF1E3D6A),       Color(0xFF8AB4E8)),
-    "indigo"  to PaletteAccents(Color(0xFF3B3B9C),    Color(0xFF1E1E60),       Color(0xFF8888CC)),
-    "white"   to PaletteAccents(Color(0xFF1B7A3A),    Color(0xFF0A3A18),       Color(0xFF1B7A3A)),
-    "crimson" to PaletteAccents(Color(0xFFDC2626),    Color(0xFF8B0A0A),       Color(0xFFDC2626)),
-    "ocean"   to PaletteAccents(Color(0xFF2196F3),    Color(0xFF0D5A8A),       Color(0xFF2196F3)),
-    "emerald" to PaletteAccents(Color(0xFF22C55E),    Color(0xFF166534),       Color(0xFF22C55E)),
-    "amber"   to PaletteAccents(Color(0xFFF59E0B),    Color(0xFF8B5E0A),       Color(0xFFF59E0B)),
-    "rose"    to PaletteAccents(Color(0xFFEC4899),    Color(0xFF8B2554),       Color(0xFFEC4899)),
-    "messenger" to PaletteAccents(Color(0xFF5B7AEA),  Color(0xFF2D3192),       Color(0xFF5B7AEA)),
-    "amethyst"  to PaletteAccents(Color(0xFF9B59B6),  Color(0xFF6C3483),       Color(0xFF9B59B6)),
-    "blossom"   to PaletteAccents(Color(0xFFFF7B54),  Color(0xFFCC3C1A),       Color(0xFFFF7B54)),
-    "lagoon"    to PaletteAccents(Color(0xFF14B8A6),  Color(0xFF0E6655),       Color(0xFF14B8A6)),
-    "sunset"    to PaletteAccents(Color(0xFFE8622D),  Color(0xFF8B2A05),       Color(0xFFE8622D)),
 )
 
 internal fun shouldUseAlbumArtDynamicTheme(
@@ -152,8 +103,9 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
     val albumArtSecond  by AlbumArtThemeBus.accentSecondary.collectAsState()
     val hasArtwork      by AlbumArtThemeBus.hasArtwork.collectAsState()
     val themeMode       by sl.settings.theme.collectAsState(initial = "dark")
-    val colorPaletteId  by sl.settings.colorPalette.collectAsState(initial = "default")
-    val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "violet")
+    val colorPaletteId  by sl.settings.colorPalette.collectAsState(initial = "modern_blue")
+    val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "modern_blue")
+    val appPaletteId = normalizeAppColorPaletteId(colorPaletteId)
     val isSystemDark = isSystemInDarkTheme()
 
     // Always auto-detect — no manual override allowed.
@@ -226,20 +178,10 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
             else         dynamicLightColorScheme(context)
         }
 
-        !useDark -> AioLightColors
+        !useDark -> appColorScheme(appPaletteId, light = true)
         else -> {
-            val p = palettes[colorPaletteId] ?: palettes["default"]!!
-            val scheme = AioColors.copy(
-                primary              = p.primary,
-                primaryContainer     = p.primaryContainer,
-                secondary            = p.secondary,
-                background           = lerp(Bg, p.primary, 0.10f),
-                surface              = lerp(BgElevated, p.primary, 0.12f),
-                surfaceVariant       = lerp(BgSurface, p.primary, 0.15f),
-                surfaceContainerHigh = lerp(Color(0xFF2D2019), p.primary, 0.12f),
-                outline              = lerp(Outline, p.primary, 0.20f),
-                outlineVariant       = lerp(Outline, p.primary, 0.12f),
-            )
+            val paletteLight = appPaletteId == "light_clean" && themeMode != "black"
+            val scheme = appColorScheme(appPaletteId, light = paletteLight)
             if (themeMode == "black") scheme.copy(
                 background           = Color.Black,
                 surface              = Color(0xFF0D0D0D),
@@ -252,10 +194,15 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
     // navigation pill, so the selected theme stays visually consistent across
     // content, settings, navigation, and updater surfaces.
     val tvFocusColor = AllMoviesThemes
-        .firstOrNull { it.id == moviesThemeName }
+        .firstOrNull { it.id == normalizeAppColorPaletteId(moviesThemeName) }
         ?.primary
-        ?: if (colorPaletteId == "dynamic") colors.primary
-        else palettes[colorPaletteId]?.primary ?: colors.primary
+        ?: palettes[appPaletteId]?.primary ?: colors.primary
+    val usesLightBars = when {
+        useAlbumArtDynamicTheme -> false
+        useSystemDynamicTheme -> !useDark
+        themeMode == "black" -> false
+        else -> !useDark || appPaletteId == "light_clean"
+    }
 
     val view = LocalView.current
     if (!view.isInEditMode) {
@@ -263,8 +210,8 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
             val window = (view.context as? android.app.Activity)?.window
             if (window != null) {
                 val controller = WindowCompat.getInsetsController(window, view)
-                controller.isAppearanceLightStatusBars     = !useDark
-                controller.isAppearanceLightNavigationBars = !useDark
+                controller.isAppearanceLightStatusBars     = usesLightBars
+                controller.isAppearanceLightNavigationBars = usesLightBars
             }
         }
     }
@@ -275,34 +222,8 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
     }
 }
 
-/** Static dark colour scheme for Settings and its sub-pages.
- *  Matches the clean black/blue palette used by CollectionsScreen. */
-private val SettingsColors = darkColorScheme(
-    primary              = Color(0xFF2196F3),
-    onPrimary            = Color.White,
-    primaryContainer     = Color(0xFF1565C0),
-    onPrimaryContainer   = Color.White,
-    secondary            = Color(0xFF6AABA8),
-    onSecondary          = Color.White,
-    background           = Color(0xFF000000),
-    onBackground         = Color.White,
-    surface              = Color(0xFF121212),
-    onSurface            = Color.White,
-    surfaceContainerHigh = Color(0xFF252525),
-    surfaceVariant       = Color(0xFF1E1E1E),
-    onSurfaceVariant     = Color(0xFFAAAAAA),
-    outline              = Color(0xFF333333),
-    outlineVariant       = Color(0xFF262626),
-    error                = Color(0xFFD32F2F),
-    onError              = Color.White,
-)
-
-/** Wrap content with the static dark/blue colour scheme used by Settings and its categories. */
+/** Keep legacy route wrappers, but inherit the app-wide palette instead of resetting it. */
 @Composable
 fun StaticAppTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = SettingsColors,
-        typography  = AioTypography,
-        content     = content,
-    )
+    content()
 }

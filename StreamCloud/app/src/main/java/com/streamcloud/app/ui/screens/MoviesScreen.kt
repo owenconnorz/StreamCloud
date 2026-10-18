@@ -234,7 +234,7 @@ fun MoviesScreen(
             .mapTo(mutableSetOf()) { it.tmdbId }
     }
     val settingsRepo = remember { SettingsRepository(context) }
-    val moviesThemeName by settingsRepo.moviesTheme.collectAsState(initial = "violet")
+    val moviesThemeName by settingsRepo.moviesTheme.collectAsState(initial = "modern_blue")
     val posterStyle by settingsRepo.posterStyle.collectAsState(initial = "portrait")
     var query by remember { mutableStateOf("") }
     var searchExpanded by remember { mutableStateOf(false) }

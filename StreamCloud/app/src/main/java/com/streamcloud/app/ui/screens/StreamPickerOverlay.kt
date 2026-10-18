@@ -89,7 +89,7 @@ fun StreamPickerOverlay(
 ) {
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
-    val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "violet")
+    val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "modern_blue")
     val savedProviderOrder by produceState<List<String>?>(
         initialValue = null,
         sl.settings.streamProviderPriorityOrder,

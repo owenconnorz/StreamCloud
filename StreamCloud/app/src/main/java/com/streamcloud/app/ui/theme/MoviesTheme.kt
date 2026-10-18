@@ -2,80 +2,64 @@ package com.streamcloud.app.ui.theme
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import com.streamcloud.app.ui.icons.AppIcons as Icons
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.streamcloud.app.ui.icons.AppIcons as Icons
 import com.streamcloud.app.ui.theme.tvFocusBorder
+import com.streamcloud.app.ui.theme.tvFocusGroup
 
 data class MovieThemeEntry(
     val id: String,
     val label: String,
     val primary: Color,
     val container: Color,
-    val brush: Brush? = null,
+    val secondary: Color,
+    val onPrimary: Color,
+    val onPrimaryContainer: Color,
 )
 
-val AllMoviesThemes: List<MovieThemeEntry> = listOf(
-    MovieThemeEntry("white",    "White",    Color(0xFF1B7A3A), Color(0xFF0A3A18)),
-    MovieThemeEntry("crimson",  "Crimson",  Color(0xFFDC2626), Color(0xFF8B0A0A)),
-    MovieThemeEntry("ocean",    "Ocean",    Color(0xFF2196F3), Color(0xFF0D5A8A)),
-    MovieThemeEntry("violet",   "Violet",   Color(0xFF7B54C2), Color(0xFF3E2070)),
-    MovieThemeEntry("emerald",  "Emerald",  Color(0xFF22C55E), Color(0xFF166534)),
-    MovieThemeEntry("amber",    "Amber",    Color(0xFFF59E0B), Color(0xFF8B5E0A)),
-    MovieThemeEntry("rose",     "Rose",     Color(0xFFEC4899), Color(0xFF8B2554)),
-    MovieThemeEntry("messenger","Messenger",Color(0xFF5B7AEA), Color(0xFF2D3192),
-        Brush.linearGradient(listOf(Color(0xFF5B7AEA), Color(0xFF8B5CF6)))),
-    MovieThemeEntry("amethyst", "Amethyst", Color(0xFF9B59B6), Color(0xFF6C3483)),
-    MovieThemeEntry("blossom",  "Blossom",  Color(0xFFFF7B54), Color(0xFFCC3C1A),
-        Brush.linearGradient(listOf(Color(0xFFFF7B54), Color(0xFFFFB347)))),
-    MovieThemeEntry("lagoon",   "Lagoon",   Color(0xFF14B8A6), Color(0xFF0E6655)),
-    MovieThemeEntry("sunset",   "Sunset",   Color(0xFFE8622D), Color(0xFF8B2A05),
-        Brush.linearGradient(listOf(Color(0xFFE8622D), Color(0xFFF5A623)))),
-    MovieThemeEntry("custom",   "Custom",   Color(0xFF9333EA), Color(0xFF5B21B6),
-        Brush.sweepGradient(listOf(Color(0xFF6366F1), Color(0xFFEC4899), Color(0xFF8B5CF6)))),
-)
-
-private fun buildMoviesColorScheme(primary: Color, container: Color): ColorScheme =
-    darkColorScheme(
-        primary              = primary,
-        onPrimary            = Color.White,
-        primaryContainer     = container,
-        onPrimaryContainer   = Color.White,
-        secondary            = primary,
-        onSecondary          = Color.White,
-        tertiary             = primary,
-        onTertiary           = Color.White,
-        background           = Bg,
-        onBackground         = TextPrimary,
-        surface              = BgElevated,
-        onSurface            = TextPrimary,
-        surfaceVariant       = BgSurface,
-        onSurfaceVariant     = TextSecondary,
-        outline              = Outline,
-        outlineVariant       = Outline,
-        error                = Color(0xFFEF4444),
-        onError              = Color.White,
+val AllMoviesThemes: List<MovieThemeEntry> = AllAppColorPalettes.map { palette ->
+    MovieThemeEntry(
+        id = palette.id,
+        label = palette.label,
+        primary = palette.primary,
+        container = palette.primaryContainer,
+        secondary = palette.secondary,
+        onPrimary = palette.onPrimary,
+        onPrimaryContainer = palette.onPrimaryContainer,
     )
+}
 
 @Composable
 fun MoviesThemeWrapper(themeName: String, content: @Composable () -> Unit) {
-    val entry = AllMoviesThemes.find { it.id == themeName }
-        ?: AllMoviesThemes.find { it.id == "violet" }!!
-    val colors = buildMoviesColorScheme(entry.primary, entry.container)
+    val entry = AllMoviesThemes.find { it.id == normalizeAppColorPaletteId(themeName) }
+        ?: AllMoviesThemes.first()
+    val baseColors = MaterialTheme.colorScheme
+    val colors = baseColors.copy(
+        primary = entry.primary,
+        onPrimary = entry.onPrimary,
+        primaryContainer = entry.container,
+        onPrimaryContainer = entry.onPrimaryContainer,
+        secondary = entry.secondary,
+        onSecondary = entry.onPrimary,
+        secondaryContainer = entry.container,
+        onSecondaryContainer = entry.onPrimaryContainer,
+        tertiary = entry.secondary,
+        onTertiary = entry.onPrimary,
+    )
     MaterialTheme(
         colorScheme = colors,
         typography  = MaterialTheme.typography,
@@ -88,82 +72,68 @@ fun MoviesThemePicker(
     selected: String,
     onSelect: (String) -> Unit,
 ) {
-    val classicThemes  = AllMoviesThemes.take(7)
-    val enhancedThemes = AllMoviesThemes.drop(7)
-
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ThemeSwatchRow("Classic themes",  classicThemes,  selected, onSelect)
-        ThemeSwatchRow("Enhanced themes", enhancedThemes, selected, onSelect)
-    }
-}
-
-@Composable
-private fun ThemeSwatchRow(
-    title: String,
-    themes: List<MovieThemeEntry>,
-    selected: String,
-    onSelect: (String) -> Unit,
-) {
-    Column {
-        Text(
-            title,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(8.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            themes.forEach { theme ->
-                val isSelected = selected == theme.id
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .tvFocusBorder(RoundedCornerShape(14.dp))
-                        .clickable { onSelect(theme.id) },
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(52.dp)
-                            .clip(CircleShape)
-                            .then(
-                                if (theme.brush != null)
-                                    Modifier.background(theme.brush)
-                                else
-                                    Modifier.background(theme.primary)
-                            )
-                            .then(
-                                if (isSelected)
-                                    Modifier.border(2.5.dp, Color.White, CircleShape)
-                                else
-                                    Modifier
-                            ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (isSelected) {
-                            Icon(
-                                Icons.Default.Check,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(5.dp))
-                    Text(
-                        theme.label,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        ),
-                        color = if (isSelected)
-                            MaterialTheme.colorScheme.onBackground
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant,
+    val selectedId = normalizeAppColorPaletteId(selected)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .tvFocusGroup(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        AllAppColorPalettes.forEach { palette ->
+            val isSelected = selectedId == palette.id
+            val shape = RoundedCornerShape(14.dp)
+            Column(
+                modifier = Modifier
+                    .width(128.dp)
+                    .clip(shape)
+                    .background(palette.surface)
+                    .border(
+                        width = if (isSelected) 2.dp else 1.dp,
+                        color = if (isSelected) palette.primary else palette.surfaceVariant,
+                        shape = shape,
                     )
+                    .tvFocusBorder(shape)
+                    .selectable(
+                        selected = isSelected,
+                        onClick = { onSelect(palette.id) },
+                        role = Role.RadioButton,
+                    )
+                    .padding(horizontal = 10.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    palette.swatches.forEach { swatch ->
+                        Box(
+                            modifier = Modifier
+                                .size(15.dp)
+                                .clip(CircleShape)
+                                .background(swatch)
+                                .border(0.75.dp, palette.onSurface.copy(alpha = 0.3f), CircleShape),
+                        )
+                    }
+                    if (isSelected) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = "Selected",
+                            tint = palette.primary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
                 }
+                Text(
+                    palette.label,
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    ),
+                    color = palette.onSurface,
+                    maxLines = 1,
+                )
             }
         }
     }

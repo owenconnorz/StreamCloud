@@ -156,6 +156,7 @@ import androidx.compose.ui.input.key.type
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
 import com.streamcloud.app.ui.theme.TvOverscanPadding
 import com.streamcloud.app.ui.theme.palettes
+import com.streamcloud.app.ui.theme.normalizeAppColorPaletteId
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
@@ -332,13 +333,12 @@ fun StreamCloudApp() {
     val hazeState = remember { HazeState() }
 
     val showNavLabels by sl.settings.navLabels.collectAsState(initial = true)
-    val moviesThemeNameForPill by sl.settings.moviesTheme.collectAsState(initial = "violet")
-    val appearancePalette by sl.settings.colorPalette.collectAsState(initial = "ocean")
+    val moviesThemeNameForPill by sl.settings.moviesTheme.collectAsState(initial = "modern_blue")
+    val appearancePalette by sl.settings.colorPalette.collectAsState(initial = "modern_blue")
     val navAccentColor = remember(appearancePalette) {
-        palettes[appearancePalette]?.primary
-            ?: palettes["ocean"]!!.primary
+        palettes[normalizeAppColorPaletteId(appearancePalette)]!!.primary
     }
-    val navPillColor = Color(0xFF1B1B1F)
+    val navPillColor = MaterialTheme.colorScheme.surface
     val isMusicRoute = remember(currentRoute) {
         val r = currentRoute ?: return@remember false
         r == Tab.Music.route ||

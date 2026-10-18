@@ -659,7 +659,9 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
-    val colorPalette: Flow<String> = context.dataStore.data.map { it[SettingsKeys.COLOR_PALETTE] ?: "ocean" }
+    val colorPalette: Flow<String> = context.dataStore.data.map {
+        it[SettingsKeys.COLOR_PALETTE] ?: "modern_blue"
+    }
     suspend fun setColorPalette(s: String) = context.dataStore.edit { it[SettingsKeys.COLOR_PALETTE] = s }
 
 
@@ -953,7 +955,9 @@ class SettingsRepository(private val context: Context) {
     }
 
     // ── Movies / video settings ─────────────────────────────────────────────
-    val moviesTheme: Flow<String> = context.dataStore.data.map { it[SettingsKeys.MOVIES_THEME] ?: "default" }
+    val moviesTheme: Flow<String> = context.dataStore.data.map {
+        it[SettingsKeys.MOVIES_THEME] ?: "modern_blue"
+    }
     val introDbApiKey: Flow<String> = context.dataStore.data.map { it[SettingsKeys.INTRO_DB_API_KEY] ?: "" }
     val subtitleSource: Flow<String> = context.dataStore.data.map { it[SettingsKeys.SUBTITLE_SOURCE] ?: "opensubtitles" }
     val parentalGuideEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.PARENTAL_GUIDE] ?: false }

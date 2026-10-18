@@ -280,12 +280,7 @@ fun LibraryScreen(
         )
     }
 
-    val bgTintColorRaw by AlbumArtThemeBus.bgTint.collectAsState()
-    val libraryBackgroundTarget = if (sectionMode == "Music") {
-        MaterialTheme.colorScheme.background
-    } else {
-        bgTintColorRaw
-    }
+    val libraryBackgroundTarget = MaterialTheme.colorScheme.background
     val libraryBackground by animateColorAsState(
         libraryBackgroundTarget,
         animationSpec = tween(700),
@@ -1356,7 +1351,7 @@ private fun MovieWatchlistActionDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF050506)),
+                .background(MaterialTheme.colorScheme.background),
             contentAlignment = Alignment.Center,
         ) {
             if (!entry.posterUrl.isNullOrBlank()) {
@@ -1388,7 +1383,7 @@ private fun MovieWatchlistActionDialog(
                         .fillMaxWidth()
                         .aspectRatio(16f / 9f)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFF17171B)),
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (!entry.posterUrl.isNullOrBlank()) {
@@ -1408,7 +1403,7 @@ private fun MovieWatchlistActionDialog(
                             Icons.Default.Movie,
                             contentDescription = null,
                             modifier = Modifier.size(48.dp),
-                            tint = Color.White.copy(alpha = 0.7f),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -1423,7 +1418,7 @@ private fun MovieWatchlistActionDialog(
                         entry.title,
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -1435,14 +1430,14 @@ private fun MovieWatchlistActionDialog(
                             else -> entry.mediaType.replaceFirstChar(Char::uppercase)
                         },
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.68f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
 
                 Surface(
                     modifier = Modifier.fillMaxWidth(if (isTv) 0.92f else 0.86f),
                     shape = RoundedCornerShape(24.dp),
-                    color = Color(0xFF1A191E),
+                    color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 0.dp,
                 ) {
                     Column(
@@ -1688,7 +1683,7 @@ private fun LibTile(
 
 @Composable
 private fun ThumbCell(url: String?, modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxHeight().background(Color(0xFF222222))) {
+    Box(modifier.fillMaxHeight().background(MaterialTheme.colorScheme.surfaceVariant)) {
         if (url != null) {
             AsyncImage(
                 model = url,
