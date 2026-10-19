@@ -575,6 +575,7 @@ fun NativePlayerScreen(
     var positionMs        by remember { mutableStateOf(0L) }
     var durationMs        by remember { mutableStateOf(0L) }
     var playbackEnded     by remember(streamUrl, restartKey) { mutableStateOf(false) }
+    var nextEpisodePromptShownBeforeEnd by remember(streamUrl, restartKey) { mutableStateOf(false) }
     var controlsVisible   by remember { mutableStateOf(true) }
     var lastInteractionTs by remember { mutableStateOf(System.currentTimeMillis()) }
     var heldSeekDirection by remember { mutableIntStateOf(0) }
@@ -794,13 +795,23 @@ fun NativePlayerScreen(
     var nextEpisodeDismissed by remember(streamUrl, restartKey) { mutableStateOf(false) }
     var nextEpisodeCountdown by remember(streamUrl, restartKey) { mutableIntStateOf(10) }
     val remainingPlaybackMs = (durationMs - positionMs).coerceAtLeast(0L)
+    val showNextEpisodeDialog = shouldShowNextEpisodePrompt(
+        hasNextEpisode = nextBingeEpisode != null,
+        canPlayNext = onPlayBingeEpisode != null,
+        dismissed = nextEpisodeDismissed,
+        playbackEnded = playbackEnded,
+        isPlaying = isPlaying,
+        durationMs = durationMs,
+        positionMs = positionMs,
+    )
+    val earlyNextEpisodeCountdown = nextEpisodeCountdownSeconds(remainingPlaybackMs)
+    if (showNextEpisodeDialog && !playbackEnded && !nextEpisodePromptShownBeforeEnd) {
+        SideEffect { nextEpisodePromptShownBeforeEnd = true }
+    }
     val showNextEpisodePill = nextBingeEpisode != null &&
-        remainingPlaybackMs in 10_001L..60_000L &&
-        !playbackEnded && !nextEpisodeDismissed && isPlaying
-    val showNextEpisodeDialog = playbackEnded &&
-        nextBingeEpisode != null &&
         onPlayBingeEpisode != null &&
-        !nextEpisodeDismissed
+        remainingPlaybackMs in (NEXT_EPISODE_PROMPT_LEAD_MS + 1L)..60_000L &&
+        !playbackEnded && !nextEpisodeDismissed && isPlaying
 
     fun playNextBingeEpisode() {
         val episode = nextBingeEpisode ?: return
@@ -809,8 +820,21 @@ fun NativePlayerScreen(
         play(episode)
     }
 
-    LaunchedEffect(showNextEpisodeDialog, autoplayNextEnabled, nextBingeEpisode) {
-        if (!showNextEpisodeDialog || !autoplayNextEnabled) return@LaunchedEffect
+    LaunchedEffect(
+        showNextEpisodeDialog,
+        autoplayNextEnabled,
+        nextBingeEpisode,
+        playbackEnded,
+        nextEpisodePromptShownBeforeEnd,
+        nextEpisodeDismissed,
+    ) {
+        if (!showNextEpisodeDialog || !autoplayNextEnabled || !playbackEnded || nextEpisodeDismissed) {
+            return@LaunchedEffect
+        }
+        if (nextEpisodePromptShownBeforeEnd) {
+            playNextBingeEpisode()
+            return@LaunchedEffect
+        }
         nextEpisodeCountdown = 10
         var secondsRemaining = 10
         while (secondsRemaining > 0) {
@@ -818,7 +842,7 @@ fun NativePlayerScreen(
             secondsRemaining--
             nextEpisodeCountdown = secondsRemaining
         }
-        playNextBingeEpisode()
+        if (!nextEpisodeDismissed) playNextBingeEpisode()
     }
 
     // ── UI state ──────────────────────────────────────────────────────────
@@ -1325,7 +1349,14 @@ fun NativePlayerScreen(
         if (showNextEpisodeDialog && nextBingeEpisode != null) {
             NextEpisodeDialog(
                 episode = nextBingeEpisode,
-                countdownSeconds = if (autoplayNextEnabled) nextEpisodeCountdown else null,
+                countdownSeconds = if (!autoplayNextEnabled) {
+                    null
+                } else if (playbackEnded) {
+                    if (nextEpisodePromptShownBeforeEnd) 0 else nextEpisodeCountdown
+                } else {
+                    earlyNextEpisodeCountdown
+                },
+                waitingForPlaybackEnd = !playbackEnded,
                 isTv = isTv,
                 onPlayNext = { playNextBingeEpisode() },
                 onDismiss = { nextEpisodeDismissed = true },
@@ -1802,6 +1833,7 @@ private fun NextEpisodePill(
 private fun NextEpisodeDialog(
     episode: BingeEpisode,
     countdownSeconds: Int?,
+    waitingForPlaybackEnd: Boolean,
     isTv: Boolean,
     onPlayNext: () -> Unit,
     onDismiss: () -> Unit,
@@ -1831,11 +1863,6 @@ private fun NextEpisodeDialog(
                 modifier = Modifier.padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                NextEpisodePill(
-                    episode = episode,
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = onPlayNext,
-                )
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1843,23 +1870,39 @@ private fun NextEpisodeDialog(
                     if (!episode.posterUrl.isNullOrBlank()) {
                         AsyncImage(
                             model = episode.posterUrl,
-                            contentDescription = null,
+                            contentDescription = "Next episode thumbnail",
                             contentScale = ContentScale.Crop,
-                            modifier = Modifier.width(100.dp).height(145.dp)
+                            modifier = Modifier.width(if (isTv) 180.dp else 126.dp)
+                                .aspectRatio(16f / 9f)
                                 .clip(RoundedCornerShape(12.dp)),
                         )
+                    } else {
+                        Box(
+                            modifier = Modifier.width(if (isTv) 180.dp else 126.dp)
+                                .aspectRatio(16f / 9f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Default.Movie,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(32.dp),
+                            )
+                        }
                     }
                     Column(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(5.dp),
                     ) {
                         Text(
-                            "Episode finished",
+                            if (playbackEnded) "Up next" else "Next episode",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelMedium,
                         )
                         Text(
-                            episode.title,
+                            episode.episodeTitle?.takeIf { it.isNotBlank() } ?: episode.title,
                             color = MaterialTheme.colorScheme.onSurface,
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
@@ -1874,8 +1917,13 @@ private fun NextEpisodeDialog(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            countdownSeconds?.let { "Next episode starts in ${it}s" }
-                                ?: "Autoplay is off. Choose when to play next.",
+                            when {
+                                countdownSeconds == null -> "Autoplay is off. Choose when to play next."
+                                countdownSeconds == 0 && waitingForPlaybackEnd ->
+                                    "Starting when this episode ends…"
+                                countdownSeconds == 0 -> "Starting next episode…"
+                                else -> "Next episode starts in ${countdownSeconds}s"
+                            },
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall,
                         )
