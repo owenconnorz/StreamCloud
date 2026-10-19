@@ -1897,7 +1897,7 @@ private fun NextEpisodeDialog(
                         verticalArrangement = Arrangement.spacedBy(5.dp),
                     ) {
                         Text(
-                            if (playbackEnded) "Up next" else "Next episode",
+                            if (waitingForPlaybackEnd) "Next episode" else "Up next",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelMedium,
                         )
