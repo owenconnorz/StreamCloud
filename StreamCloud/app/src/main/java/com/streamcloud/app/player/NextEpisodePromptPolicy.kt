@@ -1,6 +1,6 @@
 package com.streamcloud.app.player
 
-internal const val NEXT_EPISODE_PROMPT_LEAD_MS = 20_000L
+internal const val NEXT_EPISODE_PROMPT_LEAD_MS = 30_000L
 
 internal fun nextEpisodeCountdownSeconds(remainingMs: Long): Int? {
     if (remainingMs !in 1L..NEXT_EPISODE_PROMPT_LEAD_MS) return null

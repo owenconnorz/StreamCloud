@@ -8,16 +8,16 @@ import org.junit.Test
 
 class NextEpisodePromptPolicyTest {
     @Test
-    fun countdownTracksTheFinalTwentySeconds() {
-        assertEquals(20, nextEpisodeCountdownSeconds(20_000L))
+    fun countdownTracksTheFinalThirtySeconds() {
+        assertEquals(30, nextEpisodeCountdownSeconds(30_000L))
         assertEquals(2, nextEpisodeCountdownSeconds(1_001L))
         assertEquals(1, nextEpisodeCountdownSeconds(1L))
-        assertNull(nextEpisodeCountdownSeconds(20_001L))
+        assertNull(nextEpisodeCountdownSeconds(30_001L))
         assertNull(nextEpisodeCountdownSeconds(0L))
     }
 
     @Test
-    fun promptAppearsDuringPlaybackOnlyInTheFinalTwentySeconds() {
+    fun promptAppearsDuringPlaybackOnlyInTheFinalThirtySeconds() {
         assertTrue(
             shouldShowNextEpisodePrompt(
                 hasNextEpisode = true,
@@ -26,7 +26,7 @@ class NextEpisodePromptPolicyTest {
                 playbackEnded = false,
                 isPlaying = true,
                 durationMs = 1_000_000L,
-                positionMs = 980_000L,
+                positionMs = 970_000L,
             ),
         )
         assertFalse(
@@ -37,7 +37,7 @@ class NextEpisodePromptPolicyTest {
                 playbackEnded = false,
                 isPlaying = true,
                 durationMs = 1_000_000L,
-                positionMs = 979_999L,
+                positionMs = 969_999L,
             ),
         )
     }

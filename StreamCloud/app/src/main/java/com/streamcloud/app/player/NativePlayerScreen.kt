@@ -1329,7 +1329,7 @@ fun NativePlayerScreen(
         }
 
         // Keep next-episode controls and the remaining-time countdown together
-        // in one dialog during the final 20 seconds.
+        // in one dialog during the final 30 seconds.
         if (showNextEpisodeDialog && nextBingeEpisode != null) {
             NextEpisodeDialog(
                 episode = nextBingeEpisode,

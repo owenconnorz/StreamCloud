@@ -1,3 +1,10 @@
+## Latest — Changes since V2242
+
+### Episode playback
+- **One next-episode dialog** — The separate “Up next” chip is removed; the thumbnail, countdown, Play next, and Not now actions stay together in the dialog.
+- **A 30-second decision window** — The dialog appears during the final 30 seconds, with its countdown following playback. Autoplay still waits until the current episode actually ends.
+- **Timing regression coverage** — Added checks for the new 30-second countdown and visibility boundary.
+
 ## Latest — Changes since V2237
 
 ### Continue Watching
