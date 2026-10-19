@@ -1,3 +1,15 @@
+## Latest — Changes since V2237
+
+### Continue Watching
+- **Landscape artwork on mobile cards** — Continue Watching cards now use wide backdrop artwork instead of portrait posters, keeping titles and watch progress together in the compact card. The saved poster remains available when no landscape image can be resolved.
+
+### Episode playback
+- **See the next episode before the current one ends** — A prompt now appears during the final 20 seconds, with the next episode’s thumbnail and a countdown tied to playback position.
+- **Autoplay waits for the current episode to finish** — Reaching zero does not cut off playback; the next episode starts after the current one ends. Dismissing the prompt still prevents automatic advance, and streams without a known duration keep the existing post-end prompt.
+
+### Release reliability
+- **Fixed the TV release build error** — The next-episode prompt now uses its supplied playback-end state, so the TV release compiles.
+
 ## Latest — Changes since V2233
 
 ### Selected palette consistency
