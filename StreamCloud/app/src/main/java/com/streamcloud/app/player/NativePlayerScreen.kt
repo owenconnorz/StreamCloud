@@ -808,11 +808,6 @@ fun NativePlayerScreen(
     if (showNextEpisodeDialog && !playbackEnded && !nextEpisodePromptShownBeforeEnd) {
         SideEffect { nextEpisodePromptShownBeforeEnd = true }
     }
-    val showNextEpisodePill = nextBingeEpisode != null &&
-        onPlayBingeEpisode != null &&
-        remainingPlaybackMs in (NEXT_EPISODE_PROMPT_LEAD_MS + 1L)..60_000L &&
-        !playbackEnded && !nextEpisodeDismissed && isPlaying
-
     fun playNextBingeEpisode() {
         val episode = nextBingeEpisode ?: return
         val play = onPlayBingeEpisode ?: return
@@ -1333,19 +1328,8 @@ fun NativePlayerScreen(
             }
         }
 
-        // Nuvio-style "Up next" chip during the last minute; playback only
-        // advances automatically after the current episode has actually ended.
-        AnimatedVisibility(
-            visible = showNextEpisodePill && !locked && nextBingeEpisode != null,
-            enter = fadeIn() + scaleIn(),
-            exit = fadeOut() + scaleOut(),
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 28.dp, bottom = 110.dp),
-        ) {
-            nextBingeEpisode?.let { episode ->
-                NextEpisodePill(episode = episode, onClick = { playNextBingeEpisode() })
-            }
-        }
-
+        // Keep next-episode controls and the remaining-time countdown together
+        // in one dialog during the final 20 seconds.
         if (showNextEpisodeDialog && nextBingeEpisode != null) {
             NextEpisodeDialog(
                 episode = nextBingeEpisode,
@@ -1777,57 +1761,6 @@ private fun SkipIntroPill(type: String, onClick: () -> Unit, onDismiss: () -> Un
 // ────────────────────────────────────────────────────────────────────────────
 // Next episode prompt
 // ────────────────────────────────────────────────────────────────────────────
-
-@Composable
-private fun NextEpisodePill(
-    episode: BingeEpisode,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    val shape = RoundedCornerShape(18.dp)
-    val colors = MaterialTheme.colorScheme
-    val episodeLabel = "S${episode.seasonNumber}E${episode.episodeNumber} · " +
-        (episode.episodeTitle?.takeIf { it.isNotBlank() } ?: "Episode ${episode.episodeNumber}")
-
-    Surface(
-        modifier = modifier
-            .widthIn(max = 380.dp)
-            .tvFocusBorder(shape)
-            .clickable(onClick = onClick),
-        shape = shape,
-        color = colors.primaryContainer,
-        shadowElevation = 10.dp,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Default.SkipNext,
-                contentDescription = "Play next episode",
-                tint = colors.onPrimaryContainer,
-                modifier = Modifier.size(22.dp),
-            )
-            Column(Modifier.weight(1f)) {
-                Text(
-                    "Up next",
-                    color = colors.onPrimaryContainer.copy(alpha = 0.72f),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    episodeLabel,
-                    color = colors.onPrimaryContainer,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun NextEpisodeDialog(
