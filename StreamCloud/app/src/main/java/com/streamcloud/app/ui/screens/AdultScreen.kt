@@ -118,7 +118,7 @@ fun AdultScreen(
             when (state.source) {
                 AdultSource.Pornhub -> state.pornhubHome
                 AdultSource.Eporner -> state.selectedCategory == null && query.isBlank()
-                AdultSource.Reddit, AdultSource.RedGifs -> false
+                AdultSource.XHamster, AdultSource.Reddit, AdultSource.RedGifs -> false
             }
 
     LaunchedEffect(showAdultHomeNavigation) {
@@ -177,6 +177,7 @@ fun AdultScreen(
         }.collect { reachedEnd ->
             if (reachedEnd &&
                 (state.source == AdultSource.Eporner ||
+                    state.source == AdultSource.XHamster ||
                     (state.source == AdultSource.Pornhub && !state.pornhubHome))
             ) {
                 vm.loadMore()
@@ -221,7 +222,12 @@ fun AdultScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (state.source in setOf(AdultSource.Eporner, AdultSource.Pornhub)) {
+            if (state.source in setOf(
+                    AdultSource.Eporner,
+                    AdultSource.Pornhub,
+                    AdultSource.XHamster,
+                )
+            ) {
                 IconButton(
                     onClick = { onOpenSearch(state.source) },
                     modifier = Modifier
@@ -250,7 +256,12 @@ fun AdultScreen(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (state.source in setOf(AdultSource.Eporner, AdultSource.Pornhub)) {
+            if (state.source in setOf(
+                    AdultSource.Eporner,
+                    AdultSource.Pornhub,
+                    AdultSource.XHamster,
+                )
+            ) {
                 Spacer(Modifier.width(8.dp))
                 IconButton(onClick = { vm.refresh() }) {
                     Icon(
@@ -387,6 +398,16 @@ fun AdultScreen(
                 items(state.items, key = { it.id }) { v ->
                     AdultCard(v) { detailItem = v }
                 }
+                if (state.loading && state.items.isEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Box(
+                            Modifier.fillMaxWidth().padding(24.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(strokeWidth = 2.dp)
+                        }
+                    }
+                }
                 if (state.loadingMore) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Box(
@@ -443,6 +464,8 @@ fun AdultScreen(
                     onPlay(item.id, item.streamUrl.orEmpty(), item.title)
                 } else if (item.source == AdultSource.Pornhub) {
                     onPlay("pornhub://${item.id}", item.embedUrl.orEmpty(), item.title)
+                } else if (item.source == AdultSource.XHamster) {
+                    onPlay("xhamster://${item.id}", item.embedUrl.orEmpty(), item.title)
                 } else {
                     onPlay(item.epornerId ?: item.id, item.embedUrl.orEmpty(), item.title)
                 }
@@ -462,6 +485,7 @@ private fun AdultProviderPicker(
     val providers = listOf(
         AdultSource.Eporner,
         AdultSource.Pornhub,
+        AdultSource.XHamster,
         AdultSource.Reddit,
         AdultSource.RedGifs,
     )
@@ -575,6 +599,12 @@ private fun ProviderBadge(provider: AdultSource) {
             fallbackForeground = Color.Black,
             fallbackLabel = "P",
         )
+        AdultSource.XHamster -> ProviderBrand(
+            logoUrl = "https://xhamster.com/favicon.ico",
+            background = Color(0xFF05A5E5),
+            fallbackForeground = Color.White,
+            fallbackLabel = "XH",
+        )
         AdultSource.Reddit -> ProviderBrand(
             logoUrl = "https://www.redditstatic.com/desktop2x/img/favicon/favicon-96x96.png",
             background = Color(0xFFFF4500),
@@ -656,10 +686,26 @@ fun AdultSearchScreen(
     val state by vm.state.collectAsState()
     var query by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
+    val searchGridState = rememberLazyGridState()
 
     LaunchedEffect(source) {
         vm.setSource(source)
         focusRequester.requestFocus()
+    }
+
+    LaunchedEffect(searchGridState, source, state.source) {
+        snapshotFlow {
+            val total = searchGridState.layoutInfo.totalItemsCount
+            val last = searchGridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            total > 0 && last >= total - 6
+        }.collect { reachedEnd ->
+            if (reachedEnd &&
+                state.source == source &&
+                source == AdultSource.XHamster
+            ) {
+                vm.loadMore()
+            }
+        }
     }
 
     Column(
@@ -746,6 +792,7 @@ fun AdultSearchScreen(
         }
 
         LazyVerticalGrid(
+            state = searchGridState,
             columns = if (source == AdultSource.Pornhub) {
                 GridCells.Adaptive(300.dp)
             } else {
@@ -760,12 +807,12 @@ fun AdultSearchScreen(
         ) {
             items(state.items, key = { it.id }) { item ->
                 AdultCard(item) {
-                    onPlay(
-                        if (item.source == AdultSource.Pornhub) "pornhub://${item.id}"
-                        else item.epornerId ?: item.id,
-                        item.embedUrl.orEmpty(),
-                        item.title,
-                    )
+                    val videoId = when (item.source) {
+                        AdultSource.Pornhub -> "pornhub://${item.id}"
+                        AdultSource.XHamster -> "xhamster://${item.id}"
+                        else -> item.epornerId ?: item.id
+                    }
+                    onPlay(videoId, item.embedUrl.orEmpty(), item.title)
                 }
             }
         }

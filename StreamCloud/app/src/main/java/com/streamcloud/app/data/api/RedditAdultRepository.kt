@@ -40,6 +40,7 @@ data class AdultItem(
 enum class AdultSource(val label: String) {
     Eporner("Eporner"),
     Pornhub("Pornhub"),
+    XHamster("xHamster"),
     Reddit("Reddit"),
     RedGifs("RedGifs"),
 }

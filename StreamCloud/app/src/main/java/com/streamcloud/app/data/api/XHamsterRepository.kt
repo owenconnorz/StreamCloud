@@ -1,0 +1,281 @@
+package com.streamcloud.app.data.api
+
+import android.webkit.CookieManager
+import com.streamcloud.app.data.network.BrowserHeaders
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.jsoup.Jsoup
+import java.util.concurrent.TimeUnit
+
+data class XHamsterPage(
+    val items: List<AdultItem>,
+    val hasMore: Boolean,
+)
+
+class XHamsterUnavailableException(message: String) : Exception(message)
+
+/**
+ * Reads XHamster's public listing pages. Playback stays on the official video
+ * page so the provider's own player and access checks remain in control.
+ */
+object XHamsterRepository {
+    private const val BASE_URL = "https://xhamster.com"
+    private const val DEFAULT_PAGE_SIZE = 50
+    private val pageJson = Json { isLenient = true }
+
+    private val client by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build()
+    }
+
+    suspend fun fetch(query: String, page: Int): XHamsterPage =
+        withContext(Dispatchers.IO) {
+            val safePage = page.coerceAtLeast(1)
+            val html = requestPage(buildXHamsterListingUrl(query, safePage))
+            parseXHamsterListing(html, safePage)
+        }
+
+    fun videoPageUrl(videoId: String): String {
+        require(videoId.matches(Regex("[A-Za-z0-9_-]{1,100}"))) {
+            "XHamster did not provide a valid video identifier."
+        }
+        return "$BASE_URL/videos/$videoId"
+    }
+
+    private fun requestPage(url: String): String {
+        var currentUrl = url
+        repeat(5) { redirectCount ->
+            val requestBuilder = Request.Builder()
+                .url(currentUrl)
+                .header("User-Agent", BrowserHeaders.USER_AGENT)
+                .header("Accept-Language", BrowserHeaders.ACCEPT_LANGUAGE)
+                .header("Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8")
+                .header("Referer", "$BASE_URL/")
+            val providerCookies = runCatching {
+                CookieManager.getInstance().getCookie(currentUrl)
+            }.getOrNull()
+            if (!providerCookies.isNullOrBlank()) {
+                requestBuilder.header("Cookie", providerCookies)
+            }
+            val request = requestBuilder.build()
+
+            client.newCall(request).execute().use { response ->
+                if (response.isRedirect) {
+                    if (redirectCount == 4) {
+                        throw XHamsterUnavailableException(
+                            "XHamster redirected too many times.",
+                        )
+                    }
+                    val location = response.header("Location").orEmpty()
+                    val nextUrl = response.request.url.resolve(location)
+                    if (nextUrl == null || !isAllowedXHamsterUrl(nextUrl.toString())) {
+                        throw XHamsterUnavailableException(
+                            "XHamster redirected outside its official site.",
+                        )
+                    }
+                    currentUrl = nextUrl.toString()
+                    return@use
+                }
+
+                if (!response.isSuccessful) {
+                    val message = when (response.code) {
+                        403 -> "XHamster blocked this request."
+                        404 -> "This XHamster page is no longer available."
+                        429 -> "XHamster rate-limited this device. Please wait and try again."
+                        else -> "XHamster returned HTTP ${response.code}."
+                    }
+                    throw XHamsterUnavailableException(message)
+                }
+
+                return response.body?.string()
+                    ?.takeIf(String::isNotBlank)
+                    ?: throw XHamsterUnavailableException("XHamster returned an empty page.")
+            }
+        }
+        throw XHamsterUnavailableException("XHamster redirected too many times.")
+    }
+}
+
+internal fun buildXHamsterListingUrl(query: String, page: Int): String {
+    val safePage = page.coerceAtLeast(1)
+    val builder = "https://xhamster.com/".toHttpUrl().newBuilder()
+    if (query.isBlank()) {
+        if (safePage > 1) builder.addPathSegment(safePage.toString())
+    } else {
+        builder
+            .addPathSegment("search")
+            .addPathSegment(query.trim())
+            .addQueryParameter("page", safePage.toString())
+    }
+    return builder.build().toString()
+}
+
+internal fun parseXHamsterListing(
+    html: String,
+    requestedPage: Int,
+): XHamsterPage {
+    val document = Jsoup.parse(html)
+    if (document.body()?.hasClass("xh-scroll-disabled") == true) {
+        throw XHamsterUnavailableException(
+            "Complete XHamster's age confirmation on its official site, then try again.",
+        )
+    }
+
+    val script = document.selectFirst("#initials-script")
+        ?: throw XHamsterUnavailableException(
+            if (isXHamsterVerificationPage(html)) {
+                "XHamster requested browser verification. Try again later."
+            } else {
+                "XHamster's page could not be read. Try again later."
+            },
+        )
+    val rawJson = script.data().ifBlank { script.html() }
+    val jsonStart = rawJson.indexOf('{')
+    val jsonEnd = rawJson.lastIndexOf('}')
+    if (jsonStart < 0 || jsonEnd < jsonStart) {
+        throw XHamsterUnavailableException("XHamster returned unreadable listing data.")
+    }
+
+    val root = runCatching {
+        pageJson.parseToJsonElement(rawJson.substring(jsonStart, jsonEnd + 1)).jsonObject
+    }.getOrElse {
+        throw XHamsterUnavailableException("XHamster returned unreadable listing data.")
+    }
+
+    val videoArray = root.arrayAt("searchResult", "videoThumbProps")
+        ?: root.arrayAt("layoutPage", "videoListProps", "videoThumbProps")
+        ?: root.arrayAt("layoutPage", "videoThumbProps")
+        ?: JsonArray(emptyList())
+
+    val items = videoArray.mapNotNull { element ->
+        val video = element as? JsonObject ?: return@mapNotNull null
+        val pageUrl = normalizeXHamsterVideoUrl(video.string("pageURL"))
+            ?: return@mapNotNull null
+        val id = pageUrl.substringAfterLast('/').takeIf {
+            it.matches(Regex("[A-Za-z0-9_-]{1,100}"))
+        } ?: return@mapNotNull null
+        val title = video.string("title")?.trim()?.takeIf(String::isNotBlank)
+            ?: return@mapNotNull null
+        val thumbnail = normalizeXHamsterAssetUrl(
+            video.string("imageURL") ?: video.string("thumbURL"),
+        )
+        val previewImage = normalizeXHamsterAssetUrl(
+            video.string("previewThumbURL") ?: video.string("thumbURL"),
+        ) ?: thumbnail
+        val duration = video.int("duration")?.takeIf { it >= 0 }?.let(::formatXHamsterDuration)
+
+        AdultItem(
+            id = id,
+            title = title,
+            thumbnail = thumbnail,
+            previewImage = previewImage,
+            durationLabel = duration,
+            streamUrl = null,
+            source = AdultSource.XHamster,
+            embedUrl = pageUrl,
+            views = video.string("views")?.takeIf(String::isNotBlank),
+            tags = video.obj("landing")?.string("name"),
+        )
+    }.distinctBy(AdultItem::id)
+
+    val pagination = root.obj("pagination")
+    val paginationComponent = root.obj("paginationComponent")
+    val pageData = root.obj("layoutPage")
+    val currentPage = paginationComponent?.int("currentPageNumber")
+        ?: root.int("page")
+        ?: pageData?.int("pageNum")
+        ?: requestedPage
+    val lastPage = paginationComponent?.int("lastPageNumber")
+        ?: pagination?.int("maxPages")
+        ?: pagination?.int("maxPage")
+    val pageSize = root.int("perPage")
+        ?: pageData?.obj("videoListProps")?.int("perPage")
+        ?: DEFAULT_PAGE_SIZE
+
+    val hasMore = items.isNotEmpty() && if (lastPage != null) {
+        currentPage < lastPage
+    } else {
+        items.size >= pageSize
+    }
+    return XHamsterPage(items, hasMore)
+}
+
+private fun isXHamsterVerificationPage(html: String): Boolean {
+    val lower = html.lowercase()
+    return listOf(
+        "cf-chl-",
+        "checking your browser",
+        "verify you are human",
+        "access denied",
+    ).any(lower::contains)
+}
+
+private fun isAllowedXHamsterUrl(url: String): Boolean {
+    val parsed = runCatching { url.toHttpUrl() }.getOrNull() ?: return false
+    return parsed.scheme == "https" && parsed.port == 443 &&
+        (parsed.host == "xhamster.com" || parsed.host.endsWith(".xhamster.com"))
+}
+
+private fun normalizeXHamsterVideoUrl(raw: String?): String? {
+    val value = raw?.trim()?.takeIf(String::isNotBlank) ?: return null
+    val parsed = runCatching {
+        "https://xhamster.com/".toHttpUrl().resolve(value)
+    }.getOrNull() ?: return null
+    if (!isAllowedXHamsterUrl(parsed.toString()) ||
+        !parsed.encodedPath.startsWith("/videos/")
+    ) return null
+    return parsed.newBuilder().query(null).fragment(null).build().toString()
+}
+
+private fun normalizeXHamsterAssetUrl(raw: String?): String? {
+    val value = raw?.trim()?.takeIf(String::isNotBlank) ?: return null
+    val normalized = if (value.startsWith("//")) "https:$value" else value
+    val parsed = runCatching { normalized.toHttpUrl() }.getOrNull() ?: return null
+    val allowedHost = parsed.host == "xhamster.com" ||
+        parsed.host.endsWith(".xhamster.com") ||
+        parsed.host == "xhcdn.com" ||
+        parsed.host.endsWith(".xhcdn.com")
+    return parsed.toString().takeIf {
+        parsed.scheme == "https" && parsed.port == 443 && allowedHost
+    }
+}
+
+private fun formatXHamsterDuration(totalSeconds: Int): String {
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+    return if (hours > 0) {
+        "%d:%02d:%02d".format(hours, minutes, seconds)
+    } else {
+        "%d:%02d".format(minutes, seconds)
+    }
+}
+
+private fun JsonObject.arrayAt(vararg path: String): JsonArray? =
+    path.fold<JsonElement?>(this) { current, key ->
+        (current as? JsonObject)?.get(key)
+    } as? JsonArray
+
+private fun JsonObject.obj(key: String): JsonObject? =
+    this[key] as? JsonObject
+
+private fun JsonObject.string(key: String): String? =
+    this[key]?.jsonPrimitive?.contentOrNull
+
+private fun JsonObject.int(key: String): Int? =
+    this[key]?.jsonPrimitive?.intOrNull

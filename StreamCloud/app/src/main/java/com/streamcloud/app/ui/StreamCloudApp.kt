@@ -1443,10 +1443,18 @@ fun StreamCloudApp() {
                 composable(Tab.Adult.route) {
                     AdultScreen(
                         onPlay = { videoId, embed, title ->
-                            val v = URLEncoder.encode(videoId, "UTF-8")
-                            val e = URLEncoder.encode(embed, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
-                            nav.navigate("player/eporner/$v/$e/$t")
+                            if (videoId.startsWith("xhamster://")) {
+                                val id = URLEncoder.encode(
+                                    videoId.removePrefix("xhamster://"),
+                                    "UTF-8",
+                                )
+                                nav.navigate("player/xhamster/$id/$t")
+                            } else {
+                                val v = URLEncoder.encode(videoId, "UTF-8")
+                                val e = URLEncoder.encode(embed, "UTF-8")
+                                nav.navigate("player/eporner/$v/$e/$t")
+                            }
                         },
                         onOpenRedditLogin = { nav.navigate("reddit-login") },
                         onOpenSearch = { source ->
@@ -1473,15 +1481,36 @@ fun StreamCloudApp() {
                         source = source,
                         onBack = { nav.popBackStack() },
                         onPlay = { videoId, embed, title ->
-                            val v = URLEncoder.encode(videoId, "UTF-8")
-                            val e = URLEncoder.encode(embed, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
-                            nav.navigate("player/eporner/$v/$e/$t")
+                            if (videoId.startsWith("xhamster://")) {
+                                val id = URLEncoder.encode(
+                                    videoId.removePrefix("xhamster://"),
+                                    "UTF-8",
+                                )
+                                nav.navigate("player/xhamster/$id/$t")
+                            } else {
+                                val v = URLEncoder.encode(videoId, "UTF-8")
+                                val e = URLEncoder.encode(embed, "UTF-8")
+                                nav.navigate("player/eporner/$v/$e/$t")
+                            }
                         },
                     )
                 }
-
-
+                composable(
+                    "player/xhamster/{id}/{title}",
+                    arguments = listOf(
+                        navArgument("id") { type = NavType.StringType },
+                        navArgument("title") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val id = URLDecoder.decode(entry.arguments!!.getString("id")!!, "UTF-8")
+                    val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
+                    com.streamcloud.app.player.XHamsterPlayerScreen(
+                        videoId = id,
+                        title = title,
+                        onBack = { nav.popBackStack() },
+                    )
+                }
 
                 composable(
                     "player/eporner/{id}/{embed}/{title}",
