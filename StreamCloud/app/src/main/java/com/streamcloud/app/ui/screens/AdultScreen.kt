@@ -87,6 +87,7 @@ fun AdultScreen(
     onPlay: (videoId: String, fallbackEmbed: String, title: String) -> Unit,
     onOpenRedditLogin: () -> Unit = {},
     onOpenSearch: (AdultSource) -> Unit = {},
+    onDownloadXHamster: (videoId: String, title: String) -> Unit = { _, _ -> },
     onAppNavigationVisibilityChanged: (Boolean) -> Unit = {},
     screenTitle: String = "Adult",
     screenSubtitle: String = "",
@@ -483,8 +484,14 @@ fun AdultScreen(
                 context = context,
                 onPlay = playItem,
                 onDismiss = dismissItem,
-                onDownload = { vm.downloadVideo(item) }
-                    .takeIf { item.source == AdultSource.Pornhub },
+                onDownload = {
+                    if (item.source == AdultSource.XHamster) {
+                        detailItem = null
+                        onDownloadXHamster(item.id, item.title)
+                    } else {
+                        vm.downloadVideo(item)
+                    }
+                },
             )
         } else {
             EpornerDetailSheet(
@@ -1546,52 +1553,54 @@ private fun AdultVideoDetailPage(
                         ),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    if (item.source == AdultSource.Pornhub) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            OutlinedButton(
-                                onClick = {
-                                    scope.launch {
-                                        val db = LibraryDb.get(context)
-                                        val watchlistId = adultWatchlistId(item)
-                                        if (saved) {
-                                            db.watchlist().remove(watchlistId)
-                                        } else {
-                                            db.watchlist().add(
-                                                WatchlistEntity(
-                                                    tmdbId = watchlistId,
-                                                    title = item.title,
-                                                    posterUrl = item.thumbnail,
-                                                    mediaType = item.source.name.lowercase(),
-                                                    csPlugin = item.source.name.lowercase(),
-                                                    csUrl = item.embedUrl.orEmpty(),
-                                                ),
-                                            )
-                                        }
-                                        com.streamcloud.app.data.nuvio.NuvioAutoSync
-                                            .request(context.applicationContext)
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    val db = LibraryDb.get(context)
+                                    val watchlistId = adultWatchlistId(item)
+                                    if (saved) {
+                                        db.watchlist().remove(watchlistId)
+                                    } else {
+                                        db.watchlist().add(
+                                            WatchlistEntity(
+                                                tmdbId = watchlistId,
+                                                title = item.title,
+                                                posterUrl = item.thumbnail,
+                                                mediaType = item.source.name.lowercase(),
+                                                csPlugin = item.source.name.lowercase(),
+                                                csUrl = if (item.source == AdultSource.Eporner) {
+                                                    "https://www.eporner.com/embed/${item.epornerId ?: item.id}"
+                                                } else {
+                                                    item.embedUrl.orEmpty()
+                                                },
+                                            ),
+                                        )
                                     }
-                                },
+                                    com.streamcloud.app.data.nuvio.NuvioAutoSync
+                                        .request(context.applicationContext)
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(
+                                if (saved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                contentDescription = null,
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (saved) "Saved" else "Save")
+                        }
+                        onDownload?.let { download ->
+                            OutlinedButton(
+                                onClick = download,
                                 modifier = Modifier.weight(1f),
                             ) {
-                                Icon(
-                                    if (saved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
-                                    contentDescription = null,
-                                )
+                                Icon(Icons.Default.FileDownload, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
-                                Text(if (saved) "Saved" else "Save")
-                            }
-                            onDownload?.let { download ->
-                                OutlinedButton(
-                                    onClick = download,
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    Icon(Icons.Default.FileDownload, contentDescription = null)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Download")
-                                }
+                                Text("Download")
                             }
                         }
                     }

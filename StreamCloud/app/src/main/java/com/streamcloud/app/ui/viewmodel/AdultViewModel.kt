@@ -845,21 +845,45 @@ class AdultViewModel(
                 } else {
                     null
                 }
-                val url: String = when {
-                    item.source == AdultSource.Eporner && item.epornerId != null ->
-                        resolveStreamUrl(item.id, item.embedUrl.orEmpty())
-                    item.source == AdultSource.Pornhub ->
-                        pornhubPlayback!!.url.also {
-                            require(!it.substringBefore('?').endsWith(".m3u8", ignoreCase = true)) {
-                                "Pornhub did not provide a downloadable MP4 for this video."
+                val url: String = when (item.source) {
+                    AdultSource.Eporner -> {
+                        val fallbackEmbed = normalizeEpornerEmbed(item.embedUrl.orEmpty())
+                        resolveStreamUrl(
+                            item.epornerId ?: item.id,
+                            item.embedUrl.orEmpty(),
+                        ).also {
+                            require(isSecureDownloadUrl(it) && it != fallbackEmbed) {
+                            "Eporner did not provide a downloadable video file for this item."
                             }
                         }
-                    item.streamUrl?.startsWith("http") == true -> item.streamUrl!!
-                    item.embedUrl?.startsWith("http") == true  -> item.embedUrl!!
-                    else -> return@launch
+                    }
+                    AdultSource.Pornhub -> pornhubPlayback!!.url.also {
+                        val uri = runCatching { java.net.URI(it) }.getOrNull()
+                        require(
+                            isSecureDownloadUrl(it) &&
+                                !uri?.path.orEmpty().endsWith(".m3u8", ignoreCase = true) &&
+                                !uri?.path.orEmpty().endsWith(".mpd", ignoreCase = true),
+                        ) {
+                            "Pornhub did not provide a downloadable video file for this item."
+                        }
+                    }
+                    AdultSource.XHamster -> item.streamUrl
+                        ?.takeIf(::isDirectVideoDownloadUrl)
+                        ?: throw IllegalStateException(
+                            "XHamster has not exposed a direct downloadable video file for this item.",
+                        )
+                    else -> item.streamUrl
+                        ?.takeIf(::isDirectVideoDownloadUrl)
+                        ?: throw IllegalStateException(
+                            "This provider did not provide a direct downloadable video file.",
+                        )
                 }
-                if (url.isBlank() || !url.startsWith("http")) return@launch
-                val safeName = item.title.take(60).replace(Regex("[^\\w \\-]"), "_").trim() + ".mp4"
+                val extension = runCatching {
+                    java.net.URI(url).path.substringAfterLast('.', "").lowercase()
+                }.getOrNull()?.takeIf { it in setOf("mp4", "m4v", "webm") } ?: "mp4"
+                val safeName = item.title.take(60)
+                    .replace(Regex("[^\\w \\-]"), "_")
+                    .trim() + ".$extension"
                 val req = android.app.DownloadManager.Request(android.net.Uri.parse(url))
                     .setTitle(item.title.take(100))
                     .setDescription("Downloading via StreamCloud…")
@@ -876,6 +900,25 @@ class AdultViewModel(
                 _state.update { it.copy(error = "Download failed: ${e.message}") }
             }
         }
+    }
+
+    private fun isDirectVideoDownloadUrl(rawUrl: String): Boolean {
+        val uri = runCatching { java.net.URI(rawUrl) }.getOrNull() ?: return false
+        if (!isSecureDownloadUrl(rawUrl)) return false
+        return uri.path.orEmpty().lowercase().let { path ->
+            listOf(".mp4", ".m4v", ".webm").any(path::endsWith)
+        }
+    }
+
+    private fun isSecureDownloadUrl(rawUrl: String): Boolean {
+        val uri = runCatching { java.net.URI(rawUrl) }.getOrNull() ?: return false
+        return uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrBlank()
+    }
+
+    private fun normalizeEpornerEmbed(rawUrl: String): String = when {
+        rawUrl.startsWith("//") -> "https:$rawUrl"
+        rawUrl.startsWith("/") -> "https://www.eporner.com$rawUrl"
+        else -> rawUrl
     }
 
         companion object {

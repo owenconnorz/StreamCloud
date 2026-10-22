@@ -1347,18 +1347,38 @@ fun StreamCloudApp() {
                          },
                          onAdultProviderClick = { provider, itemUrl, itemName ->
                              if (itemUrl.isNotBlank()) {
-                                 val playbackId = if (provider == "pornhub") {
-                                     val id = itemUrl.substringAfter("viewkey=", "")
-                                         .substringBefore('&')
-                                         .ifBlank { itemUrl.substringAfterLast('/') }
-                                     "pornhub://$id"
-                                 } else {
-                                     "saved"
-                                 }
-                                 val v = URLEncoder.encode(playbackId, "UTF-8")
-                                 val e = URLEncoder.encode(itemUrl, "UTF-8")
-                                 val t = URLEncoder.encode(itemName, "UTF-8")
-                                 nav.navigate("player/eporner/$v/$e/$t")
+                                  val path = runCatching {
+                                      java.net.URI(itemUrl).path.orEmpty()
+                                  }.getOrDefault("")
+                                  val idFromPath = path
+                                      .split('/')
+                                      .filter(String::isNotBlank)
+                                      .lastOrNull()
+                                      .orEmpty()
+                                  val t = URLEncoder.encode(itemName, "UTF-8")
+                                  when (provider.lowercase()) {
+                                      "pornhub" -> {
+                                          val id = itemUrl.substringAfter("viewkey=", "")
+                                              .substringBefore('&')
+                                              .ifBlank { idFromPath }
+                                          val v = URLEncoder.encode("pornhub://$id", "UTF-8")
+                                          val e = URLEncoder.encode(itemUrl, "UTF-8")
+                                          nav.navigate("player/eporner/$v/$e/$t")
+                                      }
+                                      "xhamster" -> {
+                                          if (idFromPath.matches(Regex("[A-Za-z0-9_-]{1,100}"))) {
+                                              val id = URLEncoder.encode(idFromPath, "UTF-8")
+                                              nav.navigate("player/xhamster/$id/$t")
+                                          }
+                                      }
+                                      "eporner" -> {
+                                          if (idFromPath.matches(Regex("[A-Za-z0-9_-]{1,100}"))) {
+                                              val v = URLEncoder.encode(idFromPath, "UTF-8")
+                                              val e = URLEncoder.encode(itemUrl, "UTF-8")
+                                              nav.navigate("player/eporner/$v/$e/$t")
+                                          }
+                                      }
+                                  }
                              }
                          },
                     )
@@ -1457,6 +1477,11 @@ fun StreamCloudApp() {
                                 nav.navigate("player/eporner/$v/$e/$t")
                             }
                         },
+                        onDownloadXHamster = { videoId, title ->
+                            val id = URLEncoder.encode(videoId, "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("player/xhamster/$id/$t?download=true")
+                        },
                         onOpenRedditLogin = { nav.navigate("reddit-login") },
                         onOpenSearch = { source ->
                             nav.navigate("adult-search/${source.name}")
@@ -1498,10 +1523,14 @@ fun StreamCloudApp() {
                     )
                 }
                 composable(
-                    "player/xhamster/{id}/{title}",
+                    "player/xhamster/{id}/{title}?download={download}",
                     arguments = listOf(
                         navArgument("id") { type = NavType.StringType },
                         navArgument("title") { type = NavType.StringType },
+                        navArgument("download") {
+                            type = NavType.BoolType
+                            defaultValue = false
+                        },
                     ),
                 ) { entry ->
                     val id = URLDecoder.decode(entry.arguments!!.getString("id")!!, "UTF-8")
@@ -1510,6 +1539,7 @@ fun StreamCloudApp() {
                         videoId = id,
                         title = title,
                         onBack = { nav.popBackStack() },
+                        downloadWhenAvailable = entry.arguments?.getBoolean("download") == true,
                     )
                 }
 
