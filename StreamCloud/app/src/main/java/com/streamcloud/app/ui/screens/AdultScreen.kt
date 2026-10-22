@@ -1005,7 +1005,7 @@ private fun PornhubCategoryCarousel(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(
-                    categories.take(18),
+                    categories,
                     key = { it.id.ifBlank { it.title } },
                 ) { category ->
                     PornhubCategoryCard(
