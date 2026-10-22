@@ -1568,7 +1568,10 @@ private fun AdultCard(v: AdultItem, onClick: () -> Unit) {
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
-            if (v.source != AdultSource.Pornhub) {
+            if (v.source != AdultSource.Pornhub &&
+                v.source != AdultSource.Eporner &&
+                v.source != AdultSource.XHamster
+            ) {
                 Icon(
                     Icons.Default.PlayCircle,
                     null,
