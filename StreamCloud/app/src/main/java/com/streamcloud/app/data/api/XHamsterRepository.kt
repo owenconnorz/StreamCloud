@@ -3,6 +3,7 @@ package com.streamcloud.app.data.api
 import android.webkit.CookieManager
 import com.streamcloud.app.data.network.BrowserHeaders
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -34,6 +35,12 @@ private val XHAMSTER_PAGE_JSON = Json { isLenient = true }
  */
 object XHamsterRepository {
     private const val BASE_URL = "https://xhamster.com"
+    private val cookieHosts = listOf(
+        "https://xhamster.com",
+        "https://www.xhamster.com",
+        "https://m.xhamster.com",
+    )
+    private val cookiePaths = listOf("/", "/login")
 
     private val client by lazy {
         OkHttpClient.Builder()
@@ -56,6 +63,57 @@ object XHamsterRepository {
             "XHamster did not provide a valid video identifier."
         }
         return "$BASE_URL/videos/$videoId"
+    }
+
+    /**
+     * Remove only XHamster cookies from WebView's shared cookie store.
+     * Other provider sessions must remain untouched.
+     */
+    suspend fun clearSessionCookies(): Boolean {
+        val manager = CookieManager.getInstance()
+        val cookieNames = cookieHosts.flatMap { host ->
+            cookiePaths.flatMap { path ->
+                runCatching { manager.getCookie("$host$path").orEmpty() }
+                    .getOrDefault("")
+                    .split(';')
+                    .mapNotNull { cookie ->
+                        cookie.trim()
+                            .substringBefore('=')
+                            .takeIf(String::isNotBlank)
+                    }
+            }
+        }.distinct()
+
+        cookieNames.forEach { name ->
+            cookieHosts.forEach { host ->
+                cookiePaths.forEach { path ->
+                    manager.setCookie(
+                        "$host$path",
+                        "$name=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=$path; Secure",
+                    )
+                    manager.setCookie(
+                        "$host$path",
+                        "$name=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Domain=.xhamster.com; Path=$path; Secure",
+                    )
+                }
+            }
+        }
+        manager.flush()
+        repeat(3) { attempt ->
+            if (attempt > 0) delay(150L)
+            manager.flush()
+            val remaining = cookieHosts.any { host ->
+                cookiePaths.any { path ->
+                    runCatching { manager.getCookie("$host$path").orEmpty() }
+                        .getOrDefault("")
+                        .split(';')
+                        .map { it.trim().substringBefore('=') }
+                        .any { it in cookieNames }
+                }
+            }
+            if (!remaining) return true
+        }
+        return cookieNames.isEmpty()
     }
 
     private fun requestPage(url: String): String {

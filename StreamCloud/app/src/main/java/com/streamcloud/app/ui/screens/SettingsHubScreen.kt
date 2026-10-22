@@ -195,6 +195,7 @@ fun SettingsHubScreen(
     onWatchPartyMedia: (com.streamcloud.app.data.watchparty.PartyMedia) -> Unit = {},
     onOpenRedditLogin: () -> Unit = {},
     onOpenPornhubLogin: () -> Unit,
+    onOpenXHamsterLogin: () -> Unit,
     onSubPageChanged: (Boolean) -> Unit = {},
     backRequest: Int = 0,
     focusRequest: Int = 0,
@@ -1457,6 +1458,8 @@ fun SettingsHubScreen(
                     RedditAccountRow(onLogin = onOpenRedditLogin)
                     SettingDivider()
                     PornhubAccountRow(onLogin = onOpenPornhubLogin)
+                    SettingDivider()
+                    XHamsterAccountRow(onLogin = onOpenXHamsterLogin)
                 }
                 Spacer(Modifier.height(16.dp))
                 SettingsGroup {
@@ -4145,6 +4148,70 @@ private fun PornhubAccountRow(onLogin: () -> Unit) {
                         // indicator must not remain stuck if its immediate
                         // verification races that write.
                         sl.settings.clearPornhubAccount()
+                    }
+                },
+            ) { Text("Sign out") }
+        } else {
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun XHamsterAccountRow(onLogin: () -> Unit) {
+    val context = LocalContext.current
+    val sl = remember(context) { ServiceLocator.get(context) }
+    val signedIn by sl.settings.xhamsterSignedIn.collectAsState(initial = false)
+    val scope = rememberCoroutineScope()
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(18.dp), showOutline = false)
+            .clickable(onClick = onLogin)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBox(
+            if (signedIn) Icons.Default.Logout else Icons.Default.Login,
+            Color(0xFF4F8DFF),
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (signedIn) "XHamster" else "Sign in to XHamster",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                if (signedIn) "Signed in — tap to manage the account"
+                else "Use XHamster’s official page for login and verification",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+            )
+        }
+        if (signedIn) {
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        val cleared = runCatching {
+                            com.streamcloud.app.data.api.XHamsterRepository.clearSessionCookies()
+                        }.getOrDefault(false)
+                        if (cleared) {
+                            sl.settings.clearXHamsterAccount()
+                        } else {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Could not clear the XHamster session. Try again.",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                        }
                     }
                 },
             ) { Text("Sign out") }

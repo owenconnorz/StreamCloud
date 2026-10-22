@@ -400,6 +400,7 @@ fun StreamCloudApp() {
         currentRoute == "plugins" || currentRoute == "plugin-picker" ||
         currentRoute == "reddit-login" ||
         currentRoute == "pornhub-login" ||
+        currentRoute == "xhamster-login" ||
         currentRoute?.startsWith("adult-search/") == true ||
         currentRoute == Tab.Adult.route
     val isMusicSearchRoute = currentRoute?.startsWith("music-search") == true
@@ -1757,6 +1758,7 @@ fun StreamCloudApp() {
                             onSwitchProfile   = { showProfilePicker = true },
                             onOpenRedditLogin = { nav.navigate("reddit-login") },
                             onOpenPornhubLogin = { nav.navigate("pornhub-login") },
+                            onOpenXHamsterLogin = { nav.navigate("xhamster-login") },
                             onSubPageChanged  = { settingsHasSubPage = it },
                             backRequest       = settingsBackRequest,
                             focusRequest      = settingsFocusRequest,
@@ -1790,6 +1792,18 @@ fun StreamCloudApp() {
                                 // older build already left the local flag true.
                                 sl.settings.setPornhubSignedIn(false)
                                 sl.settings.setPornhubSignedIn(true)
+                                nav.popBackStack()
+                            }
+                        },
+                        onBack = { nav.popBackStack() },
+                    )
+                }
+                composable("xhamster-login") {
+                    val loginScope = rememberCoroutineScope()
+                    com.streamcloud.app.ui.screens.adult.XHamsterLoginScreen(
+                        onLoginSuccess = {
+                            loginScope.launch {
+                                sl.settings.setXHamsterSignedIn(true)
                                 nav.popBackStack()
                             }
                         },
