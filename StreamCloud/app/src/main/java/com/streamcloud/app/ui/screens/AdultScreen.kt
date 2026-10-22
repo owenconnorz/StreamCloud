@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,6 +58,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
@@ -71,6 +75,8 @@ import com.streamcloud.app.ui.screens.adult.RedditFeedView
 import com.streamcloud.app.ui.screens.adult.RedGifsFeedView
 import com.streamcloud.app.ui.screens.adult.PornhubShortiesScreen
 import com.streamcloud.app.ui.screens.adult.ProviderHomeFeed
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
@@ -452,26 +458,44 @@ fun AdultScreen(
     }
 
     detailItem?.let { item ->
-        EpornerDetailSheet(
-            item       = item,
-            context    = context,
-            onDownload = { vm.downloadVideo(item) }
-                .takeIf { item.source == AdultSource.Pornhub },
-            onPlay     = {
-                vm.recordHistory(item)
-                detailItem = null
-                if (item.source == AdultSource.Reddit) {
-                    onPlay(item.id, item.streamUrl.orEmpty(), item.title)
-                } else if (item.source == AdultSource.Pornhub) {
-                    onPlay("pornhub://${item.id}", item.embedUrl.orEmpty(), item.title)
-                } else if (item.source == AdultSource.XHamster) {
-                    onPlay("xhamster://${item.id}", item.embedUrl.orEmpty(), item.title)
-                } else {
-                    onPlay(item.epornerId ?: item.id, item.embedUrl.orEmpty(), item.title)
-                }
-            },
-            onDismiss  = { detailItem = null },
-        )
+        val playItem = {
+            vm.recordHistory(item)
+            detailItem = null
+            if (item.source == AdultSource.Reddit) {
+                onPlay(item.id, item.streamUrl.orEmpty(), item.title)
+            } else if (item.source == AdultSource.Pornhub) {
+                onPlay("pornhub://${item.id}", item.embedUrl.orEmpty(), item.title)
+            } else if (item.source == AdultSource.XHamster) {
+                onPlay("xhamster://${item.id}", item.embedUrl.orEmpty(), item.title)
+            } else {
+                onPlay(item.epornerId ?: item.id, item.embedUrl.orEmpty(), item.title)
+            }
+        }
+        val dismissItem = { detailItem = null }
+        if (item.source in setOf(
+                AdultSource.Eporner,
+                AdultSource.Pornhub,
+                AdultSource.XHamster,
+            )
+        ) {
+            AdultVideoDetailPage(
+                item = item,
+                context = context,
+                onPlay = playItem,
+                onDismiss = dismissItem,
+                onDownload = { vm.downloadVideo(item) }
+                    .takeIf { item.source == AdultSource.Pornhub },
+            )
+        } else {
+            EpornerDetailSheet(
+                item = item,
+                context = context,
+                onDownload = { vm.downloadVideo(item) }
+                    .takeIf { item.source == AdultSource.Pornhub },
+                onPlay = playItem,
+                onDismiss = dismissItem,
+            )
+        }
     }
 }
 
@@ -1365,6 +1389,262 @@ private fun EpornerDetailSheet(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AdultVideoDetailPage(
+    item: AdultItem,
+    context: Context,
+    onPlay: () -> Unit,
+    onDismiss: () -> Unit,
+    onDownload: (() -> Unit)? = null,
+) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val scope = rememberCoroutineScope()
+    val playFocusRequester = remember { FocusRequester() }
+    var saved by remember(item.id, item.source) { mutableStateOf(false) }
+
+    LaunchedEffect(item.id, item.source) {
+        LibraryDb.get(context).watchlist()
+            .isWatchlisted(adultWatchlistId(item))
+            .collect { saved = it }
+    }
+    LaunchedEffect(isTv) {
+        if (isTv) runCatching { playFocusRequester.requestFocus() }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        BackHandler(onBack = onDismiss)
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(if (isTv) 540.dp else 470.dp),
+                ) {
+                    val imageUrl = item.thumbnail ?: item.previewImage
+                    if (!imageUrl.isNullOrBlank()) {
+                        val imageModel = remember(item.source, imageUrl) {
+                            ImageRequest.Builder(context).apply {
+                                if (item.source == AdultSource.Pornhub) {
+                                    addHeader("User-Agent", BrowserHeaders.USER_AGENT)
+                                    addHeader("Referer", "https://www.pornhub.com/")
+                                }
+                            }.data(imageUrl).build()
+                        }
+                        AsyncImage(
+                            model = imageModel,
+                            contentDescription = item.title,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.Black.copy(alpha = 0.50f),
+                                        Color.Transparent,
+                                        Color.Black.copy(alpha = 0.20f),
+                                        MaterialTheme.colorScheme.background.copy(alpha = 0.98f),
+                                    ),
+                                ),
+                            ),
+                    )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .statusBarsPadding()
+                            .padding(start = if (isTv) 28.dp else 12.dp, top = 8.dp)
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.48f)),
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to adult videos",
+                            tint = Color.White,
+                        )
+                    }
+
+                    Column(
+                        Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .padding(horizontal = if (isTv) 40.dp else 20.dp, vertical = 18.dp),
+                    ) {
+                        Text(
+                            item.title,
+                            style = if (isTv) {
+                                MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold)
+                            } else {
+                                MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
+                            },
+                            color = Color.White,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            item.source.label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White.copy(alpha = 0.84f),
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            item.durationLabel?.let { AdultHeroMeta(Icons.Default.Timer, it) }
+                            item.views?.let { AdultHeroMeta(Icons.Default.Visibility, "$it views") }
+                            item.rating?.let { AdultHeroMeta(Icons.Default.Star, it) }
+                        }
+                        Spacer(Modifier.height(18.dp))
+                        Button(
+                            onClick = onPlay,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                                .tvFocusBorder(RoundedCornerShape(50))
+                                .then(if (isTv) Modifier.focusRequester(playFocusRequester) else Modifier),
+                            shape = RoundedCornerShape(50),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Play", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = if (isTv) 40.dp else 20.dp,
+                            end = if (isTv) 40.dp else 20.dp,
+                            top = 18.dp,
+                            bottom = 32.dp,
+                        ),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    if (item.source == AdultSource.Pornhub) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        val db = LibraryDb.get(context)
+                                        val watchlistId = adultWatchlistId(item)
+                                        if (saved) {
+                                            db.watchlist().remove(watchlistId)
+                                        } else {
+                                            db.watchlist().add(
+                                                WatchlistEntity(
+                                                    tmdbId = watchlistId,
+                                                    title = item.title,
+                                                    posterUrl = item.thumbnail,
+                                                    mediaType = item.source.name.lowercase(),
+                                                    csPlugin = item.source.name.lowercase(),
+                                                    csUrl = item.embedUrl.orEmpty(),
+                                                ),
+                                            )
+                                        }
+                                        com.streamcloud.app.data.nuvio.NuvioAutoSync
+                                            .request(context.applicationContext)
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Icon(
+                                    if (saved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                    contentDescription = null,
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(if (saved) "Saved" else "Save")
+                            }
+                            onDownload?.let { download ->
+                                OutlinedButton(
+                                    onClick = download,
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Icon(Icons.Default.FileDownload, contentDescription = null)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Download")
+                                }
+                            }
+                        }
+                    }
+
+                    item.tags?.takeIf { it.isNotBlank() }?.let { tagString ->
+                        Text(
+                            "Tags",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(
+                                tagString.split(",")
+                                    .map(String::trim)
+                                    .filter(String::isNotBlank)
+                                    .distinct()
+                                    .take(14),
+                            ) { tag ->
+                                Surface(
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = RoundedCornerShape(50),
+                                ) {
+                                    Text(
+                                        tag,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdultHeroMeta(icon: ImageVector, label: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color.White)
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.9f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
