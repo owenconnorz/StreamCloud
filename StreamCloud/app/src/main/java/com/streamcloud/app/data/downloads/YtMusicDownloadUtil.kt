@@ -57,6 +57,24 @@ object YtMusicDownloadUtil {
     val downloads = MutableStateFlow<Map<String, Download>>(emptyMap())
     private val rejectedDownloadClients = ConcurrentHashMap<String, MutableSet<String>>()
 
+    /**
+     * DownloadManager's listener reports state changes, but does not continuously publish byte
+     * progress. Refresh its live snapshots while a screen is observing downloads.
+     */
+    fun refreshCurrentDownloadProgress() {
+        val manager = _downloadManager ?: return
+        val currentDownloads = manager.currentDownloads
+        if (currentDownloads.isEmpty()) return
+
+        downloads.update { existing ->
+            existing.toMutableMap().apply {
+                currentDownloads.forEach { download ->
+                    set(download.request.id, download)
+                }
+            }
+        }
+    }
+
     private data class DownloadStream(
         val url: String,
         val userAgent: String,

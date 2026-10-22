@@ -58,6 +58,7 @@ import com.streamcloud.app.data.ytmusic.YtmSong
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.streamcloud.app.ui.util.verticalScrollbar
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -113,6 +114,15 @@ fun YtPlaylistScreen(
     val exoDownloads by com.streamcloud.app.data.downloads.YtMusicDownloadUtil.downloads
         .collectAsState()
 
+    LaunchedEffect(playlistId) {
+        // Media3 emits download state changes, but progress percentages need polling while
+        // this playlist remains on screen. The effect is cancelled when the user navigates away.
+        while (true) {
+            com.streamcloud.app.data.downloads.YtMusicDownloadUtil
+                .refreshCurrentDownloadProgress()
+            delay(500)
+        }
+    }
 
     val downloadProgress = remember(okhttpProgress, exoDownloads) {
         val merged = okhttpProgress.toMutableMap()
