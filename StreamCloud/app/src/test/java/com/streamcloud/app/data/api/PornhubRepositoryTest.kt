@@ -126,6 +126,25 @@ class PornhubRepositoryTest {
     }
 
     @Test
+    fun searchPageWithResultsCanContinueWithoutPaginationLink() {
+        val html = """
+            <ul>
+              <li data-video-vkey="result">
+                <a href="/view_video.php?viewkey=result" title="Search result"></a>
+              </li>
+            </ul>
+        """.trimIndent()
+
+        assertTrue(hasNextPornhubPage(html))
+    }
+
+    @Test
+    fun emptySearchPageEndsPagination() {
+        assertTrue(!hasNextPornhubPage("<main>No videos found</main>"))
+        assertTrue(!hasNextPornhubPage("<main></main>"))
+    }
+
+    @Test
     fun authenticatedRequestsKeepPornhubProvidedCookies() {
         val cookies = pornhubRequestCookieHeader("session=authenticated; locale=en")
 

@@ -90,7 +90,7 @@ object PornhubRepository {
         }
         PornhubPage(
             items = parsed,
-            hasMore = parsed.isNotEmpty() && hasNextPornhubPage(html, page),
+            hasMore = parsed.isNotEmpty() && hasNextPornhubPage(html),
         )
     }
 
@@ -608,15 +608,14 @@ internal fun orderPornhubSources(
     return preferred.distinctBy { it.url }
 }
 
-internal fun hasNextPornhubPage(html: String, currentPage: Int): Boolean {
+internal fun hasNextPornhubPage(html: String): Boolean {
     val document = Jsoup.parse(html)
     val next = document.selectFirst(
         "li.page_next a, a.page_next, a[rel=next], a[aria-label*=Next]",
     )
     if (next != null) return true
-    return document.select("li[data-video-vkey], li[data-video-segment]").isNotEmpty() &&
-        !document.text().contains("No videos found", ignoreCase = true) &&
-        currentPage == 1
+    return document.select(PORNHUB_CARD_SELECTOR).isNotEmpty() &&
+        !document.text().contains("No videos found", ignoreCase = true)
 }
 
 private fun extractBalancedJsonArray(text: String, start: Int): String? {
