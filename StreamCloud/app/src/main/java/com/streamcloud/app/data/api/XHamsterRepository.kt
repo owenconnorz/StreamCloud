@@ -25,14 +25,15 @@ data class XHamsterPage(
 
 class XHamsterUnavailableException(message: String) : Exception(message)
 
+private const val XHAMSTER_DEFAULT_PAGE_SIZE = 50
+private val XHAMSTER_PAGE_JSON = Json { isLenient = true }
+
 /**
  * Reads XHamster's public listing pages. Playback stays on the official video
  * page so the provider's own player and access checks remain in control.
  */
 object XHamsterRepository {
     private const val BASE_URL = "https://xhamster.com"
-    private const val DEFAULT_PAGE_SIZE = 50
-    private val pageJson = Json { isLenient = true }
 
     private val client by lazy {
         OkHttpClient.Builder()
@@ -152,7 +153,7 @@ internal fun parseXHamsterListing(
     }
 
     val root = runCatching {
-        pageJson.parseToJsonElement(rawJson.substring(jsonStart, jsonEnd + 1)).jsonObject
+        XHAMSTER_PAGE_JSON.parseToJsonElement(rawJson.substring(jsonStart, jsonEnd + 1)).jsonObject
     }.getOrElse {
         throw XHamsterUnavailableException("XHamster returned unreadable listing data.")
     }
@@ -205,7 +206,7 @@ internal fun parseXHamsterListing(
         ?: pagination?.int("maxPage")
     val pageSize = root.int("perPage")
         ?: pageData?.obj("videoListProps")?.int("perPage")
-        ?: DEFAULT_PAGE_SIZE
+        ?: XHAMSTER_DEFAULT_PAGE_SIZE
 
     val hasMore = items.isNotEmpty() && if (lastPage != null) {
         currentPage < lastPage
@@ -266,10 +267,13 @@ private fun formatXHamsterDuration(totalSeconds: Int): String {
     }
 }
 
-private fun JsonObject.arrayAt(vararg path: String): JsonArray? =
-    path.fold<JsonElement?>(this) { current, key ->
-        (current as? JsonObject)?.get(key)
-    } as? JsonArray
+private fun JsonObject.arrayAt(vararg path: String): JsonArray? {
+    var current: JsonElement = this
+    for (key in path) {
+        current = (current as? JsonObject)?.get(key) ?: return null
+    }
+    return current as? JsonArray
+}
 
 private fun JsonObject.obj(key: String): JsonObject? =
     this[key] as? JsonObject

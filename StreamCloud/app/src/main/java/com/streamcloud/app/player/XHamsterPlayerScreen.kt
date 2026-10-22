@@ -81,7 +81,7 @@ fun XHamsterPlayerScreen(
                 allowFileAccess = false
                 allowContentAccess = false
                 javaScriptCanOpenWindowsAutomatically = false
-                supportMultipleWindows = false
+                setSupportMultipleWindows(false)
             }
             webChromeClient = object : WebChromeClient() {
                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
