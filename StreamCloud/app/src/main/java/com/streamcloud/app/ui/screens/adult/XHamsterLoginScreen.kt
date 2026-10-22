@@ -27,7 +27,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicBoolean
+
+private val XHAMSTER_SIGNED_IN_CHECK = """
+    (function() {
+      var bodyText = document.body ? document.body.innerText : '';
+      var logoutControl = document.querySelector(
+        'a[href*="logout" i], a[href*="signout" i], ' +
+        'button[aria-label*="log out" i], button[aria-label*="sign out" i], ' +
+        '[data-testid*="logout" i], [data-role*="logout" i]'
+      );
+      return !!logoutControl ||
+        /\b(log\s*out|logout|sign\s*out)\b/i.test(bodyText);
+    })();
+""".trimIndent()
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -38,6 +52,8 @@ fun XHamsterLoginScreen(
     var pageLoading by remember { mutableStateOf(true) }
     var pageError by remember { mutableStateOf<String?>(null) }
     var canFinish by remember { mutableStateOf(false) }
+    var canReturn by remember { mutableStateOf(false) }
+    var manuallyConfirmed by remember { mutableStateOf(false) }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var webViewGeneration by remember { mutableIntStateOf(0) }
     val screenDisposed = remember { AtomicBoolean(false) }
@@ -59,7 +75,7 @@ fun XHamsterLoginScreen(
     fun finishOrGoBack() {
         if (screenDisposed.get()) return
         CookieManager.getInstance().flush()
-        val signedIn = canFinish
+        val signedIn = canFinish || manuallyConfirmed
         disposeScreen()
         if (signedIn) onLoginSuccess() else onBack()
     }
@@ -67,6 +83,22 @@ fun XHamsterLoginScreen(
     BackHandler(onBack = ::finishOrGoBack)
     DisposableEffect(Unit) {
         onDispose(::disposeScreen)
+    }
+    LaunchedEffect(webViewGeneration, webView, canFinish) {
+        while (!canFinish && !screenDisposed.get()) {
+            val activeWebView = webView
+            val currentUri = runCatching { Uri.parse(activeWebView?.url.orEmpty()) }.getOrNull()
+            if (
+                !pageLoading &&
+                activeWebView != null &&
+                isXHamsterLoginHost(currentUri?.host)
+            ) {
+                activeWebView.evaluateJavascript(XHAMSTER_SIGNED_IN_CHECK) { result ->
+                    if (!screenDisposed.get() && result == "true") canFinish = true
+                }
+            }
+            delay(1_000)
+        }
     }
 
     Column(
@@ -96,14 +128,23 @@ fun XHamsterLoginScreen(
                     style = MaterialTheme.typography.titleSmall,
                 )
                 Text(
-                    if (canFinish) "Press Back or Done to return"
-                    else "Use XHamster’s official page to sign in",
+                    when {
+                        canFinish -> "Press Back or Done to return"
+                        canReturn -> "After signing in on XHamster, tap Done to return"
+                        else -> "Use XHamster’s official page to sign in"
+                    },
                     color = Color.White.copy(alpha = 0.68f),
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
-            if (canFinish) {
-                TextButton(onClick = ::finishOrGoBack, enabled = !pageLoading) {
+            if (canFinish || canReturn) {
+                TextButton(
+                    onClick = {
+                        manuallyConfirmed = !canFinish && canReturn
+                        finishOrGoBack()
+                    },
+                    enabled = !pageLoading,
+                ) {
                     Text("Done", color = Color(0xFF4F8DFF))
                 }
             }
@@ -159,8 +200,13 @@ fun XHamsterLoginScreen(
                                     pageLoading = true
                                     pageError = null
                                     val uri = runCatching { Uri.parse(url.orEmpty()) }.getOrNull()
-                                    if (uri?.path?.trimEnd('/') == "/login") {
+                                    val isLoginPage = uri?.path?.trimEnd('/') == "/login"
+                                    canReturn = uri?.host?.let(::isXHamsterLoginHost) == true &&
+                                        !isLoginPage
+                                    if (isLoginPage) {
                                         canFinish = false
+                                        canReturn = false
+                                        manuallyConfirmed = false
                                     }
                                 }
 
@@ -212,19 +258,12 @@ fun XHamsterLoginScreen(
                                     CookieManager.getInstance().flush()
                                     val uri = runCatching { Uri.parse(url.orEmpty()) }.getOrNull()
                                         ?: return
-                                    if (!isXHamsterLoginHost(uri.host) ||
-                                        uri.path?.trimEnd('/') == "/login"
-                                    ) {
+                                    if (!isXHamsterLoginHost(uri.host)) {
                                         return
                                     }
-                                    view.evaluateJavascript(
-                                        """
-                                        (function() {
-                                          var text = document.body ? document.body.innerText : '';
-                                          return /(^|\n)\s*(log\s*out|logout|sign\s*out)\b/i.test(text);
-                                        })();
-                                        """.trimIndent(),
-                                    ) { result ->
+                                    canReturn = uri.path?.trimEnd('/') != "/login"
+                                    if (!canReturn) return
+                                    view.evaluateJavascript(XHAMSTER_SIGNED_IN_CHECK) { result ->
                                         if (!screenDisposed.get()) canFinish = result == "true"
                                     }
                                 }
