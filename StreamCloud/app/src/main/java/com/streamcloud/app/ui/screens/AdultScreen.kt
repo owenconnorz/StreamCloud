@@ -378,7 +378,10 @@ fun AdultScreen(
             }
 
             // Provider categories and the active category.
-            if (state.source == AdultSource.Eporner || state.source == AdultSource.XHamster) Row(
+            if (state.source == AdultSource.Eporner ||
+                (state.source == AdultSource.XHamster &&
+                    (query.isNotBlank() || state.selectedXHamsterCategory != null))
+            ) Row(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp),
@@ -423,6 +426,24 @@ fun AdultScreen(
             }
 
             Spacer(Modifier.height(4.dp))
+
+            if (
+                state.source == AdultSource.XHamster &&
+                query.isBlank() &&
+                state.selectedXHamsterCategory == null
+            ) {
+                XHamsterCategoryCarousel(
+                    categories = state.xhamsterCategories,
+                    loading = state.loadingXHamsterCategories,
+                    error = state.xhamsterCategoryError,
+                    onViewAll = {
+                        vm.loadXHamsterCategories()
+                        showAllXHamsterCategories = true
+                    },
+                    onRetry = { vm.loadXHamsterCategories() },
+                    onSelect = { category -> vm.selectXHamsterCategory(category) },
+                )
+            }
 
             state.error?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(20.dp))
@@ -1083,6 +1104,74 @@ private fun PornhubShortiesEntry(onClick: () -> Unit) {
 }
 
 @Composable
+private fun XHamsterCategoryCarousel(
+    categories: List<XHamsterCategory>,
+    loading: Boolean,
+    error: String?,
+    onViewAll: () -> Unit,
+    onRetry: () -> Unit,
+    onSelect: (XHamsterCategory) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Categories",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            TextButton(onClick = onViewAll) {
+                Text("All categories")
+            }
+        }
+        when {
+            loading && categories.isEmpty() -> Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(116.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.dp)
+            }
+            categories.isNotEmpty() -> LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                items(categories.take(12), key = XHamsterCategory::id) { category ->
+                    XHamsterCategoryCard(
+                        category = category,
+                        onClick = { onSelect(category) },
+                        modifier = Modifier.width(190.dp),
+                    )
+                }
+            }
+            error != null && categories.isEmpty() -> Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    error,
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                TextButton(onClick = onRetry) { Text("Retry") }
+            }
+        }
+    }
+}
+
+@Composable
 private fun PornhubCategoryCarousel(
     categories: List<PornhubCategory>,
     loading: Boolean,
@@ -1219,10 +1308,10 @@ private fun XHamsterCategoriesPage(
             )
         }
         when {
-            loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            loading && categories.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color(0xFFFF9000))
             }
-            error != null -> Column(
+            error != null && categories.isEmpty() -> Column(
                 Modifier
                     .fillMaxWidth()
                     .padding(24.dp),
@@ -1231,7 +1320,7 @@ private fun XHamsterCategoriesPage(
                 Text(error, color = Color.White, textAlign = TextAlign.Center)
                 TextButton(onClick = onRetry) { Text("Try again") }
             }
-            else -> LazyVerticalGrid(
+            categories.isNotEmpty() -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(170.dp),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1244,6 +1333,25 @@ private fun XHamsterCategoriesPage(
                         onClick = { onSelect(category) },
                     )
                 }
+                if (loading) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Box(
+                            Modifier.fillMaxWidth().padding(16.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(color = Color(0xFFFF9000))
+                        }
+                    }
+                }
+            }
+            else -> Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("No XHamster categories were returned.", color = Color.White)
+                TextButton(onClick = onRetry) { Text("Try again") }
             }
         }
     }

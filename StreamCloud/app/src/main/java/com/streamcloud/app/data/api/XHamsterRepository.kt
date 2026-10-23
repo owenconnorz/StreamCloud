@@ -5,10 +5,11 @@ import com.streamcloud.app.data.network.BrowserHeaders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -75,31 +76,49 @@ object XHamsterRepository {
             parseXHamsterListing(html, safePage)
         }
 
-    suspend fun fetchCategories(): List<XHamsterCategory> = withContext(Dispatchers.IO) {
+    suspend fun fetchCategories(
+        onPartialResults: (List<XHamsterCategory>) -> Unit = {},
+    ): List<XHamsterCategory> = withContext(Dispatchers.IO) {
         // XHamster's main category directory is split into letter and format pages.
-        // Follow the official directory links rather than a locale-specific catalog.
-        val directoryHtml = requestPage("$BASE_URL/categories")
+        // The menu URL presents the same categories UI used by the site navigation.
+        // Keep the main directory as the baseline so one unavailable letter page
+        // cannot make the entire category screen fail.
+        val directoryHtml = requestPage(buildXHamsterCategoriesUrl())
+        val categories = parseXHamsterCategories(directoryHtml).toMutableList()
+        if (categories.isNotEmpty()) {
+            onPartialResults(categories.sortedBy { it.title.lowercase() })
+        }
         val indexPaths = parseXHamsterCategoryIndexPaths(directoryHtml)
             .filterNot { it == "/categories" }
-        if (indexPaths.isEmpty()) {
-            throw XHamsterUnavailableException(
-                "XHamster's category directory did not provide its category pages.",
-            )
-        }
-
-        val requestLimit = Semaphore(4)
-        val otherPages = coroutineScope {
+        val requestLimit = Semaphore(2)
+        val otherCategories = supervisorScope {
             indexPaths.map { path ->
                 async {
-                    requestLimit.withPermit {
-                        requestPage("$BASE_URL$path")
+                    try {
+                        val pageCategories = requestLimit.withPermit {
+                            parseXHamsterCategories(requestPage("$BASE_URL$path"))
+                        }
+                        if (pageCategories.isNotEmpty()) {
+                            val snapshot = synchronized(categories) {
+                                categories.addAll(pageCategories)
+                                categories
+                                    .distinctBy(XHamsterCategory::path)
+                                    .sortedBy { it.title.lowercase() }
+                            }
+                            onPartialResults(snapshot)
+                        }
+                        pageCategories
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        emptyList()
                     }
                 }
-            }.awaitAll()
+            }.awaitAll().flatten()
         }
 
-        (listOf(directoryHtml) + otherPages)
-            .flatMap(::parseXHamsterCategories)
+        categories.addAll(otherCategories)
+        categories
             .distinctBy(XHamsterCategory::path)
             .sortedBy { it.title.lowercase() }
     }
@@ -216,6 +235,9 @@ object XHamsterRepository {
     }
 }
 
+internal fun buildXHamsterCategoriesUrl(): String =
+    "https://xhamster.com/categories?from=menu"
+
 internal fun buildXHamsterListingUrl(
     query: String,
     page: Int,
@@ -246,9 +268,9 @@ internal fun buildXHamsterListingUrl(
 
 internal fun parseXHamsterCategories(html: String): List<XHamsterCategory> {
     val document = Jsoup.parse(html)
-    if (document.body()?.hasClass("xh-scroll-disabled") == true) {
+    if (isXHamsterAccessGate(html, document)) {
         throw XHamsterUnavailableException(
-            "Complete XHamster's age confirmation on its official site, then try again.",
+            "XHamster requires its official age or region check before showing categories. Complete that on XHamster, then retry.",
         )
     }
     if (isXHamsterVerificationPage(html)) {
@@ -280,6 +302,17 @@ internal fun parseXHamsterCategories(html: String): List<XHamsterCategory> {
         }
         .distinctBy(XHamsterCategory::path)
         .sortedBy { it.title.lowercase() }
+}
+
+private fun isXHamsterAccessGate(
+    html: String,
+    document: org.jsoup.nodes.Document,
+): Boolean {
+    if (document.body()?.hasClass("xh-scroll-disabled") == true) return true
+    val lower = document.text().lowercase()
+    return "before age verification" in lower ||
+        "do you want to see content for" in lower ||
+        "you need to log in/sign up so you don't have to go through verification process again" in lower
 }
 
 internal fun parseXHamsterCategoryIndexPaths(html: String): List<String> {

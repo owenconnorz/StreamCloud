@@ -516,7 +516,11 @@ class AdultViewModel(
                 it.copy(loadingXHamsterCategories = true, xhamsterCategoryError = null)
             }
             try {
-                val categories = XHamsterRepository.fetchCategories()
+                val categories = XHamsterRepository.fetchCategories { partialCategories ->
+                    _state.update {
+                        it.copy(xhamsterCategories = partialCategories)
+                    }
+                }
                 _state.update {
                     it.copy(
                         xhamsterCategories = categories,

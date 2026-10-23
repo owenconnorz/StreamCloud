@@ -133,6 +133,32 @@ class XHamsterRepositoryTest {
     }
 
     @Test
+    fun usesTheOfficialMenuCategoryUrl() {
+        assertEquals(
+            "https://xhamster.com/categories?from=menu",
+            buildXHamsterCategoriesUrl(),
+        )
+    }
+
+    @Test
+    fun reportsOfficialAgeAndRegionGateInsteadOfEmptyCategories() {
+        val error = runCatching {
+            parseXHamsterCategories(
+                """
+                <html><body>
+                  <h1>Join xHamster for free</h1>
+                  <p>You need to log in/sign up so you don't have to go through verification process again</p>
+                  <p>Do you want to see content for United States?</p>
+                </body></html>
+                """.trimIndent(),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is XHamsterUnavailableException)
+        assertTrue(error?.message.orEmpty().contains("official age or region check"))
+    }
+
+    @Test
     fun findsAllOfficialCategoryDirectoryPages() {
         val paths = parseXHamsterCategoryIndexPaths(
             """
