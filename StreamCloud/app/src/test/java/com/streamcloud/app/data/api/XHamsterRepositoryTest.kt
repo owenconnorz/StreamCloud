@@ -2,7 +2,6 @@ package com.streamcloud.app.data.api
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -187,11 +186,9 @@ class XHamsterRepositoryTest {
             "session=session-value; age_check=confirmed; x_content_preference_index=shemale",
             buildXHamsterCookieHeader(providerCookies, XHamsterOrientation.TRANSGENDER),
         )
-        assertNull(
-            buildXHamsterCookieHeader(
-                "x_content_preference_index=gay",
-                XHamsterOrientation.STRAIGHT,
-            ),
+        assertEquals(
+            "x_content_preference_index=straight",
+            buildXHamsterCookieHeader(null, XHamsterOrientation.STRAIGHT),
         )
     }
 

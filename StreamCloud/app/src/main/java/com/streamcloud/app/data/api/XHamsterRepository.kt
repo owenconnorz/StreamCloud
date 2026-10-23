@@ -41,9 +41,9 @@ data class XHamsterCategory(
 enum class XHamsterOrientation(
     val label: String,
     val pathPrefix: String,
-    val cookiePreference: String?,
+    val cookiePreference: String,
 ) {
-    STRAIGHT("Straight", "", null),
+    STRAIGHT("Straight", "", "straight"),
     GAY("Gay", "/gay", "gay"),
     TRANSGENDER("Transgender", "/shemale", "shemale");
 
@@ -305,9 +305,7 @@ internal fun buildXHamsterCookieHeader(
         }
         .toMutableList()
 
-    orientation.cookiePreference?.let { preference ->
-        cookies += "x_content_preference_index=$preference"
-    }
+    cookies += "x_content_preference_index=${orientation.cookiePreference}"
     return cookies.joinToString("; ").takeIf(String::isNotBlank)
 }
 
