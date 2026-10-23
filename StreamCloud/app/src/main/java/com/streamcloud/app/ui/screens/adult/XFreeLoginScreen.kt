@@ -53,6 +53,7 @@ private val XFREE_VERIFICATION_PAGE_TEXT = """
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun XFreeLoginScreen(
+    onLoginAttemptStarted: () -> Unit,
     onLoginSuccess: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -60,9 +61,14 @@ fun XFreeLoginScreen(
     var pageError by remember { mutableStateOf<String?>(null) }
     var canFinish by remember { mutableStateOf(false) }
     var canReturn by remember { mutableStateOf(false) }
+    var verificationReadyToContinue by remember { mutableStateOf(false) }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var webViewGeneration by remember { mutableIntStateOf(0) }
     val screenDisposed = remember { AtomicBoolean(false) }
+
+    LaunchedEffect(Unit) {
+        onLoginAttemptStarted()
+    }
 
     fun destroyWebView(view: WebView?) {
         if (view == null) return
@@ -101,7 +107,12 @@ fun XFreeLoginScreen(
                 when {
                     isXFreeLoginHost(currentUri?.host) -> {
                         activeWebView.evaluateJavascript(XFREE_SIGNED_IN_CHECK) { result ->
-                            if (!screenDisposed.get() && result == "true") canFinish = true
+                            if (
+                                !screenDisposed.get() &&
+                                hasConfirmedXFreeSession(currentUri?.host, result == "true")
+                            ) {
+                                canFinish = true
+                            }
                         }
                     }
 
@@ -114,7 +125,10 @@ fun XFreeLoginScreen(
                                 !screenDisposed.get() &&
                                 isXFreeVerificationSuccessPage(currentUri?.host, pageText)
                             ) {
-                                canFinish = true
+                                // AgeVerif's success page still requires its Continue
+                                // handoff back to XFree. It is not proof that XFree
+                                // persisted the account session yet.
+                                verificationReadyToContinue = true
                             }
                         }
                     }
@@ -126,9 +140,7 @@ fun XFreeLoginScreen(
 
     LaunchedEffect(canFinish) {
         if (!canFinish) return@LaunchedEffect
-        // AgeVerif's success page says it will close automatically, but WebView
-        // does not consistently honor that request. Complete the same verified
-        // flow in-app after allowing the success state to render briefly.
+        // Return only after XFree itself confirms an authenticated session.
         delay(900)
         finishOrGoBack()
     }
@@ -162,6 +174,8 @@ fun XFreeLoginScreen(
                 Text(
                     when {
                         canFinish -> "Press Back or Done to return"
+                        verificationReadyToContinue ->
+                            "Tap Continue on the verification page to finish linking"
                         canReturn -> "Return when finished signing in"
                         else -> "Use XFree’s official page to sign in"
                     },
@@ -233,6 +247,9 @@ fun XFreeLoginScreen(
                                     pageError = null
                                     val uri = runCatching { Uri.parse(url.orEmpty()) }.getOrNull()
                                     val isLoginPage = uri?.path?.trimEnd('/') == "/login"
+                                    if (isXFreeLoginHost(uri?.host)) {
+                                        verificationReadyToContinue = false
+                                    }
                                     canReturn = isXFreeLoginHost(uri?.host) && !isLoginPage
                                     if (isLoginPage) {
                                         canFinish = false
@@ -290,7 +307,12 @@ fun XFreeLoginScreen(
                                     canReturn = uri.path?.trimEnd('/') != "/login"
                                     if (!canReturn) return
                                     view.evaluateJavascript(XFREE_SIGNED_IN_CHECK) { result ->
-                                        if (!screenDisposed.get()) canFinish = result == "true"
+                                        if (!screenDisposed.get()) {
+                                            canFinish = hasConfirmedXFreeSession(
+                                                uri.host,
+                                                result == "true",
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -364,6 +386,11 @@ internal fun isXFreeVerificationSuccessPage(host: String?, pageText: String?): B
         RegexOption.IGNORE_CASE,
     ).containsMatchIn(pageText.orEmpty())
 }
+
+internal fun hasConfirmedXFreeSession(
+    host: String?,
+    hasSignedOutControl: Boolean,
+): Boolean = isXFreeLoginHost(host) && hasSignedOutControl
 
 internal fun isAllowedXFreeLoginNavigation(
     scheme: String?,

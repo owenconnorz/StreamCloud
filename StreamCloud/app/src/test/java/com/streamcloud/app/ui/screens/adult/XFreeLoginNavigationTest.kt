@@ -65,4 +65,12 @@ class XFreeLoginNavigationTest {
             ),
         )
     }
+
+    @Test
+    fun ageVerificationSuccessAloneDoesNotConfirmAnXFreeSession() {
+        assertFalse(hasConfirmedXFreeSession("ageverif.com", true))
+        assertFalse(hasConfirmedXFreeSession("www.xfree.com", false))
+        assertFalse(hasConfirmedXFreeSession("xfree.com.example.net", true))
+        assertTrue(hasConfirmedXFreeSession("www.xfree.com", true))
+    }
 }

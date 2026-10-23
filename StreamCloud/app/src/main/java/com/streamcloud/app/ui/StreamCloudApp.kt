@@ -1886,6 +1886,11 @@ fun StreamCloudApp() {
                 composable("xfree-login") {
                     val loginScope = rememberCoroutineScope()
                     com.streamcloud.app.ui.screens.adult.XFreeLoginScreen(
+                        onLoginAttemptStarted = {
+                            loginScope.launch {
+                                sl.settings.setXFreeSignedIn(false)
+                            }
+                        },
                         onLoginSuccess = {
                             loginScope.launch {
                                 sl.settings.setXFreeSignedIn(true)
