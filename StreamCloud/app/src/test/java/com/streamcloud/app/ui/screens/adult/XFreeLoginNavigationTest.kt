@@ -6,18 +6,23 @@ import org.junit.Test
 
 class XFreeLoginNavigationTest {
     @Test
-    fun allowsXFreeAndItsOfficialIdentityPagesAsTopLevelHttpsNavigation() {
+    fun allowsXFreeIdentityAndAgeVerificationPagesAsTopLevelHttpsNavigation() {
         assertTrue(isAllowedXFreeLoginNavigation("https", "xfree.com", true))
         assertTrue(isAllowedXFreeLoginNavigation("https", "www.xfree.com", true))
         assertTrue(isAllowedXFreeLoginNavigation("https", "accounts.google.com", true))
         assertTrue(isAllowedXFreeLoginNavigation("https", "appleid.apple.com", true))
+        assertTrue(isAllowedXFreeLoginNavigation("https", "ageverif.com", true))
+        assertTrue(isAllowedXFreeLoginNavigation("https", "www.ageverif.com", true))
+        assertTrue(isAllowedXFreeLoginNavigation("https", "verify.ageverif.com", true))
     }
 
     @Test
     fun rejectsInsecureAndUntrustedTopLevelDestinations() {
         assertFalse(isAllowedXFreeLoginNavigation("http", "www.xfree.com", true))
+        assertFalse(isAllowedXFreeLoginNavigation("http", "www.ageverif.com", true))
         assertFalse(isAllowedXFreeLoginNavigation("javascript", "xfree.com", true))
         assertFalse(isAllowedXFreeLoginNavigation("https", "xfree.com.example.net", true))
+        assertFalse(isAllowedXFreeLoginNavigation("https", "ageverif.com.example.net", true))
         assertFalse(isAllowedXFreeLoginNavigation("https", "accounts.example.net", true))
     }
 

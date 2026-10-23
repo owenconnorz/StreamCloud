@@ -327,11 +327,19 @@ private fun isXFreeIdentityHost(host: String?): Boolean {
     )
 }
 
+private fun isXFreeVerificationHost(host: String?): Boolean {
+    val normalized = host?.lowercase()?.trimEnd('.') ?: return false
+    return normalized == "ageverif.com" || normalized.endsWith(".ageverif.com")
+}
+
 internal fun isAllowedXFreeLoginNavigation(
     scheme: String?,
     host: String?,
     isMainFrame: Boolean,
 ): Boolean {
     if (!scheme.equals("https", ignoreCase = true)) return false
-    return !isMainFrame || isXFreeLoginHost(host) || isXFreeIdentityHost(host)
+    return !isMainFrame ||
+        isXFreeLoginHost(host) ||
+        isXFreeIdentityHost(host) ||
+        isXFreeVerificationHost(host)
 }
