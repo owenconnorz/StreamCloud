@@ -42,14 +42,34 @@ private val XFREE_SIGNED_IN_CHECK = """
         'button[aria-label*="log out" i], button[aria-label*="sign out" i], ' +
         '[data-testid*="logout" i], [data-role*="logout" i]'
       );
-      return !!logoutControl ||
-        /\b(log\s*out|logout|sign\s*out)\b/i.test(bodyText);
+      return !/\bverify\s+your\s+age\b/i.test(bodyText) &&
+        (!!logoutControl || /\b(log\s*out|logout|sign\s*out)\b/i.test(bodyText));
     })();
 """.trimIndent()
 
 private val XFREE_VERIFICATION_PAGE_TEXT = """
     (function() {
       return JSON.stringify(document.body ? document.body.innerText : '');
+    })();
+""".trimIndent()
+
+// Run only after a user presses the app's Continue button on an AgeVerif
+// success page. Let the provider deliver its callback before closing itself.
+internal val XFREE_CONTINUE_VERIFICATION = """
+    (function() {
+      if (!/\baccount\s+connection\s+successful\b/i.test(
+          document.body ? document.body.innerText : '')) return false;
+      var controls = document.querySelectorAll('button, a, input[type="submit"], [role="button"]');
+      for (var i = 0; i < controls.length; i++) {
+        var control = controls[i];
+        var label = (control.innerText || control.value || control.getAttribute('aria-label') || '').trim();
+        if (/^continue$/i.test(label) && !control.disabled &&
+            control.getAttribute('aria-disabled') !== 'true' && control.getClientRects().length) {
+          control.click();
+          return true;
+        }
+      }
+      return false;
     })();
 """.trimIndent()
 
@@ -68,6 +88,7 @@ fun XFreeLoginScreen(
     var webView by remember { mutableStateOf<WebView?>(null) }
     var popupWebView by remember { mutableStateOf<WebView?>(null) }
     var verificationWebView by remember { mutableStateOf<WebView?>(null) }
+    var continuationAttempt by remember { mutableIntStateOf(0) }
     var webViewGeneration by remember { mutableIntStateOf(0) }
     val screenDisposed = remember { AtomicBoolean(false) }
 
@@ -97,21 +118,26 @@ fun XFreeLoginScreen(
 
     fun continueAfterVerification() {
         if (!verificationReadyToContinue || screenDisposed.get()) return
-        CookieManager.getInstance().flush()
         val verifiedView = verificationWebView ?: return
-        verificationReadyToContinue = false
-        verificationWebView = null
-        if (verifiedView !== webView) {
-            destroyWebView(verifiedView)
-            pageLoading = false
-        } else if (isXFreeVerificationHost(
+        if (!isXFreeVerificationHost(
                 runCatching { Uri.parse(verifiedView.url.orEmpty()).host }.getOrNull(),
-            )
-        ) {
-            pageLoading = true
-            verifiedView.loadUrl("https://www.xfree.com/login?lang=en-US")
+            )) return
+        // Do not navigate to /login or destroy this WebView here: either action
+        // can discard the provider's result before XFree receives it.
+        continuationAttempt++
+        verifiedView.evaluateJavascript(XFREE_CONTINUE_VERIFICATION) { result ->
+            if (!screenDisposed.get() && result != "true") {
+                pageError = "Tap Continue inside the verification page to complete XFree’s callback."
+            }
         }
     }
+
+    fun canConfirmSession(view: WebView?, host: String?, result: String?): Boolean =
+        !screenDisposed.get() &&
+            view != null &&
+            view === (popupWebView ?: webView) &&
+            runCatching { Uri.parse(view.url.orEmpty()).host }.getOrNull() == host &&
+            hasConfirmedXFreeSession(host, result == "true")
 
     fun finishOrGoBack() {
         if (screenDisposed.get()) return
@@ -136,6 +162,17 @@ fun XFreeLoginScreen(
         onDispose(::disposeScreen)
     }
 
+    LaunchedEffect(continuationAttempt) {
+        if (continuationAttempt == 0) return@LaunchedEffect
+        val pendingView = verificationWebView
+        delay(12_000)
+        if (!screenDisposed.get() && pendingView != null &&
+            verificationWebView === pendingView && verificationReadyToContinue
+        ) {
+            pageError = "The verification page has not returned to XFree. Tap its own Continue button. StreamCloud has not confirmed the session."
+        }
+    }
+
     fun createXFreeLoginWebViewClient(): WebViewClient = object : WebViewClient() {
         override fun shouldOverrideUrlLoading(
             view: WebView?,
@@ -144,11 +181,16 @@ fun XFreeLoginScreen(
             if (screenDisposed.get()) return true
             val uri = request?.url ?: return true
             if (uri.scheme.equals("about", ignoreCase = true)) return false
-            return !isAllowedXFreeLoginNavigation(
+            val allowed = isAllowedXFreeLoginNavigation(
                 scheme = uri.scheme,
                 host = uri.host,
                 isMainFrame = request.isForMainFrame,
             )
+            if (!allowed && request.isForMainFrame) {
+                // Do not expose callback URLs, which can contain credentials.
+                pageError = "XFree’s sign-in tried to open an unsupported destination. The return was blocked."
+            }
+            return !allowed
         }
 
         override fun onPageStarted(
@@ -160,6 +202,11 @@ fun XFreeLoginScreen(
             if (screenDisposed.get()) return
             pageLoading = true
             pageError = null
+            canFinish = false
+            if (verificationWebView === view) {
+                verificationReadyToContinue = false
+                verificationWebView = null
+            }
             val uri = runCatching { Uri.parse(url.orEmpty()) }.getOrNull()
             val isLoginPage = uri?.path?.trimEnd('/') == "/login"
             if (isXFreeLoginHost(uri?.host)) {
@@ -221,9 +268,7 @@ fun XFreeLoginScreen(
             if (!isXFreeLoginHost(uri.host)) return
             canReturn = uri.path?.trimEnd('/') != "/login"
             view.evaluateJavascript(XFREE_SIGNED_IN_CHECK) { result ->
-                if (!screenDisposed.get()) {
-                    canFinish = hasConfirmedXFreeSession(uri.host, result == "true")
-                }
+                if (canConfirmSession(view, uri.host, result)) canFinish = true
             }
         }
     }
@@ -231,7 +276,7 @@ fun XFreeLoginScreen(
     LaunchedEffect(webViewGeneration, webView, popupWebView, canFinish) {
         while (!canFinish && !screenDisposed.get()) {
             if (!pageLoading) {
-                listOfNotNull(webView, popupWebView).forEach { activeWebView ->
+                listOfNotNull(popupWebView ?: webView).forEach { activeWebView ->
                     val currentUri = runCatching {
                         Uri.parse(activeWebView.url.orEmpty())
                     }.getOrNull()
@@ -239,8 +284,7 @@ fun XFreeLoginScreen(
                         isXFreeLoginHost(currentUri?.host) -> {
                             activeWebView.evaluateJavascript(XFREE_SIGNED_IN_CHECK) { result ->
                                 if (
-                                    !screenDisposed.get() &&
-                                    hasConfirmedXFreeSession(currentUri?.host, result == "true")
+                                    canConfirmSession(activeWebView, currentUri?.host, result)
                                 ) {
                                     canFinish = true
                                 }
@@ -254,6 +298,8 @@ fun XFreeLoginScreen(
                                 }.getOrNull()
                                 if (
                                     !screenDisposed.get() &&
+                                    activeWebView === (popupWebView ?: webView) &&
+                                    runCatching { Uri.parse(activeWebView.url.orEmpty()).host }.getOrNull() == currentUri?.host &&
                                     isXFreeVerificationSuccessPage(currentUri?.host, pageText)
                                 ) {
                                     // This page may be a popup that closes on Continue,
@@ -307,7 +353,7 @@ fun XFreeLoginScreen(
                     when {
                         canFinish -> "Press Back or Done to return"
                         verificationReadyToContinue ->
-                            "Verification complete. Continue to return to XFree."
+                            "Continue on this page to finish linking with XFree."
                         canReturn -> "Return when finished signing in"
                         else -> "Use XFree’s official page to sign in"
                     },
@@ -400,6 +446,7 @@ fun XFreeLoginScreen(
                                         }
                                     }
                                     popupWebView = popup
+                                    canFinish = false
                                     container.addView(
                                         popup,
                                         FrameLayout.LayoutParams(
@@ -449,7 +496,7 @@ fun XFreeLoginScreen(
                         IconButton(onClick = {
                             pageError = null
                             pageLoading = true
-                            val activeWebView = webView
+                            val activeWebView = popupWebView ?: webView
                             if (activeWebView == null) {
                                 webViewGeneration++
                             } else {
