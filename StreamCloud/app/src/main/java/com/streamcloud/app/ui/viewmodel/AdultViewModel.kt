@@ -18,6 +18,7 @@ import com.streamcloud.app.data.api.PornhubCategory
 import com.streamcloud.app.data.api.PornhubHomeSection
 import com.streamcloud.app.data.api.XHamsterRepository
 import com.streamcloud.app.data.api.XHamsterCategory
+import com.streamcloud.app.data.api.XHamsterOrientation
 import com.streamcloud.app.data.library.AdultHistoryEntity
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.network.Net
@@ -54,6 +55,7 @@ data class AdultState(
     val loadingXHamsterPopularCategories: Boolean = false,
     val xhamsterPopularCategoryError: String? = null,
     val selectedXHamsterCategory: XHamsterCategory? = null,
+    val xhamsterOrientation: XHamsterOrientation = XHamsterOrientation.STRAIGHT,
     val pornhubHomeSections: List<PornhubHomeSection> = emptyList(),
     val pornhubHome: Boolean = false,
     /** True when Reddit returns a 401/403 — the user must log in. */
@@ -90,6 +92,7 @@ class AdultViewModel(
     private var loadMoreJob: Job? = null
     private var currentQuery: String = ""
     private var currentXHamsterCategoryPath: String? = null
+    private var currentXHamsterOrientation: XHamsterOrientation = XHamsterOrientation.STRAIGHT
     private var currentOrder: String = "most-popular"
     private var redditAfter: String? = null
     private var observedPornhubSignIn = false
@@ -122,8 +125,9 @@ class AdultViewModel(
                         page = _state.value.currentPage,
                         replace = true,
                         categoryPath = currentXHamsterCategoryPath,
+                        orientation = currentXHamsterOrientation,
                     )
-                    loadXHamsterPopularCategories()
+                    loadXHamsterPopularCategories(currentXHamsterOrientation)
                 }
             }
         }
@@ -160,10 +164,13 @@ class AdultViewModel(
                     settings.setAdultSource(AdultSource.Eporner.name)
                 }
             }
+            currentXHamsterOrientation =
+                XHamsterOrientation.fromPreference(settings.xhamsterOrientation.first())
             _state.update {
                 it.copy(
                     source = savedSource,
                     pornhubHome = savedSource == AdultSource.Pornhub,
+                    xhamsterOrientation = currentXHamsterOrientation,
                 )
             }
             when (savedSource) {
@@ -177,8 +184,13 @@ class AdultViewModel(
                     currentQuery = ""
                     currentXHamsterCategoryPath = null
                     if (ageGateConfirmed) {
-                        fetchXHamsterPage(query = "", page = 1, replace = true)
-                        loadXHamsterPopularCategories()
+                        fetchXHamsterPage(
+                            query = "",
+                            page = 1,
+                            replace = true,
+                            orientation = currentXHamsterOrientation,
+                        )
+                        loadXHamsterPopularCategories(currentXHamsterOrientation)
                     }
                 }
                 else -> {
@@ -493,6 +505,47 @@ class AdultViewModel(
         }
     }
 
+    fun setXHamsterOrientation(orientation: XHamsterOrientation) {
+        if (currentXHamsterOrientation == orientation) return
+        currentXHamsterOrientation = orientation
+        currentXHamsterCategoryPath = null
+        searchJob?.cancel()
+        searchJob = null
+        loadMoreJob?.cancel()
+        loadMoreJob = null
+        _state.update {
+            it.copy(
+                xhamsterOrientation = orientation,
+                items = emptyList(),
+                selectedXHamsterCategory = null,
+                xhamsterCategories = emptyList(),
+                loadingXHamsterCategories = false,
+                xhamsterCategoryError = null,
+                xhamsterPopularCategories = emptyList(),
+                loadingXHamsterPopularCategories = false,
+                xhamsterPopularCategoryError = null,
+                currentPage = 1,
+                hasMore = true,
+                loading = false,
+                loadingMore = false,
+                error = null,
+            )
+        }
+        viewModelScope.launch { settings.setXHamsterOrientation(orientation.name) }
+        if (_state.value.source != AdultSource.XHamster) return
+
+        viewModelScope.launch {
+            fetchXHamsterPage(
+                query = currentQuery,
+                page = 1,
+                replace = true,
+                categoryPath = null,
+                orientation = orientation,
+            )
+        }
+        loadXHamsterPopularCategories(orientation)
+    }
+
     fun loadPornhubCategories() {
         if (_state.value.loadingPornhubCategories ||
             _state.value.pornhubCategories.isNotEmpty()
@@ -514,16 +567,25 @@ class AdultViewModel(
         if (_state.value.loadingXHamsterCategories ||
             _state.value.xhamsterCategories.isNotEmpty()
         ) return
+        val orientation = currentXHamsterOrientation
         viewModelScope.launch {
             _state.update {
                 it.copy(loadingXHamsterCategories = true, xhamsterCategoryError = null)
             }
             try {
-                val categories = XHamsterRepository.fetchCategories { partialCategories ->
-                    _state.update {
-                        it.copy(xhamsterCategories = partialCategories)
-                    }
-                }
+                val categories = XHamsterRepository.fetchCategories(
+                    onPartialResults = { partialCategories ->
+                        if (currentXHamsterOrientation == orientation) {
+                            _state.update {
+                                it.copy(xhamsterCategories = partialCategories)
+                            }
+                        }
+                    },
+                    orientation = orientation,
+                )
+                if (_state.value.source != AdultSource.XHamster ||
+                    currentXHamsterOrientation != orientation
+                ) return@launch
                 _state.update {
                     it.copy(
                         xhamsterCategories = categories,
@@ -538,6 +600,7 @@ class AdultViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                if (currentXHamsterOrientation != orientation) return@launch
                 _state.update {
                     it.copy(
                         loadingXHamsterCategories = false,
@@ -548,9 +611,12 @@ class AdultViewModel(
         }
     }
 
-    fun loadXHamsterPopularCategories() {
+    fun loadXHamsterPopularCategories(
+        orientation: XHamsterOrientation = currentXHamsterOrientation,
+    ) {
         if (_state.value.loadingXHamsterPopularCategories ||
-            _state.value.xhamsterPopularCategories.isNotEmpty()
+            (_state.value.xhamsterPopularCategories.isNotEmpty() &&
+                _state.value.xhamsterOrientation == orientation)
         ) return
         viewModelScope.launch {
             _state.update {
@@ -560,7 +626,10 @@ class AdultViewModel(
                 )
             }
             try {
-                val categories = XHamsterRepository.fetchPopularCategories()
+                val categories = XHamsterRepository.fetchPopularCategories(orientation)
+                if (_state.value.source != AdultSource.XHamster ||
+                    currentXHamsterOrientation != orientation
+                ) return@launch
                 _state.update {
                     it.copy(
                         xhamsterPopularCategories = categories,
@@ -571,6 +640,7 @@ class AdultViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                if (currentXHamsterOrientation != orientation) return@launch
                 _state.update {
                     it.copy(
                         loadingXHamsterPopularCategories = false,
@@ -644,6 +714,7 @@ class AdultViewModel(
         page: Int,
         replace: Boolean,
         categoryPath: String? = currentXHamsterCategoryPath,
+        orientation: XHamsterOrientation = currentXHamsterOrientation,
     ) {
         if (replace) {
             _state.update { it.copy(loading = true, loadingMore = false, error = null) }
@@ -656,10 +727,12 @@ class AdultViewModel(
                 query = query,
                 page = page,
                 categoryPath = categoryPath,
+                orientation = orientation,
             )
             if (_state.value.source != AdultSource.XHamster ||
                 currentQuery != query ||
-                currentXHamsterCategoryPath != categoryPath
+                currentXHamsterCategoryPath != categoryPath ||
+                currentXHamsterOrientation != orientation
             ) return
 
             val currentItems = if (replace) emptyList() else _state.value.items
@@ -680,7 +753,8 @@ class AdultViewModel(
         } catch (e: Exception) {
             if (_state.value.source != AdultSource.XHamster ||
                 currentQuery != query ||
-                currentXHamsterCategoryPath != categoryPath
+                currentXHamsterCategoryPath != categoryPath ||
+                currentXHamsterOrientation != orientation
             ) return
             _state.update {
                 it.copy(

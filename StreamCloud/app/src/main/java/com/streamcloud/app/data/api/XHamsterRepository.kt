@@ -38,6 +38,17 @@ data class XHamsterCategory(
     val id: String get() = path
 }
 
+enum class XHamsterOrientation(val label: String, val pathPrefix: String) {
+    STRAIGHT("Straight", ""),
+    GAY("Gay", "/gay"),
+    TRANSGENDER("Transgender", "/shemale");
+
+    companion object {
+        fun fromPreference(value: String?): XHamsterOrientation =
+            entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: STRAIGHT
+    }
+}
+
 class XHamsterUnavailableException(message: String) : Exception(message)
 
 private const val XHAMSTER_DEFAULT_PAGE_SIZE = 50
@@ -69,16 +80,21 @@ object XHamsterRepository {
         query: String,
         page: Int,
         categoryPath: String? = null,
+        orientation: XHamsterOrientation = XHamsterOrientation.STRAIGHT,
     ): XHamsterPage =
         withContext(Dispatchers.IO) {
             val safePage = page.coerceAtLeast(1)
-            val html = requestPage(buildXHamsterListingUrl(query, safePage, categoryPath))
+            val html = requestPage(
+                buildXHamsterListingUrl(query, safePage, categoryPath, orientation),
+            )
             parseXHamsterListing(html, safePage)
         }
 
-    suspend fun fetchPopularCategories(): List<XHamsterCategory> = withContext(Dispatchers.IO) {
-        val directoryHtml = requestPage(buildXHamsterCategoriesUrl())
-        val categories = parseXHamsterCategories(directoryHtml).take(12)
+    suspend fun fetchPopularCategories(
+        orientation: XHamsterOrientation = XHamsterOrientation.STRAIGHT,
+    ): List<XHamsterCategory> = withContext(Dispatchers.IO) {
+        val directoryHtml = requestPage(buildXHamsterCategoriesUrl(orientation))
+        val categories = parseXHamsterCategories(directoryHtml, orientation).take(12)
         if (categories.isEmpty()) {
             throw XHamsterUnavailableException(
                 "XHamster loaded its category page without any category cards. " +
@@ -90,9 +106,10 @@ object XHamsterRepository {
 
     suspend fun fetchCategories(
         onPartialResults: (List<XHamsterCategory>) -> Unit = {},
+        orientation: XHamsterOrientation = XHamsterOrientation.STRAIGHT,
     ): List<XHamsterCategory> = withContext(Dispatchers.IO) {
-        val directoryHtml = requestPage(buildXHamsterCategoriesUrl())
-        val categories = parseXHamsterCategories(directoryHtml).toMutableList()
+        val directoryHtml = requestPage(buildXHamsterCategoriesUrl(orientation))
+        val categories = parseXHamsterCategories(directoryHtml, orientation).toMutableList()
         if (categories.isEmpty()) {
             throw XHamsterUnavailableException(
                 "XHamster loaded its category page without any category cards. " +
@@ -101,15 +118,15 @@ object XHamsterRepository {
         }
         onPartialResults(categories.toList())
 
-        val indexPaths = parseXHamsterCategoryIndexPaths(directoryHtml)
-            .filterNot { it == "/categories" }
+        val indexPaths = parseXHamsterCategoryIndexPaths(directoryHtml, orientation)
+            .filterNot { it == "${orientation.pathPrefix}/categories" }
         val requestLimit = Semaphore(2)
         val otherCategories = supervisorScope {
             indexPaths.map { path ->
                 async {
                     try {
                         val pageCategories = requestLimit.withPermit {
-                            parseXHamsterCategories(requestPage("$BASE_URL$path"))
+                            parseXHamsterCategories(requestPage("$BASE_URL$path"), orientation)
                         }
                         if (pageCategories.isNotEmpty()) {
                             val snapshot = synchronized(categories) {
@@ -261,23 +278,25 @@ object XHamsterRepository {
     }
 }
 
-internal fun buildXHamsterCategoriesUrl(): String =
-    "https://xhamster.com/categories?from=menu"
+internal fun buildXHamsterCategoriesUrl(
+    orientation: XHamsterOrientation = XHamsterOrientation.STRAIGHT,
+): String = "https://xhamster.com${orientation.pathPrefix}/categories?from=menu"
 
 internal fun buildXHamsterListingUrl(
     query: String,
     page: Int,
     categoryPath: String? = null,
+    orientation: XHamsterOrientation = XHamsterOrientation.STRAIGHT,
 ): String {
     val safePage = page.coerceAtLeast(1)
     val safeCategoryPath = categoryPath?.let {
-        requireNotNull(normalizeXHamsterCategoryPath(it)) {
+        requireNotNull(normalizeXHamsterCategoryPath(it, orientation)) {
             "XHamster category link was invalid."
         }
     }
     val builder = when {
         safeCategoryPath != null -> "https://xhamster.com$safeCategoryPath".toHttpUrl().newBuilder()
-        else -> "https://xhamster.com/".toHttpUrl().newBuilder()
+        else -> "https://xhamster.com${orientation.pathPrefix}/".toHttpUrl().newBuilder()
     }
     if (safeCategoryPath != null) {
         if (safePage > 1) builder.addPathSegment(safePage.toString())
@@ -292,7 +311,10 @@ internal fun buildXHamsterListingUrl(
     return builder.build().toString()
 }
 
-internal fun parseXHamsterCategories(html: String): List<XHamsterCategory> {
+internal fun parseXHamsterCategories(
+    html: String,
+    orientation: XHamsterOrientation = XHamsterOrientation.STRAIGHT,
+): List<XHamsterCategory> {
     val document = Jsoup.parse(html)
     if (isXHamsterAccessGate(html, document)) {
         throw XHamsterUnavailableException(
@@ -311,7 +333,7 @@ internal fun parseXHamsterCategories(html: String): List<XHamsterCategory> {
         addAll(document.select("a[href]"))
     }
     anchors.forEach { anchor ->
-        val path = normalizeXHamsterCategoryPath(anchor.attr("href"))
+        val path = normalizeXHamsterCategoryPath(anchor.attr("href"), orientation)
             ?: return@forEach
         val image = anchor.selectFirst("img")
         val title = image?.attr("alt")
@@ -341,26 +363,31 @@ internal fun parseXHamsterCategories(html: String): List<XHamsterCategory> {
     return categoriesByPath.values.toList()
 }
 
-internal fun parseXHamsterCategoryIndexPaths(html: String): List<String> {
+internal fun parseXHamsterCategoryIndexPaths(
+    html: String,
+    orientation: XHamsterOrientation = XHamsterOrientation.STRAIGHT,
+): List<String> {
     val document = Jsoup.parse(html)
     return document.select("a[href]")
         .mapNotNull { anchor ->
-            normalizeXHamsterCategoryIndexPath(anchor.attr("href"))
+            normalizeXHamsterCategoryIndexPath(anchor.attr("href"), orientation)
         }
         .distinct()
         .sorted()
 }
 
-private fun normalizeXHamsterCategoryIndexPath(raw: String): String? {
+private fun normalizeXHamsterCategoryIndexPath(
+    raw: String,
+    orientation: XHamsterOrientation,
+): String? {
     val value = raw.trim().takeIf(String::isNotBlank) ?: return null
     val parsed = runCatching {
         "https://xhamster.com/".toHttpUrl().resolve(value)
     }.getOrNull() ?: return null
     if (parsed.scheme != "https" || parsed.host != "xhamster.com") return null
     val path = parsed.encodedPath.removeSuffix("/")
-    return path.takeIf {
-        Regex("^/categories(?:-(?:[0-9a-z]|4k|vr))?$").matches(it)
-    }
+    val prefix = Regex.escape(orientation.pathPrefix)
+    return path.takeIf { Regex("^$prefix/categories(?:-(?:[0-9a-z]|4k|vr))?$").matches(it) }
 }
 
 private fun isXHamsterAccessGate(
@@ -374,14 +401,18 @@ private fun isXHamsterAccessGate(
         "you need to log in/sign up so you don't have to go through verification process again" in lower
 }
 
-private fun normalizeXHamsterCategoryPath(raw: String): String? {
+private fun normalizeXHamsterCategoryPath(
+    raw: String,
+    orientation: XHamsterOrientation,
+): String? {
     val value = raw.trim().takeIf(String::isNotBlank) ?: return null
     val parsed = runCatching {
         "https://xhamster.com/".toHttpUrl().resolve(value)
     }.getOrNull() ?: return null
     if (!isAllowedXHamsterUrl(parsed.toString())) return null
     val path = parsed.encodedPath.removeSuffix("/")
-    if (!Regex("^/categories/[a-z0-9-]+$").matches(path)) {
+    val prefix = Regex.escape(orientation.pathPrefix)
+    if (!Regex("^$prefix/categories/[a-z0-9-]+$").matches(path)) {
         return null
     }
     return path

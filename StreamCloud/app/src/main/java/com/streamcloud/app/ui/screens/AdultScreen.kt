@@ -69,6 +69,7 @@ import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.EpornerCategory
 import com.streamcloud.app.data.api.PornhubCategory
 import com.streamcloud.app.data.api.XHamsterCategory
+import com.streamcloud.app.data.api.XHamsterOrientation
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.network.BrowserHeaders
@@ -448,6 +449,12 @@ fun AdultScreen(
                     query.isBlank() &&
                     state.selectedXHamsterCategory == null
                 ) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        XHamsterOrientationSelector(
+                            selected = state.xhamsterOrientation,
+                            onSelect = vm::setXHamsterOrientation,
+                        )
+                    }
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         XHamsterCategoryCarousel(
                             categories = state.xhamsterPopularCategories,
@@ -1096,6 +1103,35 @@ private fun formatCount(n: Int): String = when {
     n >= 1_000_000 -> "%.1fM".format(n / 1_000_000.0)
     n >= 1_000     -> "%.1fK".format(n / 1_000.0)
     else           -> n.toString()
+}
+
+@Composable
+private fun XHamsterOrientationSelector(
+    selected: XHamsterOrientation,
+    onSelect: (XHamsterOrientation) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp),
+    ) {
+        Text(
+            "Orientation",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            XHamsterOrientation.entries.forEach { orientation ->
+                FilterChip(
+                    selected = selected == orientation,
+                    onClick = { onSelect(orientation) },
+                    label = { Text(orientation.label) },
+                )
+            }
+        }
+    }
 }
 
 @Composable

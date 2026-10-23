@@ -227,6 +227,7 @@ object SettingsKeys {
     val REDDIT_USERNAME    = stringPreferencesKey("reddit_username")
     val PORNHUB_SIGNED_IN  = booleanPreferencesKey("pornhub_signed_in")
     val XHAMSTER_SIGNED_IN = booleanPreferencesKey("xhamster_signed_in")
+    val XHAMSTER_ORIENTATION = stringPreferencesKey("xhamster_orientation")
     val AGE_GATE_CONFIRMED = booleanPreferencesKey("age_gate_confirmed")
 
     // Nav
@@ -1054,6 +1055,8 @@ class SettingsRepository(private val context: Context) {
     val redditUsername: Flow<String> = context.dataStore.data.map { it[SettingsKeys.REDDIT_USERNAME] ?: "" }
     val pornhubSignedIn: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.PORNHUB_SIGNED_IN] ?: false }
     val xhamsterSignedIn: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.XHAMSTER_SIGNED_IN] ?: false }
+    val xhamsterOrientation: Flow<String> =
+        context.dataStore.data.map { it[SettingsKeys.XHAMSTER_ORIENTATION] ?: "STRAIGHT" }
     val ageGateConfirmed: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.AGE_GATE_CONFIRMED] ?: false }
 
     suspend fun setAdultSource(source: String) = context.dataStore.edit { it[SettingsKeys.ADULT_SOURCE] = source }
@@ -1066,6 +1069,8 @@ class SettingsRepository(private val context: Context) {
     }
     suspend fun setXHamsterSignedIn(signedIn: Boolean) =
         context.dataStore.edit { it[SettingsKeys.XHAMSTER_SIGNED_IN] = signedIn }
+    suspend fun setXHamsterOrientation(orientation: String) =
+        context.dataStore.edit { it[SettingsKeys.XHAMSTER_ORIENTATION] = orientation }
     suspend fun clearXHamsterAccount() = context.dataStore.edit {
         it.remove(SettingsKeys.XHAMSTER_SIGNED_IN)
     }

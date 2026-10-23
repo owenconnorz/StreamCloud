@@ -141,6 +141,85 @@ class XHamsterRepositoryTest {
     }
 
     @Test
+    fun buildsFeedsAndCategoryUrlsForEachOrientation() {
+        assertEquals(
+            "https://xhamster.com/gay/",
+            buildXHamsterListingUrl("", 1, orientation = XHamsterOrientation.GAY),
+        )
+        assertEquals(
+            "https://xhamster.com/shemale/",
+            buildXHamsterListingUrl("", 1, orientation = XHamsterOrientation.TRANSGENDER),
+        )
+        assertEquals(
+            "https://xhamster.com/gay/search/actors?page=2",
+            buildXHamsterListingUrl("actors", 2, orientation = XHamsterOrientation.GAY),
+        )
+        assertEquals(
+            "https://xhamster.com/shemale/categories?from=menu",
+            buildXHamsterCategoriesUrl(XHamsterOrientation.TRANSGENDER),
+        )
+        assertEquals(
+            "https://xhamster.com/gay/categories/amateur",
+            buildXHamsterListingUrl(
+                query = "",
+                page = 1,
+                categoryPath = "/gay/categories/amateur",
+                orientation = XHamsterOrientation.GAY,
+            ),
+        )
+    }
+
+    @Test
+    fun categoryParsingUsesOnlyTheSelectedOrientationRoutes() {
+        val html = """
+            <html><body>
+              <section id="trending">
+                <a href="/categories/amateur"><img alt="Straight category"></a>
+                <a href="/gay/categories/amateur"><img alt="Gay category"></a>
+                <a href="/shemale/categories/amateur"><img alt="Transgender category"></a>
+              </section>
+            </body></html>
+        """.trimIndent()
+
+        assertEquals(
+            listOf("/categories/amateur"),
+            parseXHamsterCategories(html, XHamsterOrientation.STRAIGHT).map(XHamsterCategory::path),
+        )
+        assertEquals(
+            listOf("/gay/categories/amateur"),
+            parseXHamsterCategories(html, XHamsterOrientation.GAY).map(XHamsterCategory::path),
+        )
+        assertEquals(
+            listOf("/shemale/categories/amateur"),
+            parseXHamsterCategories(html, XHamsterOrientation.TRANSGENDER)
+                .map(XHamsterCategory::path),
+        )
+    }
+
+    @Test
+    fun categoryDirectoryPagesStayWithinTheSelectedOrientation() {
+        val html = """
+            <html><body>
+              <a href="/categories">Straight</a>
+              <a href="/categories-a">Straight A</a>
+              <a href="/gay/categories">Gay</a>
+              <a href="/gay/categories-a">Gay A</a>
+              <a href="/shemale/categories">Transgender</a>
+              <a href="/shemale/categories-a">Transgender A</a>
+            </body></html>
+        """.trimIndent()
+
+        assertEquals(
+            listOf("/gay/categories", "/gay/categories-a"),
+            parseXHamsterCategoryIndexPaths(html, XHamsterOrientation.GAY),
+        )
+        assertEquals(
+            listOf("/shemale/categories", "/shemale/categories-a"),
+            parseXHamsterCategoryIndexPaths(html, XHamsterOrientation.TRANSGENDER),
+        )
+    }
+
+    @Test
     fun reportsOfficialAgeAndRegionGateInsteadOfEmptyCategories() {
         val error = runCatching {
             parseXHamsterCategories(
