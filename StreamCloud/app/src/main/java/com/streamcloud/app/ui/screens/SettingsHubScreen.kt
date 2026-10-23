@@ -196,6 +196,7 @@ fun SettingsHubScreen(
     onOpenRedditLogin: () -> Unit = {},
     onOpenPornhubLogin: () -> Unit,
     onOpenXHamsterLogin: () -> Unit,
+    onOpenXFreeLogin: () -> Unit,
     onSubPageChanged: (Boolean) -> Unit = {},
     backRequest: Int = 0,
     focusRequest: Int = 0,
@@ -1460,6 +1461,8 @@ fun SettingsHubScreen(
                     PornhubAccountRow(onLogin = onOpenPornhubLogin)
                     SettingDivider()
                     XHamsterAccountRow(onLogin = onOpenXHamsterLogin)
+                    SettingDivider()
+                    XFreeAccountRow(onLogin = onOpenXFreeLogin)
                 }
                 Spacer(Modifier.height(16.dp))
                 SettingsGroup {
@@ -4209,6 +4212,70 @@ private fun XHamsterAccountRow(onLogin: () -> Unit) {
                             android.widget.Toast.makeText(
                                 context,
                                 "Could not clear the XHamster session. Try again.",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    }
+                },
+            ) { Text("Sign out") }
+        } else {
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun XFreeAccountRow(onLogin: () -> Unit) {
+    val context = LocalContext.current
+    val sl = remember(context) { ServiceLocator.get(context) }
+    val signedIn by sl.settings.xfreeSignedIn.collectAsState(initial = false)
+    val scope = rememberCoroutineScope()
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(18.dp), showOutline = false)
+            .clickable(onClick = onLogin)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBox(
+            if (signedIn) Icons.Default.Logout else Icons.Default.Login,
+            Color(0xFF4F8DFF),
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (signedIn) "XFree" else "Sign in to XFree",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                if (signedIn) "Signed in — tap to manage the account"
+                else "Use XFree’s official page for login and verification",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+            )
+        }
+        if (signedIn) {
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        val cleared = runCatching {
+                            com.streamcloud.app.data.api.XFreeRepository.clearSessionCookies()
+                        }.getOrDefault(false)
+                        if (cleared) {
+                            sl.settings.clearXFreeAccount()
+                        } else {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Could not clear the XFree session. Try again.",
                                 android.widget.Toast.LENGTH_SHORT,
                             ).show()
                         }

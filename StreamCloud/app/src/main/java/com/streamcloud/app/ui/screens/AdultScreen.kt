@@ -129,7 +129,7 @@ fun AdultScreen(
             when (state.source) {
                 AdultSource.Pornhub -> state.pornhubHome
                 AdultSource.Eporner -> state.selectedCategory == null && query.isBlank()
-                AdultSource.XHamster, AdultSource.Reddit, AdultSource.RedGifs -> false
+                AdultSource.XHamster, AdultSource.Reddit, AdultSource.RedGifs, AdultSource.XFree -> false
             }
 
     LaunchedEffect(showAdultHomeNavigation) {
@@ -192,6 +192,7 @@ fun AdultScreen(
             if (reachedEnd &&
                 (state.source == AdultSource.Eporner ||
                     state.source == AdultSource.XHamster ||
+                    state.source == AdultSource.XFree ||
                     (state.source == AdultSource.Pornhub && !state.pornhubHome))
             ) {
                 vm.loadMore()
@@ -240,6 +241,7 @@ fun AdultScreen(
                     AdultSource.Eporner,
                     AdultSource.Pornhub,
                     AdultSource.XHamster,
+                    AdultSource.XFree,
                 )
             ) {
                 IconButton(
@@ -274,6 +276,7 @@ fun AdultScreen(
                     AdultSource.Eporner,
                     AdultSource.Pornhub,
                     AdultSource.XHamster,
+                    AdultSource.XFree,
                 )
             ) {
                 Spacer(Modifier.width(8.dp))
@@ -544,6 +547,8 @@ fun AdultScreen(
                 onPlay("pornhub://${item.id}", item.embedUrl.orEmpty(), item.title)
             } else if (item.source == AdultSource.XHamster) {
                 onPlay("xhamster://${item.id}", item.embedUrl.orEmpty(), item.title)
+            } else if (item.source == AdultSource.XFree) {
+                onPlay("xfree://${item.id}", item.embedUrl.orEmpty(), item.title)
             } else {
                 onPlay(item.epornerId ?: item.id, item.embedUrl.orEmpty(), item.title)
             }
@@ -553,6 +558,7 @@ fun AdultScreen(
                 AdultSource.Eporner,
                 AdultSource.Pornhub,
                 AdultSource.XHamster,
+                AdultSource.XFree,
             )
         ) {
             AdultVideoDetailPage(
@@ -560,12 +566,16 @@ fun AdultScreen(
                 context = context,
                 onPlay = playItem,
                 onDismiss = dismissItem,
-                onDownload = {
-                    if (item.source == AdultSource.XHamster) {
-                        detailItem = null
-                        onDownloadXHamster(item.id, item.title)
-                    } else {
-                        vm.downloadVideo(item)
+                onDownload = if (item.source == AdultSource.XFree) {
+                    null
+                } else {
+                    {
+                        if (item.source == AdultSource.XHamster) {
+                            detailItem = null
+                            onDownloadXHamster(item.id, item.title)
+                        } else {
+                            vm.downloadVideo(item)
+                        }
                     }
                 },
             )
@@ -595,6 +605,7 @@ private fun AdultProviderPicker(
         AdultSource.XHamster,
         AdultSource.Reddit,
         AdultSource.RedGifs,
+        AdultSource.XFree,
     )
 
     Scaffold(
@@ -724,6 +735,12 @@ private fun ProviderBadge(provider: AdultSource) {
             fallbackForeground = Color.White,
             fallbackLabel = "RG",
         )
+        AdultSource.XFree -> ProviderBrand(
+            logoUrl = "https://www.xfree.com/favicon.ico",
+            background = Color(0xFF272727),
+            fallbackForeground = Color.White,
+            fallbackLabel = "XF",
+        )
     }
     Box(
         modifier = Modifier
@@ -808,7 +825,7 @@ fun AdultSearchScreen(
         }.collect { reachedEnd ->
             if (reachedEnd &&
                 state.source == source &&
-                source == AdultSource.XHamster
+                source in setOf(AdultSource.XHamster, AdultSource.XFree)
             ) {
                 vm.loadMore()
             }
@@ -917,6 +934,7 @@ fun AdultSearchScreen(
                     val videoId = when (item.source) {
                         AdultSource.Pornhub -> "pornhub://${item.id}"
                         AdultSource.XHamster -> "xhamster://${item.id}"
+                        AdultSource.XFree -> "xfree://${item.id}"
                         else -> item.epornerId ?: item.id
                     }
                     onPlay(videoId, item.embedUrl.orEmpty(), item.title)
@@ -2166,7 +2184,8 @@ private fun AdultCard(v: AdultItem, onClick: () -> Unit) {
             }
             if (v.source != AdultSource.Pornhub &&
                 v.source != AdultSource.Eporner &&
-                v.source != AdultSource.XHamster
+                v.source != AdultSource.XHamster &&
+                v.source != AdultSource.XFree
             ) {
                 Icon(
                     Icons.Default.PlayCircle,

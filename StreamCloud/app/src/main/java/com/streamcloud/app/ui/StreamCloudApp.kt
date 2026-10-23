@@ -401,6 +401,7 @@ fun StreamCloudApp() {
         currentRoute == "reddit-login" ||
         currentRoute == "pornhub-login" ||
         currentRoute == "xhamster-login" ||
+        currentRoute == "xfree-login" ||
         currentRoute?.startsWith("adult-search/") == true ||
         currentRoute == Tab.Adult.route
     val isMusicSearchRoute = currentRoute?.startsWith("music-search") == true
@@ -1371,6 +1372,19 @@ fun StreamCloudApp() {
                                               nav.navigate("player/xhamster/$id/$t")
                                           }
                                       }
+                                      "xfree" -> {
+                                          val id = runCatching {
+                                              java.net.URI(itemUrl).rawQuery.orEmpty()
+                                                  .split('&')
+                                                  .firstOrNull { it.substringBefore('=') == "id" }
+                                                  ?.substringAfter('=')
+                                                  ?.let { URLDecoder.decode(it, "UTF-8") }
+                                          }.getOrNull()
+                                          if (id != null && id.matches(Regex("\\d{1,12}"))) {
+                                              val encodedId = URLEncoder.encode(id, "UTF-8")
+                                              nav.navigate("player/xfree/$encodedId/$t")
+                                          }
+                                      }
                                       "eporner" -> {
                                           if (idFromPath.matches(Regex("[A-Za-z0-9_-]{1,100}"))) {
                                               val v = URLEncoder.encode(idFromPath, "UTF-8")
@@ -1471,6 +1485,12 @@ fun StreamCloudApp() {
                                     "UTF-8",
                                 )
                                 nav.navigate("player/xhamster/$id/$t")
+                            } else if (videoId.startsWith("xfree://")) {
+                                val id = URLEncoder.encode(
+                                    videoId.removePrefix("xfree://"),
+                                    "UTF-8",
+                                )
+                                nav.navigate("player/xfree/$id/$t")
                             } else {
                                 val v = URLEncoder.encode(videoId, "UTF-8")
                                 val e = URLEncoder.encode(embed, "UTF-8")
@@ -1514,6 +1534,12 @@ fun StreamCloudApp() {
                                     "UTF-8",
                                 )
                                 nav.navigate("player/xhamster/$id/$t")
+                            } else if (videoId.startsWith("xfree://")) {
+                                val id = URLEncoder.encode(
+                                    videoId.removePrefix("xfree://"),
+                                    "UTF-8",
+                                )
+                                nav.navigate("player/xfree/$id/$t")
                             } else {
                                 val v = URLEncoder.encode(videoId, "UTF-8")
                                 val e = URLEncoder.encode(embed, "UTF-8")
@@ -1540,6 +1566,22 @@ fun StreamCloudApp() {
                         title = title,
                         onBack = { nav.popBackStack() },
                         downloadWhenAvailable = entry.arguments?.getBoolean("download") == true,
+                    )
+                }
+
+                composable(
+                    "player/xfree/{id}/{title}",
+                    arguments = listOf(
+                        navArgument("id") { type = NavType.StringType },
+                        navArgument("title") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val id = URLDecoder.decode(entry.arguments!!.getString("id")!!, "UTF-8")
+                    val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
+                    com.streamcloud.app.player.XFreePlayerScreen(
+                        videoId = id,
+                        title = title,
+                        onBack = { nav.popBackStack() },
                     )
                 }
 
@@ -1789,6 +1831,7 @@ fun StreamCloudApp() {
                             onOpenRedditLogin = { nav.navigate("reddit-login") },
                             onOpenPornhubLogin = { nav.navigate("pornhub-login") },
                             onOpenXHamsterLogin = { nav.navigate("xhamster-login") },
+                            onOpenXFreeLogin = { nav.navigate("xfree-login") },
                             onSubPageChanged  = { settingsHasSubPage = it },
                             backRequest       = settingsBackRequest,
                             focusRequest      = settingsFocusRequest,
@@ -1834,6 +1877,18 @@ fun StreamCloudApp() {
                         onLoginSuccess = {
                             loginScope.launch {
                                 sl.settings.setXHamsterSignedIn(true)
+                                nav.popBackStack()
+                            }
+                        },
+                        onBack = { nav.popBackStack() },
+                    )
+                }
+                composable("xfree-login") {
+                    val loginScope = rememberCoroutineScope()
+                    com.streamcloud.app.ui.screens.adult.XFreeLoginScreen(
+                        onLoginSuccess = {
+                            loginScope.launch {
+                                sl.settings.setXFreeSignedIn(true)
                                 nav.popBackStack()
                             }
                         },
