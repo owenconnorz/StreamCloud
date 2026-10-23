@@ -68,6 +68,7 @@ import com.streamcloud.app.data.api.AdultItem
 import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.EpornerCategory
 import com.streamcloud.app.data.api.PornhubCategory
+import com.streamcloud.app.data.api.XHamsterCategory
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.network.BrowserHeaders
@@ -110,6 +111,7 @@ fun AdultScreen(
     var query by remember { mutableStateOf("") }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showAllPornhubCategories by remember { mutableStateOf(false) }
+    var showAllXHamsterCategories by remember { mutableStateOf(false) }
     var showProviderPicker by remember { mutableStateOf(false) }
     var showPornhubShorties by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
@@ -119,6 +121,7 @@ fun AdultScreen(
             (!state.adultLockEnabled || state.safeModePin.isBlank() || state.lockUnlocked) &&
             !showCategoryPicker &&
             !showAllPornhubCategories &&
+            !showAllXHamsterCategories &&
             !showProviderPicker &&
             !showPornhubShorties &&
             detailItem == null &&
@@ -145,6 +148,9 @@ fun AdultScreen(
     }
     BackHandler(enabled = showAllPornhubCategories) {
         showAllPornhubCategories = false
+    }
+    BackHandler(enabled = showAllXHamsterCategories) {
+        showAllXHamsterCategories = false
     }
     BackHandler(enabled = showProviderPicker) {
         showProviderPicker = false
@@ -318,6 +324,22 @@ fun AdultScreen(
                     }
                 },
             )
+        } else if (state.source == AdultSource.XHamster && showAllXHamsterCategories) {
+            XHamsterCategoriesPage(
+                categories = state.xhamsterCategories,
+                loading = state.loadingXHamsterCategories,
+                error = state.xhamsterCategoryError,
+                onBack = { showAllXHamsterCategories = false },
+                onRetry = { vm.loadXHamsterCategories() },
+                onSelect = { category ->
+                    vm.selectXHamsterCategory(category)
+                    query = ""
+                    showAllXHamsterCategories = false
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
         } else if (state.source == AdultSource.Reddit) {
             // ── Reddit swipe-up feed ─────────────────────────────────────
             RedditFeedView(
@@ -355,8 +377,8 @@ fun AdultScreen(
                 }
             }
 
-            // Category + active-category chip row (Eporner only)
-            if (state.source == AdultSource.Eporner) Row(
+            // Provider categories and the active category.
+            if (state.source == AdultSource.Eporner || state.source == AdultSource.XHamster) Row(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp),
@@ -364,19 +386,35 @@ fun AdultScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 OutlinedButton(
-                    onClick = { showCategoryPicker = true },
+                    onClick = {
+                        if (state.source == AdultSource.XHamster) {
+                            vm.loadXHamsterCategories()
+                            showAllXHamsterCategories = true
+                        } else {
+                            showCategoryPicker = true
+                        }
+                    },
                     shape   = RoundedCornerShape(10.dp),
                 ) {
                     Icon(Icons.Default.Category, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Categories")
+                    Text(if (state.source == AdultSource.XHamster) "All categories" else "Categories")
                 }
 
-                state.selectedCategory?.let { cat ->
+                (state.selectedCategory?.takeIf { state.source == AdultSource.Eporner }
+                    ?.let { it.title }
+                    ?: state.selectedXHamsterCategory?.title)?.let { categoryTitle ->
                     InputChip(
                         selected  = true,
-                        onClick   = { vm.selectCategory(null); query = "" },
-                        label     = { Text(cat.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        onClick   = {
+                            if (state.source == AdultSource.XHamster) {
+                                vm.selectXHamsterCategory(null)
+                            } else {
+                                vm.selectCategory(null)
+                            }
+                            query = ""
+                        },
+                        label     = { Text(categoryTitle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         trailingIcon = {
                             Icon(Icons.Default.Close, contentDescription = "Clear category", Modifier.size(16.dp))
                         },
@@ -1146,6 +1184,121 @@ private fun PornhubCategoriesPage(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun XHamsterCategoriesPage(
+    categories: List<XHamsterCategory>,
+    loading: Boolean,
+    error: String?,
+    onBack: () -> Unit,
+    onRetry: () -> Unit,
+    onSelect: (XHamsterCategory) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.background(Color.Black)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White,
+                )
+            }
+            Text(
+                "All XHamster Categories",
+                color = Color.White,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        when {
+            loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Color(0xFFFF9000))
+            }
+            error != null -> Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(error, color = Color.White, textAlign = TextAlign.Center)
+                TextButton(onClick = onRetry) { Text("Try again") }
+            }
+            else -> LazyVerticalGrid(
+                columns = GridCells.Adaptive(170.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.tvFocusGroup(),
+            ) {
+                items(categories, key = XHamsterCategory::id) { category ->
+                    XHamsterCategoryCard(
+                        category = category,
+                        onClick = { onSelect(category) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun XHamsterCategoryCard(
+    category: XHamsterCategory,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val imageModel = remember(category.thumbnail) {
+        category.thumbnail?.let {
+            ImageRequest.Builder(context)
+                .data(it)
+                .addHeader("User-Agent", BrowserHeaders.USER_AGENT)
+                .addHeader("Referer", "https://xhamster.com/")
+                .build()
+        }
+    }
+    Box(
+        modifier
+            .aspectRatio(16f / 9f)
+            .clip(RoundedCornerShape(6.dp))
+            .tvFocusBorder(RoundedCornerShape(6.dp))
+            .background(Color(0xFF242424))
+            .clickable(onClick = onClick),
+    ) {
+        AsyncImage(
+            model = imageModel,
+            contentDescription = category.title,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)),
+                    ),
+                ),
+        )
+        Text(
+            category.title,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(10.dp),
+            color = Color.White,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

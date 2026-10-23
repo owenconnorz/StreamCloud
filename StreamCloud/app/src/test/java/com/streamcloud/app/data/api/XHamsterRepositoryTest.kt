@@ -76,6 +76,64 @@ class XHamsterRepositoryTest {
     }
 
     @Test
+    fun parsesCategoryListingVideosAndPagination() {
+        val page = parseXHamsterListing(
+            html = pageHtml(
+                """
+                {
+                  "perPage": 1,
+                  "pagesCategoryComponent": {
+                    "trendingVideoListProps": {
+                      "videoThumbProps": [{
+                        "pageURL": "/videos/category-clip",
+                        "title": "Category result",
+                        "thumbURL": "https://ic-vt-nss.xhcdn.com/category.webp",
+                        "duration": 90
+                      }]
+                    },
+                    "paginationProps": {
+                      "currentPageNumber": 1,
+                      "lastPageNumber": 3
+                    }
+                  }
+                }
+                """.trimIndent(),
+            ),
+            requestedPage = 1,
+        )
+
+        assertEquals("category-clip", page.items.single().id)
+        assertEquals("Category result", page.items.single().title)
+        assertTrue(page.hasMore)
+    }
+
+    @Test
+    fun parsesAndDeduplicatesCategoryCardsFromOfficialCatalog() {
+        val categories = parseXHamsterCategories(
+            """
+            <html><body>
+              <a href="/categories/amateur" class="nav">Amateur</a>
+              <a href="https://xhamster.com/categories/amateur">
+                <img src="https://ic-tt-nss.xhcdn.com/amateur.webp" alt="Amateur">
+                <h3>Amateur</h3>
+              </a>
+              <a href="/gay/categories/big-cock">
+                <img data-src="https://ic-tt-nss.xhcdn.com/gay.webp" alt="Big Cock">
+              </a>
+              <a href="https://outside.example/categories/ignored">
+                <img src="https://outside.example/ignored.webp" alt="Ignored">
+              </a>
+            </body></html>
+            """.trimIndent(),
+        )
+
+        assertEquals(2, categories.size)
+        assertEquals("/categories/amateur", categories[0].path)
+        assertEquals("/gay/categories/big-cock", categories[1].path)
+        assertEquals("https://ic-tt-nss.xhcdn.com/amateur.webp", categories[0].thumbnail)
+    }
+
+    @Test
     fun rejectsNonProviderVideoLinks() {
         val page = parseXHamsterListing(
             html = pageHtml(
@@ -102,6 +160,18 @@ class XHamsterRepositoryTest {
         assertEquals(
             "https://xhamster.com/search/a%20b?page=3",
             buildXHamsterListingUrl("a b", 3),
+        )
+    }
+
+    @Test
+    fun buildsOfficialCategoryListingAndPaginationUrls() {
+        assertEquals(
+            "https://xhamster.com/categories/amateur/3",
+            buildXHamsterListingUrl("", 3, "/categories/amateur"),
+        )
+        assertEquals(
+            "https://xhamster.com/gay/categories/big-cock",
+            buildXHamsterListingUrl("", 1, "/gay/categories/big-cock"),
         )
     }
 

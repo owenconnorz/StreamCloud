@@ -17,6 +17,7 @@ import com.streamcloud.app.data.api.PornhubRepository
 import com.streamcloud.app.data.api.PornhubCategory
 import com.streamcloud.app.data.api.PornhubHomeSection
 import com.streamcloud.app.data.api.XHamsterRepository
+import com.streamcloud.app.data.api.XHamsterCategory
 import com.streamcloud.app.data.library.AdultHistoryEntity
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.network.Net
@@ -46,6 +47,10 @@ data class AdultState(
     val categorySearch: String = "",
     val pornhubCategories: List<PornhubCategory> = emptyList(),
     val loadingPornhubCategories: Boolean = false,
+    val xhamsterCategories: List<XHamsterCategory> = emptyList(),
+    val loadingXHamsterCategories: Boolean = false,
+    val xhamsterCategoryError: String? = null,
+    val selectedXHamsterCategory: XHamsterCategory? = null,
     val pornhubHomeSections: List<PornhubHomeSection> = emptyList(),
     val pornhubHome: Boolean = false,
     /** True when Reddit returns a 401/403 — the user must log in. */
@@ -81,6 +86,7 @@ class AdultViewModel(
     private var searchJob: Job? = null
     private var loadMoreJob: Job? = null
     private var currentQuery: String = ""
+    private var currentXHamsterCategoryPath: String? = null
     private var currentOrder: String = "most-popular"
     private var redditAfter: String? = null
     private var observedPornhubSignIn = false
@@ -112,7 +118,9 @@ class AdultViewModel(
                         query = currentQuery,
                         page = _state.value.currentPage,
                         replace = true,
+                        categoryPath = currentXHamsterCategoryPath,
                     )
+                    loadXHamsterCategories()
                 }
             }
         }
@@ -164,8 +172,10 @@ class AdultViewModel(
                 }
                 AdultSource.XHamster -> {
                     currentQuery = ""
+                    currentXHamsterCategoryPath = null
                     if (ageGateConfirmed) {
                         fetchXHamsterPage(query = "", page = 1, replace = true)
+                        loadXHamsterCategories()
                     }
                 }
                 else -> {
@@ -178,6 +188,7 @@ class AdultViewModel(
 
     fun setSource(source: AdultSource) {
         if (_state.value.source == source) return
+        currentXHamsterCategoryPath = null
         searchJob?.cancel(); searchJob = null
         loadMoreJob?.cancel(); loadMoreJob = null
         _state.update {
@@ -193,6 +204,7 @@ class AdultViewModel(
                 error        = null,
                 selectedCategory = null,
                 categorySearch   = "",
+                selectedXHamsterCategory = null,
             )
         }
         viewModelScope.launch { settings.setAdultSource(source.name) }
@@ -223,6 +235,7 @@ class AdultViewModel(
                 viewModelScope.launch {
                     fetchXHamsterPage(query = "", page = 1, replace = true)
                 }
+                loadXHamsterCategories()
             }
         }
     }
@@ -251,6 +264,7 @@ class AdultViewModel(
         if (_state.value.source == AdultSource.XHamster) {
             val requestedQuery = query.trim()
             currentQuery = requestedQuery
+            currentXHamsterCategoryPath = null
             searchJob?.cancel()
             loadMoreJob?.cancel()
             loadMoreJob = null
@@ -261,6 +275,7 @@ class AdultViewModel(
                     currentPage = 1,
                     hasMore = true,
                     error = null,
+                    selectedXHamsterCategory = null,
                 )
             }
             searchJob = viewModelScope.launch {
@@ -343,6 +358,7 @@ class AdultViewModel(
                         query = currentQuery,
                         page = 1,
                         replace = true,
+                        categoryPath = currentXHamsterCategoryPath,
                     )
                 }
             }
@@ -383,6 +399,7 @@ class AdultViewModel(
                     query = currentQuery,
                     page = nextPage,
                     replace = false,
+                    categoryPath = currentXHamsterCategoryPath,
                 )
             }
             return
@@ -446,6 +463,33 @@ class AdultViewModel(
         fetchPornhubPage(replace = true)
     }
 
+    fun selectXHamsterCategory(category: XHamsterCategory?) {
+        currentQuery = ""
+        currentXHamsterCategoryPath = category?.path
+        searchJob?.cancel()
+        loadMoreJob?.cancel()
+        loadMoreJob = null
+        _state.update {
+            it.copy(
+                items = emptyList(),
+                currentPage = 1,
+                hasMore = true,
+                loading = false,
+                loadingMore = false,
+                error = null,
+                selectedXHamsterCategory = category,
+            )
+        }
+        searchJob = viewModelScope.launch {
+            fetchXHamsterPage(
+                query = "",
+                page = 1,
+                replace = true,
+                categoryPath = currentXHamsterCategoryPath,
+            )
+        }
+    }
+
     fun loadPornhubCategories() {
         if (_state.value.loadingPornhubCategories ||
             _state.value.pornhubCategories.isNotEmpty()
@@ -459,6 +503,40 @@ class AdultViewModel(
                     pornhubCategories = categories,
                     loadingPornhubCategories = false,
                 )
+            }
+        }
+    }
+
+    fun loadXHamsterCategories() {
+        if (_state.value.loadingXHamsterCategories ||
+            _state.value.xhamsterCategories.isNotEmpty()
+        ) return
+        viewModelScope.launch {
+            _state.update {
+                it.copy(loadingXHamsterCategories = true, xhamsterCategoryError = null)
+            }
+            try {
+                val categories = XHamsterRepository.fetchCategories()
+                _state.update {
+                    it.copy(
+                        xhamsterCategories = categories,
+                        loadingXHamsterCategories = false,
+                        xhamsterCategoryError = if (categories.isEmpty()) {
+                            "XHamster did not return any categories."
+                        } else {
+                            null
+                        },
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        loadingXHamsterCategories = false,
+                        xhamsterCategoryError = "Could not load XHamster categories: ${e.message}",
+                    )
+                }
             }
         }
     }
@@ -524,6 +602,7 @@ class AdultViewModel(
         query: String,
         page: Int,
         replace: Boolean,
+        categoryPath: String? = currentXHamsterCategoryPath,
     ) {
         if (replace) {
             _state.update { it.copy(loading = true, loadingMore = false, error = null) }
@@ -532,8 +611,15 @@ class AdultViewModel(
         }
 
         try {
-            val result = XHamsterRepository.fetch(query = query, page = page)
-            if (_state.value.source != AdultSource.XHamster || currentQuery != query) return
+            val result = XHamsterRepository.fetch(
+                query = query,
+                page = page,
+                categoryPath = categoryPath,
+            )
+            if (_state.value.source != AdultSource.XHamster ||
+                currentQuery != query ||
+                currentXHamsterCategoryPath != categoryPath
+            ) return
 
             val currentItems = if (replace) emptyList() else _state.value.items
             val currentIds = currentItems.mapTo(hashSetOf()) { it.id }
@@ -551,7 +637,10 @@ class AdultViewModel(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (_state.value.source != AdultSource.XHamster || currentQuery != query) return
+            if (_state.value.source != AdultSource.XHamster ||
+                currentQuery != query ||
+                currentXHamsterCategoryPath != categoryPath
+            ) return
             _state.update {
                 it.copy(
                     loading = false,

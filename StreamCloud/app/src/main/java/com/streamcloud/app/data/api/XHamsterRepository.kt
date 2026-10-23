@@ -24,6 +24,14 @@ data class XHamsterPage(
     val hasMore: Boolean,
 )
 
+data class XHamsterCategory(
+    val path: String,
+    val title: String,
+    val thumbnail: String?,
+) {
+    val id: String get() = path
+}
+
 class XHamsterUnavailableException(message: String) : Exception(message)
 
 private const val XHAMSTER_DEFAULT_PAGE_SIZE = 50
@@ -51,12 +59,20 @@ object XHamsterRepository {
             .build()
     }
 
-    suspend fun fetch(query: String, page: Int): XHamsterPage =
+    suspend fun fetch(
+        query: String,
+        page: Int,
+        categoryPath: String? = null,
+    ): XHamsterPage =
         withContext(Dispatchers.IO) {
             val safePage = page.coerceAtLeast(1)
-            val html = requestPage(buildXHamsterListingUrl(query, safePage))
+            val html = requestPage(buildXHamsterListingUrl(query, safePage, categoryPath))
             parseXHamsterListing(html, safePage)
         }
+
+    suspend fun fetchCategories(): List<XHamsterCategory> = withContext(Dispatchers.IO) {
+        parseXHamsterCategories(requestPage("$BASE_URL/categories"))
+    }
 
     fun videoPageUrl(videoId: String): String {
         require(videoId.matches(Regex("[A-Za-z0-9_-]{1,100}"))) {
@@ -170,10 +186,24 @@ object XHamsterRepository {
     }
 }
 
-internal fun buildXHamsterListingUrl(query: String, page: Int): String {
+internal fun buildXHamsterListingUrl(
+    query: String,
+    page: Int,
+    categoryPath: String? = null,
+): String {
     val safePage = page.coerceAtLeast(1)
-    val builder = "https://xhamster.com/".toHttpUrl().newBuilder()
-    if (query.isBlank()) {
+    val safeCategoryPath = categoryPath?.let {
+        requireNotNull(normalizeXHamsterCategoryPath(it)) {
+            "XHamster category link was invalid."
+        }
+    }
+    val builder = when {
+        safeCategoryPath != null -> "https://xhamster.com$safeCategoryPath".toHttpUrl().newBuilder()
+        else -> "https://xhamster.com/".toHttpUrl().newBuilder()
+    }
+    if (safeCategoryPath != null) {
+        if (safePage > 1) builder.addPathSegment(safePage.toString())
+    } else if (query.isBlank()) {
         if (safePage > 1) builder.addPathSegment(safePage.toString())
     } else {
         builder
@@ -182,6 +212,57 @@ internal fun buildXHamsterListingUrl(query: String, page: Int): String {
             .addQueryParameter("page", safePage.toString())
     }
     return builder.build().toString()
+}
+
+internal fun parseXHamsterCategories(html: String): List<XHamsterCategory> {
+    val document = Jsoup.parse(html)
+    if (document.body()?.hasClass("xh-scroll-disabled") == true) {
+        throw XHamsterUnavailableException(
+            "Complete XHamster's age confirmation on its official site, then try again.",
+        )
+    }
+    if (isXHamsterVerificationPage(html)) {
+        throw XHamsterUnavailableException(
+            "XHamster requested browser verification. Try again later.",
+        )
+    }
+
+    return document.select("a[href]")
+        .mapNotNull { anchor ->
+            val path = normalizeXHamsterCategoryPath(anchor.attr("href"))
+                ?: return@mapNotNull null
+            val image = anchor.selectFirst("img")
+            val title = image?.attr("alt")
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
+                ?: anchor.selectFirst("h3")?.text()?.trim()?.takeIf(String::isNotBlank)
+                ?: anchor.text().trim().takeIf(String::isNotBlank)
+                ?: return@mapNotNull null
+            XHamsterCategory(
+                path = path,
+                title = title,
+                thumbnail = image?.let {
+                    normalizeXHamsterAssetUrl(
+                        it.attr("src").ifBlank { it.attr("data-src") },
+                    )
+                },
+            )
+        }
+        .distinctBy(XHamsterCategory::path)
+        .sortedBy { it.title.lowercase() }
+}
+
+private fun normalizeXHamsterCategoryPath(raw: String): String? {
+    val value = raw.trim().takeIf(String::isNotBlank) ?: return null
+    val parsed = runCatching {
+        "https://xhamster.com/".toHttpUrl().resolve(value)
+    }.getOrNull() ?: return null
+    if (!isAllowedXHamsterUrl(parsed.toString())) return null
+    val path = parsed.encodedPath.removeSuffix("/")
+    if (!Regex("^/(?:[a-z0-9-]+/)?categories/[a-z0-9-]+$").matches(path)) {
+        return null
+    }
+    return path
 }
 
 internal fun parseXHamsterListing(
@@ -219,6 +300,11 @@ internal fun parseXHamsterListing(
     val videoArray = root.arrayAt("searchResult", "videoThumbProps")
         ?: root.arrayAt("layoutPage", "videoListProps", "videoThumbProps")
         ?: root.arrayAt("layoutPage", "videoThumbProps")
+        ?: root.arrayAt(
+            "pagesCategoryComponent",
+            "trendingVideoListProps",
+            "videoThumbProps",
+        )
         ?: JsonArray(emptyList())
 
     val items = videoArray.mapNotNull { element ->
@@ -254,6 +340,7 @@ internal fun parseXHamsterListing(
 
     val pagination = root.obj("pagination")
     val paginationComponent = root.obj("paginationComponent")
+        ?: root.obj("pagesCategoryComponent")?.obj("paginationProps")
     val pageData = root.obj("layoutPage")
     val currentPage = paginationComponent?.int("currentPageNumber")
         ?: root.int("page")
@@ -264,6 +351,9 @@ internal fun parseXHamsterListing(
         ?: pagination?.int("maxPage")
     val pageSize = root.int("perPage")
         ?: pageData?.obj("videoListProps")?.int("perPage")
+        ?: root.obj("pagesCategoryComponent")
+            ?.obj("trendingVideoListProps")
+            ?.int("perPage")
         ?: XHAMSTER_DEFAULT_PAGE_SIZE
 
     val hasMore = items.isNotEmpty() && if (lastPage != null) {
