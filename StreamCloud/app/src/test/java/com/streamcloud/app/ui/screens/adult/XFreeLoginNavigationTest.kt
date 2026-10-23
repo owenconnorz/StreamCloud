@@ -31,4 +31,38 @@ class XFreeLoginNavigationTest {
         assertTrue(isAllowedXFreeLoginNavigation("https", "verification.example", false))
         assertFalse(isAllowedXFreeLoginNavigation("http", "verification.example", false))
     }
+
+    @Test
+    fun recognizesAgeVerifAccountConnectionSuccessOnlyOnItsOwnHost() {
+        assertTrue(
+            isXFreeVerificationSuccessPage(
+                "ageverif.com",
+                "AgeVerif\nAccount connection successful\nContinue",
+            ),
+        )
+        assertTrue(
+            isXFreeVerificationSuccessPage(
+                "verify.ageverif.com",
+                "Account Connection Successful",
+            ),
+        )
+        assertFalse(
+            isXFreeVerificationSuccessPage(
+                "xfree.com",
+                "Account connection successful",
+            ),
+        )
+        assertFalse(
+            isXFreeVerificationSuccessPage(
+                "ageverif.com.example.net",
+                "Account connection successful",
+            ),
+        )
+        assertFalse(
+            isXFreeVerificationSuccessPage(
+                "ageverif.com",
+                "Verification could not be completed",
+            ),
+        )
+    }
 }

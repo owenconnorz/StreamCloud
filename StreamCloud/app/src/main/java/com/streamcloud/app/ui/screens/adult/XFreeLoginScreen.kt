@@ -43,6 +43,12 @@ private val XFREE_SIGNED_IN_CHECK = """
     })();
 """.trimIndent()
 
+private val XFREE_VERIFICATION_PAGE_TEXT = """
+    (function() {
+      return JSON.stringify(document.body ? document.body.innerText : '');
+    })();
+""".trimIndent()
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun XFreeLoginScreen(
@@ -53,7 +59,6 @@ fun XFreeLoginScreen(
     var pageError by remember { mutableStateOf<String?>(null) }
     var canFinish by remember { mutableStateOf(false) }
     var canReturn by remember { mutableStateOf(false) }
-    var manuallyConfirmed by remember { mutableStateOf(false) }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var webViewGeneration by remember { mutableIntStateOf(0) }
     val screenDisposed = remember { AtomicBoolean(false) }
@@ -75,7 +80,7 @@ fun XFreeLoginScreen(
     fun finishOrGoBack() {
         if (screenDisposed.get()) return
         CookieManager.getInstance().flush()
-        val signedIn = canFinish || manuallyConfirmed
+        val signedIn = canFinish
         disposeScreen()
         if (signedIn) onLoginSuccess() else onBack()
     }
@@ -91,17 +96,40 @@ fun XFreeLoginScreen(
             val currentUri = runCatching {
                 Uri.parse(activeWebView?.url.orEmpty())
             }.getOrNull()
-            if (
-                !pageLoading &&
-                activeWebView != null &&
-                isXFreeLoginHost(currentUri?.host)
-            ) {
-                activeWebView.evaluateJavascript(XFREE_SIGNED_IN_CHECK) { result ->
-                    if (!screenDisposed.get() && result == "true") canFinish = true
+            if (!pageLoading && activeWebView != null) {
+                when {
+                    isXFreeLoginHost(currentUri?.host) -> {
+                        activeWebView.evaluateJavascript(XFREE_SIGNED_IN_CHECK) { result ->
+                            if (!screenDisposed.get() && result == "true") canFinish = true
+                        }
+                    }
+
+                    isXFreeVerificationHost(currentUri?.host) -> {
+                        activeWebView.evaluateJavascript(XFREE_VERIFICATION_PAGE_TEXT) { result ->
+                            val pageText = runCatching {
+                                org.json.JSONTokener(result.orEmpty()).nextValue() as? String
+                            }.getOrNull()
+                            if (
+                                !screenDisposed.get() &&
+                                isXFreeVerificationSuccessPage(currentUri?.host, pageText)
+                            ) {
+                                canFinish = true
+                            }
+                        }
+                    }
                 }
             }
             delay(1_000)
         }
+    }
+
+    LaunchedEffect(canFinish) {
+        if (!canFinish) return@LaunchedEffect
+        // AgeVerif's success page says it will close automatically, but WebView
+        // does not consistently honor that request. Complete the same verified
+        // flow in-app after allowing the success state to render briefly.
+        delay(900)
+        finishOrGoBack()
     }
 
     Column(
@@ -133,7 +161,7 @@ fun XFreeLoginScreen(
                 Text(
                     when {
                         canFinish -> "Press Back or Done to return"
-                        canReturn -> "Sign in on XFree, then tap Done"
+                        canReturn -> "Return when finished signing in"
                         else -> "Use XFree’s official page to sign in"
                     },
                     color = Color.White.copy(alpha = 0.68f),
@@ -143,12 +171,14 @@ fun XFreeLoginScreen(
             if (canFinish || canReturn) {
                 TextButton(
                     onClick = {
-                        manuallyConfirmed = !canFinish && canReturn
                         finishOrGoBack()
                     },
                     enabled = !pageLoading,
                 ) {
-                    Text("Done", color = Color(0xFF4F8DFF))
+                    Text(
+                        if (canFinish) "Done" else "Return",
+                        color = Color(0xFF4F8DFF),
+                    )
                 }
             }
         }
@@ -211,7 +241,6 @@ fun XFreeLoginScreen(
                                     if (isLoginPage) {
                                         canFinish = false
                                         canReturn = false
-                                        manuallyConfirmed = false
                                     }
                                 }
 
@@ -327,9 +356,17 @@ private fun isXFreeIdentityHost(host: String?): Boolean {
     )
 }
 
-private fun isXFreeVerificationHost(host: String?): Boolean {
+internal fun isXFreeVerificationHost(host: String?): Boolean {
     val normalized = host?.lowercase()?.trimEnd('.') ?: return false
     return normalized == "ageverif.com" || normalized.endsWith(".ageverif.com")
+}
+
+internal fun isXFreeVerificationSuccessPage(host: String?, pageText: String?): Boolean {
+    if (!isXFreeVerificationHost(host)) return false
+    return Regex(
+        """\baccount\s+connection\s+successful\b""",
+        RegexOption.IGNORE_CASE,
+    ).containsMatchIn(pageText.orEmpty())
 }
 
 internal fun isAllowedXFreeLoginNavigation(

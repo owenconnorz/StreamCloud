@@ -2,6 +2,11 @@ package com.streamcloud.app.ui.screens
 
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -107,6 +112,7 @@ fun AdultScreen(
     )
     val state by vm.state.collectAsState()
     val scope = rememberCoroutineScope()
+    val isTvLayout = LocalUiFormFactor.current == UiFormFactor.Tv
 
     var detailItem by remember { mutableStateOf<AdultItem?>(null) }
     var query by remember { mutableStateOf("") }
@@ -114,6 +120,7 @@ fun AdultScreen(
     var showAllPornhubCategories by remember { mutableStateOf(false) }
     var showAllXHamsterCategories by remember { mutableStateOf(false) }
     var showProviderPicker by remember { mutableStateOf(false) }
+    var xFreeHeaderVisible by remember { mutableStateOf(true) }
     var showPornhubShorties by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
     val latestNavigationVisibilityCallback by rememberUpdatedState(onAppNavigationVisibilityChanged)
@@ -200,7 +207,36 @@ fun AdultScreen(
         }
     }
 
-    Column(
+    LaunchedEffect(state.source, isTvLayout, gridState) {
+          xFreeHeaderVisible = true
+          if (state.source != AdultSource.XFree || isTvLayout) return@LaunchedEffect
+
+          var previousIndex = gridState.firstVisibleItemIndex
+          var previousOffset = gridState.firstVisibleItemScrollOffset
+          snapshotFlow {
+              Triple(
+                  gridState.isScrollInProgress,
+                  gridState.firstVisibleItemIndex,
+                  gridState.firstVisibleItemScrollOffset,
+              )
+          }.collect { (isScrolling, index, offset) ->
+              if (isScrolling) {
+                  val movingDown = index > previousIndex ||
+                      (index == previousIndex && offset > previousOffset)
+                  val movingUp = index < previousIndex ||
+                      (index == previousIndex && offset < previousOffset)
+                  if (movingDown && (index > 0 || offset > 48)) {
+                      xFreeHeaderVisible = false
+                  } else if (movingUp) {
+                      xFreeHeaderVisible = true
+                  }
+              }
+              previousIndex = index
+              previousOffset = offset
+          }
+      }
+
+        Column(
         Modifier
             .fillMaxSize()
             .statusBarsPadding()
@@ -218,8 +254,16 @@ fun AdultScreen(
                 }
             }
         } else {
-        Spacer(Modifier.height(12.dp))
-        Row(
+          AnimatedVisibility(
+              visible = state.source != AdultSource.XFree ||
+                  isTvLayout ||
+                  xFreeHeaderVisible,
+              enter = slideInVertically { -it } + fadeIn(),
+              exit = slideOutVertically { -it } + fadeOut(),
+          ) {
+          Column {
+          Spacer(Modifier.height(12.dp))
+            Row(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp),
@@ -289,8 +333,10 @@ fun AdultScreen(
                 }
             }
         }
-        }
         Spacer(Modifier.height(16.dp))
+        }
+        }
+        }
 
         if (showPornhubShorties && state.source == AdultSource.Pornhub) {
             PornhubShortiesScreen(onClose = { showPornhubShorties = false }, modifier = Modifier.fillMaxWidth().weight(1f))
