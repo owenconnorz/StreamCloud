@@ -76,18 +76,31 @@ object XHamsterRepository {
             parseXHamsterListing(html, safePage)
         }
 
+    suspend fun fetchPopularCategories(): List<XHamsterCategory> = withContext(Dispatchers.IO) {
+        val directoryHtml = requestPage(buildXHamsterCategoriesUrl())
+        val categories = parseXHamsterCategories(directoryHtml).take(12)
+        if (categories.isEmpty()) {
+            throw XHamsterUnavailableException(
+                "XHamster loaded its category page without any category cards. " +
+                    "Complete any official age or region check on XHamster, then retry.",
+            )
+        }
+        categories
+    }
+
     suspend fun fetchCategories(
         onPartialResults: (List<XHamsterCategory>) -> Unit = {},
     ): List<XHamsterCategory> = withContext(Dispatchers.IO) {
-        // XHamster's main category directory is split into letter and format pages.
-        // The menu URL presents the same categories UI used by the site navigation.
-        // Keep the main directory as the baseline so one unavailable letter page
-        // cannot make the entire category screen fail.
         val directoryHtml = requestPage(buildXHamsterCategoriesUrl())
         val categories = parseXHamsterCategories(directoryHtml).toMutableList()
-        if (categories.isNotEmpty()) {
-            onPartialResults(categories.sortedBy { it.title.lowercase() })
+        if (categories.isEmpty()) {
+            throw XHamsterUnavailableException(
+                "XHamster loaded its category page without any category cards. " +
+                    "Complete any official age or region check on XHamster, then retry.",
+            )
         }
+        onPartialResults(categories.toList())
+
         val indexPaths = parseXHamsterCategoryIndexPaths(directoryHtml)
             .filterNot { it == "/categories" }
         val requestLimit = Semaphore(2)
@@ -100,10 +113,18 @@ object XHamsterRepository {
                         }
                         if (pageCategories.isNotEmpty()) {
                             val snapshot = synchronized(categories) {
-                                categories.addAll(pageCategories)
-                                categories
-                                    .distinctBy(XHamsterCategory::path)
-                                    .sortedBy { it.title.lowercase() }
+                                val merged = linkedMapOf<String, XHamsterCategory>()
+                                (categories + pageCategories).forEach { category ->
+                                    val existing = merged[category.path]
+                                    if (existing == null ||
+                                        (existing.thumbnail == null && category.thumbnail != null)
+                                    ) {
+                                        merged[category.path] = category
+                                    }
+                                }
+                                categories.clear()
+                                categories.addAll(merged.values)
+                                categories.toList()
                             }
                             onPartialResults(snapshot)
                         }
@@ -116,11 +137,16 @@ object XHamsterRepository {
                 }
             }.awaitAll().flatten()
         }
-
-        categories.addAll(otherCategories)
-        categories
-            .distinctBy(XHamsterCategory::path)
-            .sortedBy { it.title.lowercase() }
+        val merged = linkedMapOf<String, XHamsterCategory>()
+        (categories + otherCategories).forEach { category ->
+            val existing = merged[category.path]
+            if (existing == null ||
+                (existing.thumbnail == null && category.thumbnail != null)
+            ) {
+                merged[category.path] = category
+            }
+        }
+        merged.values.toList()
     }
 
     fun videoPageUrl(videoId: String): String {
@@ -279,40 +305,40 @@ internal fun parseXHamsterCategories(html: String): List<XHamsterCategory> {
         )
     }
 
-    return document.select("a[href]")
-        .mapNotNull { anchor ->
-            val path = normalizeXHamsterCategoryPath(anchor.attr("href"))
-                ?: return@mapNotNull null
-            val image = anchor.selectFirst("img")
-            val title = image?.attr("alt")
-                ?.trim()
-                ?.takeIf(String::isNotBlank)
-                ?: anchor.selectFirst("h3")?.text()?.trim()?.takeIf(String::isNotBlank)
-                ?: anchor.text().trim().takeIf(String::isNotBlank)
-                ?: return@mapNotNull null
-            XHamsterCategory(
-                path = path,
-                title = title,
-                thumbnail = image?.let {
-                    normalizeXHamsterAssetUrl(
-                        it.attr("src").ifBlank { it.attr("data-src") },
-                    )
-                },
+    val categoriesByPath = linkedMapOf<String, XHamsterCategory>()
+    val anchors = buildList {
+        addAll(document.select("#trending a[href]"))
+        addAll(document.select("a[href]"))
+    }
+    anchors.forEach { anchor ->
+        val path = normalizeXHamsterCategoryPath(anchor.attr("href"))
+            ?: return@forEach
+        val image = anchor.selectFirst("img")
+        val title = image?.attr("alt")
+            ?.trim()
+            ?.takeIf(String::isNotBlank)
+            ?: anchor.selectFirst("h3")?.text()?.trim()?.takeIf(String::isNotBlank)
+            ?: anchor.attr("aria-label").trim().takeIf(String::isNotBlank)
+            ?: anchor.text().trim().takeIf(String::isNotBlank)
+            ?: return@forEach
+        val thumbnail = image?.let { imageElement ->
+            normalizeXHamsterAssetUrl(
+                listOf("data-src", "data-lazy-src", "data-original", "src")
+                    .firstNotNullOfOrNull { attribute ->
+                        imageElement.attr(attribute).trim().takeIf(String::isNotBlank)
+                    },
             )
         }
-        .distinctBy(XHamsterCategory::path)
-        .sortedBy { it.title.lowercase() }
-}
-
-private fun isXHamsterAccessGate(
-    html: String,
-    document: org.jsoup.nodes.Document,
-): Boolean {
-    if (document.body()?.hasClass("xh-scroll-disabled") == true) return true
-    val lower = document.text().lowercase()
-    return "before age verification" in lower ||
-        "do you want to see content for" in lower ||
-        "you need to log in/sign up so you don't have to go through verification process again" in lower
+        val category = XHamsterCategory(path, title, thumbnail)
+        val existing = categoriesByPath[path]
+        if (existing == null ||
+            (existing.thumbnail == null && category.thumbnail != null) ||
+            (existing.title.isBlank() && category.title.isNotBlank())
+        ) {
+            categoriesByPath[path] = category
+        }
+    }
+    return categoriesByPath.values.toList()
 }
 
 internal fun parseXHamsterCategoryIndexPaths(html: String): List<String> {
@@ -335,6 +361,17 @@ private fun normalizeXHamsterCategoryIndexPath(raw: String): String? {
     return path.takeIf {
         Regex("^/categories(?:-(?:[0-9a-z]|4k|vr))?$").matches(it)
     }
+}
+
+private fun isXHamsterAccessGate(
+    html: String,
+    document: org.jsoup.nodes.Document,
+): Boolean {
+    if (document.body()?.hasClass("xh-scroll-disabled") == true) return true
+    val lower = document.text().lowercase()
+    return "before age verification" in lower ||
+        "do you want to see content for" in lower ||
+        "you need to log in/sign up so you don't have to go through verification process again" in lower
 }
 
 private fun normalizeXHamsterCategoryPath(raw: String): String? {

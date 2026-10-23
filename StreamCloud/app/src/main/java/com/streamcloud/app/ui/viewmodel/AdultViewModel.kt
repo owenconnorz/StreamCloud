@@ -50,6 +50,9 @@ data class AdultState(
     val xhamsterCategories: List<XHamsterCategory> = emptyList(),
     val loadingXHamsterCategories: Boolean = false,
     val xhamsterCategoryError: String? = null,
+    val xhamsterPopularCategories: List<XHamsterCategory> = emptyList(),
+    val loadingXHamsterPopularCategories: Boolean = false,
+    val xhamsterPopularCategoryError: String? = null,
     val selectedXHamsterCategory: XHamsterCategory? = null,
     val pornhubHomeSections: List<PornhubHomeSection> = emptyList(),
     val pornhubHome: Boolean = false,
@@ -120,7 +123,7 @@ class AdultViewModel(
                         replace = true,
                         categoryPath = currentXHamsterCategoryPath,
                     )
-                    loadXHamsterCategories()
+                    loadXHamsterPopularCategories()
                 }
             }
         }
@@ -175,7 +178,7 @@ class AdultViewModel(
                     currentXHamsterCategoryPath = null
                     if (ageGateConfirmed) {
                         fetchXHamsterPage(query = "", page = 1, replace = true)
-                        loadXHamsterCategories()
+                        loadXHamsterPopularCategories()
                     }
                 }
                 else -> {
@@ -235,7 +238,7 @@ class AdultViewModel(
                 viewModelScope.launch {
                     fetchXHamsterPage(query = "", page = 1, replace = true)
                 }
-                loadXHamsterCategories()
+                loadXHamsterPopularCategories()
             }
         }
     }
@@ -539,6 +542,40 @@ class AdultViewModel(
                     it.copy(
                         loadingXHamsterCategories = false,
                         xhamsterCategoryError = "Could not load XHamster categories: ${e.message}",
+                    )
+                }
+            }
+        }
+    }
+
+    fun loadXHamsterPopularCategories() {
+        if (_state.value.loadingXHamsterPopularCategories ||
+            _state.value.xhamsterPopularCategories.isNotEmpty()
+        ) return
+        viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    loadingXHamsterPopularCategories = true,
+                    xhamsterPopularCategoryError = null,
+                )
+            }
+            try {
+                val categories = XHamsterRepository.fetchPopularCategories()
+                _state.update {
+                    it.copy(
+                        xhamsterPopularCategories = categories,
+                        loadingXHamsterPopularCategories = false,
+                        xhamsterPopularCategoryError = null,
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        loadingXHamsterPopularCategories = false,
+                        xhamsterPopularCategoryError =
+                            "Could not load XHamster categories: ${e.message}",
                     )
                 }
             }

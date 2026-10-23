@@ -159,7 +159,47 @@ class XHamsterRepositoryTest {
     }
 
     @Test
-    fun findsAllOfficialCategoryDirectoryPages() {
+    fun putsOfficialPopularCategoriesFirstAndKeepsCategoryImages() {
+        val categories = parseXHamsterCategories(
+            """
+            <html><body>
+              <nav>
+                <a href="/categories/behind-the-scenes">Behind the Scenes</a>
+              </nav>
+              <section id="trending">
+                <a href="/categories/mature">
+                  <img src="https://ic-tt-nss.xhcdn.com/mature.webp" alt="Mature">
+                  <h3>Mature</h3>
+                </a>
+                <a href="/categories/amateur">
+                  <img src="https://ic-tt-nss.xhcdn.com/amateur.webp" alt="Amateur">
+                </a>
+              </section>
+              <section id="production">
+                <a href="/categories/behind-the-scenes">
+                  <img data-src="https://ic-tt-nss.xhcdn.com/behind.webp" alt="Behind the Scenes">
+                </a>
+              </section>
+            </body></html>
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            listOf(
+                "/categories/mature",
+                "/categories/amateur",
+                "/categories/behind-the-scenes",
+            ),
+            categories.map(XHamsterCategory::path),
+        )
+        assertEquals(
+            "https://ic-tt-nss.xhcdn.com/behind.webp",
+            categories.last().thumbnail,
+        )
+    }
+
+    @Test
+    fun keepsAllOfficialCategoryDirectoryPagesAvailableForTheFullList() {
         val paths = parseXHamsterCategoryIndexPaths(
             """
             <html><body>

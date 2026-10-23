@@ -427,24 +427,6 @@ fun AdultScreen(
 
             Spacer(Modifier.height(4.dp))
 
-            if (
-                state.source == AdultSource.XHamster &&
-                query.isBlank() &&
-                state.selectedXHamsterCategory == null
-            ) {
-                XHamsterCategoryCarousel(
-                    categories = state.xhamsterCategories,
-                    loading = state.loadingXHamsterCategories,
-                    error = state.xhamsterCategoryError,
-                    onViewAll = {
-                        vm.loadXHamsterCategories()
-                        showAllXHamsterCategories = true
-                    },
-                    onRetry = { vm.loadXHamsterCategories() },
-                    onSelect = { category -> vm.selectXHamsterCategory(category) },
-                )
-            }
-
             state.error?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(20.dp))
             }
@@ -461,6 +443,34 @@ fun AdultScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement   = Arrangement.spacedBy(12.dp),
             ) {
+                if (
+                    state.source == AdultSource.XHamster &&
+                    query.isBlank() &&
+                    state.selectedXHamsterCategory == null
+                ) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        XHamsterCategoryCarousel(
+                            categories = state.xhamsterPopularCategories,
+                            loading = state.loadingXHamsterPopularCategories,
+                            error = state.xhamsterPopularCategoryError,
+                            onViewAll = {
+                                vm.loadXHamsterCategories()
+                                showAllXHamsterCategories = true
+                            },
+                            onRetry = { vm.loadXHamsterPopularCategories() },
+                            onSelect = vm::selectXHamsterCategory,
+                        )
+                    }
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Text(
+                            "Videos",
+                            modifier = Modifier.fillMaxWidth(),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                    }
+                }
                 items(state.items, key = { it.id }) { v ->
                     AdultCard(v) { detailItem = v }
                 }
@@ -1116,11 +1126,11 @@ private fun XHamsterCategoryCarousel(
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 0.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                "Categories",
+                "Popular Categories",
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
@@ -1140,7 +1150,7 @@ private fun XHamsterCategoryCarousel(
                 CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.dp)
             }
             categories.isNotEmpty() -> LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
+                contentPadding = PaddingValues(horizontal = 0.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(categories.take(12), key = XHamsterCategory::id) { category ->
