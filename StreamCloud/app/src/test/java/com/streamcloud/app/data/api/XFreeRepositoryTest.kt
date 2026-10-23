@@ -63,6 +63,19 @@ class XFreeRepositoryTest {
     }
 
     @Test
+    fun loginAndPlaybackCanShareTheSameNormalizedBrowserIdentity() {
+        val defaultUserAgent =
+            "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) " +
+                "Version/4.0 Chrome/130.0.0.0 Mobile Safari/537.36; wv"
+
+        assertEquals(
+            "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) " +
+                "Chrome/130.0.0.0 Mobile Safari/537.36",
+            normalizeXFreeWebViewUserAgent(defaultUserAgent),
+        )
+    }
+
+    @Test
     fun parserRejectsExternalCardsAndInvalidVideoIds() {
         val html = """
             <html><body>

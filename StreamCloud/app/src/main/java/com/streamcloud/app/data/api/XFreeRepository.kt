@@ -1,6 +1,9 @@
 package com.streamcloud.app.data.api
 
+import android.content.Context
 import android.webkit.CookieManager
+import android.webkit.WebSettings
+import android.webkit.WebView
 import com.streamcloud.app.data.network.BrowserHeaders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -176,6 +179,26 @@ object XFreeRepository {
         throw XFreeUnavailableException("XFree redirected too many times.")
     }
 }
+
+/**
+ * Keep XFree sign-in and playback WebViews on the same browser identity and
+ * cookie policy so the provider can reuse its own authenticated/verified
+ * session. This does not create or bypass any provider verification.
+ */
+internal fun configureXFreeWebViewSession(webView: WebView, context: Context) {
+    val cookies = CookieManager.getInstance()
+    cookies.setAcceptCookie(true)
+    cookies.setAcceptThirdPartyCookies(webView, true)
+    webView.settings.userAgentString = normalizeXFreeWebViewUserAgent(
+        WebSettings.getDefaultUserAgent(context),
+    )
+    cookies.flush()
+}
+
+internal fun normalizeXFreeWebViewUserAgent(defaultUserAgent: String): String =
+    defaultUserAgent
+        .replace("; wv", "")
+        .replace(" Version/4.0", "")
 
 internal fun buildXFreeCookieHeader(providerCookies: String?): String? =
     providerCookies.orEmpty()

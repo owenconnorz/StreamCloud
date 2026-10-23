@@ -13,6 +13,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.streamcloud.app.data.api.configureXFreeWebViewSession
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -205,12 +206,7 @@ fun XFreeLoginScreen(
                             view.settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                             view.settings.javaScriptCanOpenWindowsAutomatically = false
                             view.settings.setSupportMultipleWindows(false)
-                            view.settings.userAgentString =
-                                WebSettings.getDefaultUserAgent(context)
-                                    .replace("; wv", "")
-                                    .replace(" Version/4.0", "")
-                            CookieManager.getInstance().setAcceptCookie(true)
-                            CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
+                            configureXFreeWebViewSession(view, context)
                             view.webViewClient = object : WebViewClient() {
                                 override fun shouldOverrideUrlLoading(
                                     view: WebView?,

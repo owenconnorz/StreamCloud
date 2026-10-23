@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.streamcloud.app.data.api.XFreeRepository
+import com.streamcloud.app.data.api.configureXFreeWebViewSession
 import com.streamcloud.app.ui.icons.AppIcons as Icons
 
 /**
@@ -91,6 +92,7 @@ fun XFreePlayerScreen(
                 @Suppress("DEPRECATION")
                 allowUniversalAccessFromFileURLs = false
             }
+            configureXFreeWebViewSession(this, context)
 
             webChromeClient = object : WebChromeClient() {
                 override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
