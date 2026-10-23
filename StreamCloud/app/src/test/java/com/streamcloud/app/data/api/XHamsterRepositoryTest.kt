@@ -2,6 +2,7 @@ package com.streamcloud.app.data.api
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -165,6 +166,31 @@ class XHamsterRepositoryTest {
                 page = 1,
                 categoryPath = "/gay/categories/amateur",
                 orientation = XHamsterOrientation.GAY,
+            ),
+        )
+    }
+
+    @Test
+    fun feedRequestsOverrideOnlyXHamstersOrientationCookie() {
+        val providerCookies =
+            "session=session-value; age_check=confirmed; x_content_preference_index=shemale"
+
+        assertEquals(
+            "session=session-value; age_check=confirmed",
+            buildXHamsterCookieHeader(providerCookies, XHamsterOrientation.STRAIGHT),
+        )
+        assertEquals(
+            "session=session-value; age_check=confirmed; x_content_preference_index=gay",
+            buildXHamsterCookieHeader(providerCookies, XHamsterOrientation.GAY),
+        )
+        assertEquals(
+            "session=session-value; age_check=confirmed; x_content_preference_index=shemale",
+            buildXHamsterCookieHeader(providerCookies, XHamsterOrientation.TRANSGENDER),
+        )
+        assertNull(
+            buildXHamsterCookieHeader(
+                "x_content_preference_index=gay",
+                XHamsterOrientation.STRAIGHT,
             ),
         )
     }

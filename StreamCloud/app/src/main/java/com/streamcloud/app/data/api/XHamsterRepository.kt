@@ -38,10 +38,14 @@ data class XHamsterCategory(
     val id: String get() = path
 }
 
-enum class XHamsterOrientation(val label: String, val pathPrefix: String) {
-    STRAIGHT("Straight", ""),
-    GAY("Gay", "/gay"),
-    TRANSGENDER("Transgender", "/shemale");
+enum class XHamsterOrientation(
+    val label: String,
+    val pathPrefix: String,
+    val cookiePreference: String?,
+) {
+    STRAIGHT("Straight", "", null),
+    GAY("Gay", "/gay", "gay"),
+    TRANSGENDER("Transgender", "/shemale", "shemale");
 
     companion object {
         fun fromPreference(value: String?): XHamsterOrientation =
@@ -86,6 +90,7 @@ object XHamsterRepository {
             val safePage = page.coerceAtLeast(1)
             val html = requestPage(
                 buildXHamsterListingUrl(query, safePage, categoryPath, orientation),
+                orientation,
             )
             parseXHamsterListing(html, safePage)
         }
@@ -93,7 +98,7 @@ object XHamsterRepository {
     suspend fun fetchPopularCategories(
         orientation: XHamsterOrientation = XHamsterOrientation.STRAIGHT,
     ): List<XHamsterCategory> = withContext(Dispatchers.IO) {
-        val directoryHtml = requestPage(buildXHamsterCategoriesUrl(orientation))
+        val directoryHtml = requestPage(buildXHamsterCategoriesUrl(orientation), orientation)
         val categories = parseXHamsterCategories(directoryHtml, orientation).take(12)
         if (categories.isEmpty()) {
             throw XHamsterUnavailableException(
@@ -108,7 +113,7 @@ object XHamsterRepository {
         onPartialResults: (List<XHamsterCategory>) -> Unit = {},
         orientation: XHamsterOrientation = XHamsterOrientation.STRAIGHT,
     ): List<XHamsterCategory> = withContext(Dispatchers.IO) {
-        val directoryHtml = requestPage(buildXHamsterCategoriesUrl(orientation))
+        val directoryHtml = requestPage(buildXHamsterCategoriesUrl(orientation), orientation)
         val categories = parseXHamsterCategories(directoryHtml, orientation).toMutableList()
         if (categories.isEmpty()) {
             throw XHamsterUnavailableException(
@@ -126,7 +131,10 @@ object XHamsterRepository {
                 async {
                     try {
                         val pageCategories = requestLimit.withPermit {
-                            parseXHamsterCategories(requestPage("$BASE_URL$path"), orientation)
+                            parseXHamsterCategories(
+                                requestPage("$BASE_URL$path", orientation),
+                                orientation,
+                            )
                         }
                         if (pageCategories.isNotEmpty()) {
                             val snapshot = synchronized(categories) {
@@ -224,7 +232,7 @@ object XHamsterRepository {
         return cookieNames.isEmpty()
     }
 
-    private fun requestPage(url: String): String {
+    private fun requestPage(url: String, orientation: XHamsterOrientation): String {
         var currentUrl = url
         repeat(5) { redirectCount ->
             val requestBuilder = Request.Builder()
@@ -236,8 +244,9 @@ object XHamsterRepository {
             val providerCookies = runCatching {
                 CookieManager.getInstance().getCookie(currentUrl)
             }.getOrNull()
-            if (!providerCookies.isNullOrBlank()) {
-                requestBuilder.header("Cookie", providerCookies)
+            val cookies = buildXHamsterCookieHeader(providerCookies, orientation)
+            if (!cookies.isNullOrBlank()) {
+                requestBuilder.header("Cookie", cookies)
             }
             val request = requestBuilder.build()
 
@@ -276,6 +285,30 @@ object XHamsterRepository {
         }
         throw XHamsterUnavailableException("XHamster redirected too many times.")
     }
+}
+
+/**
+ * XHamster's orientation cookie can override the requested URL path. Replace
+ * only that preference so login and age-check cookies remain available.
+ */
+internal fun buildXHamsterCookieHeader(
+    providerCookies: String?,
+    orientation: XHamsterOrientation,
+): String? {
+    val cookies = providerCookies.orEmpty()
+        .split(';')
+        .mapNotNull { cookie ->
+            cookie.trim().takeIf { it.contains('=') && it.substringBefore('=').isNotBlank() }
+        }
+        .filterNot {
+            it.substringBefore('=').trim().equals("x_content_preference_index", ignoreCase = true)
+        }
+        .toMutableList()
+
+    orientation.cookiePreference?.let { preference ->
+        cookies += "x_content_preference_index=$preference"
+    }
+    return cookies.joinToString("; ").takeIf(String::isNotBlank)
 }
 
 internal fun buildXHamsterCategoriesUrl(
