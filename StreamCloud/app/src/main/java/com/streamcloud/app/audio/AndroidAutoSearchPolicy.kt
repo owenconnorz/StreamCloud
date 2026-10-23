@@ -27,6 +27,10 @@ internal fun <T> androidAutoSearchOutcome(
     else -> AndroidAutoSearchOutcome(emptyList(), AndroidAutoSearchState.PROVIDERS_UNAVAILABLE)
 }
 
+internal fun <T> androidAutoVoicePlaybackQueue(
+    outcome: AndroidAutoSearchOutcome<T>,
+): List<T> = outcome.items.takeIf { outcome.state == AndroidAutoSearchState.RESULTS }.orEmpty()
+
 internal fun androidAutoSearchMessage(
     state: AndroidAutoSearchState,
     query: String,

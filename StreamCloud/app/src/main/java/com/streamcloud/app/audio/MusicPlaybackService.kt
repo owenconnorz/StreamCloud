@@ -63,6 +63,7 @@ import com.streamcloud.app.data.ytmusic.YtPlayback
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
 import com.google.common.util.concurrent.SettableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -1649,8 +1650,15 @@ class MusicPlaybackService : MediaLibraryService() {
                     AppLogger.w(TAG, "Android Auto children failed for $parentId: ${error.message}")
                     listOf(errorItem(parentId, "Couldn't load: ${error.message ?: "try again"}"))
                 }
-                prefetchMediaItems(children)
-                val paged = if (parentId == SONGS_ID) children else pageItems(children, page, pageSize)
+                val browseItems = if (isBrowseQueueParent(parentId)) {
+                    children.mapIndexed { index, item ->
+                        withBrowseQueueContext(item, parentId, index)
+                    }
+                } else {
+                    children
+                }
+                prefetchMediaItems(browseItems)
+                val paged = if (parentId == SONGS_ID) browseItems else pageItems(browseItems, page, pageSize)
                 fut.set(LibraryResult.ofItemList(ImmutableList.copyOf(paged), params))
             }
             return fut
@@ -1662,15 +1670,36 @@ class MusicPlaybackService : MediaLibraryService() {
             controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>,
         ): ListenableFuture<MutableList<MediaItem>> {
-            val voiceQuery = mediaItems
-                .singleOrNull()
-                ?.let(::requestedSearchQuery)
-                ?: return Futures.immediateFuture(
+            val requestedItem = mediaItems.singleOrNull()
+            val voiceQuery = requestedItem?.let(::requestedSearchQuery)
+            if (voiceQuery == null) {
+                val queueRequest = requestedItem?.let(::browseQueueRequest)
+                if (queueRequest != null) {
+                    val future = SettableFuture.create<MutableList<MediaItem>>()
+                    ioScope.launch {
+                        runCatching {
+                            val queue = loadBrowseQueue(queueRequest.parentId)
+                                .filterNot { it.mediaId.startsWith(ERROR_PREFIX) }
+                            require(queue.isNotEmpty()) {
+                                "This playlist has no playable tracks."
+                            }
+                            val selectedIndex = requireNotNull(
+                                browseQueueStartIndex(queue, queueRequest),
+                            ) { "The selected track is no longer in this playlist." }
+                            queue.map(::attachUri).also(::prefetchMediaItems)
+                                .let { androidAutoQueueStartingAt(it, selectedIndex).toMutableList() }
+                        }.onSuccess { future.set(it) }
+                            .onFailure { future.setException(it) }
+                    }
+                    return future
+                }
+                return Futures.immediateFuture(
                     mediaItems
                         .map(::attachUri)
                         .also(::prefetchMediaItems)
                         .toMutableList(),
                 )
+            }
             val future = SettableFuture.create<MutableList<MediaItem>>()
             ioScope.launch {
                 val outcome = searchCarMusicSafely(voiceQuery)
@@ -1685,19 +1714,19 @@ class MusicPlaybackService : MediaLibraryService() {
                         future.setException(IllegalStateException(message))
                     }
                     AndroidAutoSearchState.RESULTS -> {
+                        val queue = androidAutoVoicePlaybackQueue(outcome)
                         AppLogger.i(
                             TAG,
                             "Android Auto voice search matched \"$voiceQuery\" to " +
-                                outcome.items.first().mediaMetadata.title,
+                                queue.firstOrNull()?.mediaMetadata?.title,
                         )
-                        prefetchMediaItems(outcome.items)
-                        future.set(mutableListOf(outcome.items.first()))
+                        prefetchMediaItems(queue)
+                        future.set(queue.toMutableList())
                     }
                 }
             }
             return future
         }
-
 
         override fun onSearch(
             session: MediaLibrarySession,
@@ -1743,6 +1772,53 @@ class MusicPlaybackService : MediaLibraryService() {
             return fut
         }
 
+
+        override fun onSetMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: List<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long,
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val selectedItem = mediaItems.singleOrNull()
+            val queueRequest = selectedItem?.let(::browseQueueRequest)
+                ?: return Futures.transform(
+                    onAddMediaItems(mediaSession, controller, mediaItems.toMutableList()),
+                    { resolved ->
+                        val resolvedStartIndex = startIndex.takeIf { it in resolved.indices }
+                            ?: androidx.media3.common.C.INDEX_UNSET
+                        MediaSession.MediaItemsWithStartPosition(
+                            resolved,
+                            resolvedStartIndex,
+                            startPositionMs,
+                        )
+                    },
+                    MoreExecutors.directExecutor(),
+                )
+
+            val future = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            ioScope.launch {
+                runCatching {
+                    val queue = loadBrowseQueue(queueRequest.parentId)
+                        .filterNot { it.mediaId.startsWith(ERROR_PREFIX) }
+                    val resolvedQueue = queue.map(::attachUri)
+                    require(resolvedQueue.isNotEmpty()) {
+                        "This playlist has no playable tracks."
+                    }
+                    val selectedIndex = requireNotNull(
+                        browseQueueStartIndex(queue, queueRequest),
+                    ) { "The selected track is no longer in this playlist." }
+                    prefetchMediaItems(resolvedQueue)
+                    MediaSession.MediaItemsWithStartPosition(
+                        resolvedQueue,
+                        selectedIndex,
+                        startPositionMs,
+                    )
+                }.onSuccess { future.set(it) }
+                    .onFailure { future.setException(it) }
+            }
+            return future
+        }
 
         override fun onPlaybackResumption(
             mediaSession: MediaSession,
@@ -1984,7 +2060,7 @@ class MusicPlaybackService : MediaLibraryService() {
 
     private suspend fun playlistsFolderChildren(): List<MediaItem> {
         val local = LibraryDb.get(this).localPlaylists().allPlaylistsOnce().map { pl ->
-            folder("$LOCAL_PLAYLIST_PREFIX${pl.id}", pl.name)
+            playlist("$LOCAL_PLAYLIST_PREFIX${pl.id}", pl.name)
         }
         val youtube = ytLibrary.playlists.filter { !it.isAlbum }.map { pl ->
             MediaItem.Builder()
@@ -1995,7 +2071,7 @@ class MusicPlaybackService : MediaLibraryService() {
                         .setSubtitle(pl.subtitle)
                         .setArtworkUri(pl.thumbnail?.let(Uri::parse))
                         .setIsBrowsable(true)
-                        .setIsPlayable(false)
+                        .setIsPlayable(true)
                         .setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST)
                         .build(),
                 )
@@ -2005,7 +2081,7 @@ class MusicPlaybackService : MediaLibraryService() {
             ytHomeFeed.sections.filterIsInstance<HomeSection.PlaylistRail>()
                 .flatMap { it.items }
                 .filter { it.id.isNotBlank() }
-                .map { pl -> folder("$YT_HOME_BROWSE_PREFIX${pl.id}", pl.title) }
+                .map { pl -> playlist("$YT_HOME_BROWSE_PREFIX${pl.id}", pl.title, pl.thumbnail) }
         } else emptyList()
         return (local + youtube + suggested).distinctBy(MediaItem::mediaId)
     }
@@ -2315,7 +2391,7 @@ class MusicPlaybackService : MediaLibraryService() {
                 .setTitle(title)
                 .setArtworkUri(artworkUrl?.let(Uri::parse))
                 .setIsBrowsable(true)
-                .setIsPlayable(false)
+                .setIsPlayable(true)
                 .setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST)
                 .build(),
         )
@@ -2371,9 +2447,9 @@ class MusicPlaybackService : MediaLibraryService() {
             else null
         }
         id.startsWith(YT_HOME_BROWSE_PREFIX) ->
-            folder(id, "YouTube Music playlist")
+            playlist(id, "YouTube Music playlist")
         id.startsWith(LOCAL_PLAYLIST_PREFIX) ->
-            folder(id, "Local playlist")
+            playlist(id, "Local playlist")
         else -> null
     }
 
@@ -2386,7 +2462,7 @@ class MusicPlaybackService : MediaLibraryService() {
                     .setSubtitle(pl.subtitle)
                     .setArtworkUri(pl.thumbnail?.let(Uri::parse))
                     .setIsBrowsable(true)
-                    .setIsPlayable(false)
+                    .setIsPlayable(true)
                     .setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST)
                     .build(),
             )
@@ -2636,6 +2712,77 @@ class MusicPlaybackService : MediaLibraryService() {
         return item.buildUpon().setUri(id).setCustomCacheKey(id).build()
     }
 
+    private fun isBrowseQueueParent(mediaId: String): Boolean =
+        mediaId in setOf(RECENT_ID, ON_REPEAT_ID, LIKED_ID, DOWNLOADED_ID) ||
+            mediaId.startsWith(LOCAL_PLAYLIST_PREFIX) ||
+            mediaId.startsWith(YT_PLAYLIST_PREFIX) ||
+            mediaId.startsWith(YT_ALBUM_PREFIX) ||
+            mediaId.startsWith(YT_ARTIST_PREFIX) ||
+            mediaId.startsWith(YT_HOME_BROWSE_PREFIX)
+
+    private fun withBrowseQueueContext(
+        item: MediaItem,
+        parentId: String,
+        index: Int,
+    ): MediaItem {
+        if (item.mediaId.startsWith(ERROR_PREFIX)) return item
+        val extras = Bundle(item.mediaMetadata.extras ?: Bundle()).apply {
+            putString(EXTRA_BROWSE_QUEUE_PARENT_ID, parentId)
+            putInt(EXTRA_BROWSE_QUEUE_INDEX, index)
+        }
+        val metadata = item.mediaMetadata.buildUpon().setExtras(extras).build()
+        return item.buildUpon().setMediaMetadata(metadata).build()
+    }
+
+    private data class BrowseQueueRequest(
+        val parentId: String,
+        val selectedMediaId: String,
+        val preferredIndex: Int?,
+    )
+
+    private fun browseQueueRequest(item: MediaItem): BrowseQueueRequest? {
+        val extras = item.mediaMetadata.extras
+        val parentId = extras?.getString(EXTRA_BROWSE_QUEUE_PARENT_ID)
+            ?.takeIf(::isBrowseQueueParent)
+            ?: item.mediaId.takeIf(::isBrowseQueueParent)
+            ?: return null
+        val preferredIndex = extras
+            ?.takeIf { it.containsKey(EXTRA_BROWSE_QUEUE_INDEX) }
+            ?.getInt(EXTRA_BROWSE_QUEUE_INDEX)
+        return BrowseQueueRequest(parentId, item.mediaId, preferredIndex)
+    }
+
+    private fun browseQueueStartIndex(
+        queue: List<MediaItem>,
+        request: BrowseQueueRequest,
+    ): Int? {
+        if (request.selectedMediaId == request.parentId) return 0
+        return androidAutoQueueStartIndex(
+            queueMediaIds = queue.map(MediaItem::mediaId),
+            selectedMediaId = request.selectedMediaId,
+            preferredIndex = request.preferredIndex,
+        )
+    }
+
+    private suspend fun loadBrowseQueue(parentId: String): List<MediaItem> = when {
+        parentId == RECENT_ID -> roomTracks { it.recent().first() }
+        parentId == ON_REPEAT_ID ->
+            roomTracks { it.mostPlayed().first().filter { track -> track.playCount > 0 } }
+        parentId == LIKED_ID -> likedChildren()
+        parentId == DOWNLOADED_ID -> roomTracks { it.downloaded().first() }
+        parentId.startsWith(LOCAL_PLAYLIST_PREFIX) ->
+            localPlaylistTracks(parentId.removePrefix(LOCAL_PLAYLIST_PREFIX))
+        parentId.startsWith(YT_PLAYLIST_PREFIX) ->
+            ytPlaylistTracks(parentId.removePrefix(YT_PLAYLIST_PREFIX))
+        parentId.startsWith(YT_ALBUM_PREFIX) ->
+            ytPlaylistTracks(parentId.removePrefix(YT_ALBUM_PREFIX))
+        parentId.startsWith(YT_ARTIST_PREFIX) ->
+            ytArtistTopSongs(parentId.removePrefix(YT_ARTIST_PREFIX))
+        parentId.startsWith(YT_HOME_BROWSE_PREFIX) ->
+            ytPlaylistTracks(parentId.removePrefix(YT_HOME_BROWSE_PREFIX))
+        else -> emptyList()
+    }
+
     companion object {
         private const val TAG    = "MusicPlaybackService"
         private const val CROSSFADE_HANDOFF_DURATION_MS = 350L
@@ -2671,6 +2818,10 @@ class MusicPlaybackService : MediaLibraryService() {
         const val ERROR_PREFIX = "streamcloud_error_"
         const val EXTRA_RETRYABLE = "com.streamcloud.app.extra.RETRYABLE"
         const val EXTRA_COMMAND_MESSAGE = "com.streamcloud.app.extra.COMMAND_MESSAGE"
+        private const val EXTRA_BROWSE_QUEUE_PARENT_ID =
+            "com.streamcloud.app.extra.BROWSE_QUEUE_PARENT_ID"
+        private const val EXTRA_BROWSE_QUEUE_INDEX =
+            "com.streamcloud.app.extra.BROWSE_QUEUE_INDEX"
         const val DEFAULT_LIBRARY_PAGE_SIZE = 50
         const val QUEUE_STATE_PREFS = "streamcloud_playback_state"
         const val QUEUE_STATE_KEY = "queue_snapshot_v1"

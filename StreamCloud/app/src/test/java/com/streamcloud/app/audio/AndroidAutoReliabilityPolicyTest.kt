@@ -102,15 +102,41 @@ class AndroidAutoReliabilityPolicyTest {
     fun voiceSearchSeparatesNoMatchesFromProviderFailure() {
         val noMatches = androidAutoSearchOutcome(emptyList<String>(), anyProviderSucceeded = true)
         val unavailable = androidAutoSearchOutcome(emptyList<String>(), anyProviderSucceeded = false)
-        val found = androidAutoSearchOutcome(listOf("song"), anyProviderSucceeded = false)
+        val found = androidAutoSearchOutcome(
+            listOf("first artist song", "second artist song"),
+            anyProviderSucceeded = false,
+        )
 
         assertEquals(AndroidAutoSearchState.NO_MATCHES, noMatches.state)
         assertEquals(0, noMatches.browserResultCount)
+        assertTrue(androidAutoVoicePlaybackQueue(noMatches).isEmpty())
         assertEquals(AndroidAutoSearchState.PROVIDERS_UNAVAILABLE, unavailable.state)
         assertEquals(1, unavailable.browserResultCount)
         assertTrue(androidAutoSearchMessage(unavailable.state, "jazz").contains("connection"))
         assertTrue(androidAutoSearchMessage(noMatches.state, "jazz").contains("jazz"))
         assertEquals(AndroidAutoSearchState.RESULTS, found.state)
-        assertEquals(1, found.browserResultCount)
+        assertEquals(2, found.browserResultCount)
+        assertEquals(found.items, androidAutoVoicePlaybackQueue(found))
+    }
+
+    @Test
+    fun playlistPlaybackStartsAtTheSelectedTrackAndPreservesTheFollowingQueue() {
+        val queueIds = listOf("track-a", "track-b", "track-a", "track-c")
+        val selectedIndex = androidAutoQueueStartIndex(
+            queueMediaIds = queueIds,
+            selectedMediaId = "track-a",
+            preferredIndex = 2,
+        )
+
+        assertEquals(2, selectedIndex)
+        assertEquals(
+            listOf("track-a", "track-c", "track-a", "track-b"),
+            androidAutoQueueStartingAt(queueIds, selectedIndex!!),
+        )
+        assertEquals(
+            1,
+            androidAutoQueueStartIndex(queueIds, "track-b", preferredIndex = 99),
+        )
+        assertNull(androidAutoQueueStartIndex(queueIds, "missing", preferredIndex = null))
     }
 }
