@@ -3,7 +3,12 @@ package com.streamcloud.app.data.api
 import android.webkit.CookieManager
 import com.streamcloud.app.data.network.BrowserHeaders
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -71,7 +76,32 @@ object XHamsterRepository {
         }
 
     suspend fun fetchCategories(): List<XHamsterCategory> = withContext(Dispatchers.IO) {
-        parseXHamsterCategories(requestPage("$BASE_URL/categories"))
+        // XHamster's main category directory is split into letter and format pages.
+        // Follow the official directory links rather than a locale-specific catalog.
+        val directoryHtml = requestPage("$BASE_URL/categories")
+        val indexPaths = parseXHamsterCategoryIndexPaths(directoryHtml)
+            .filterNot { it == "/categories" }
+        if (indexPaths.isEmpty()) {
+            throw XHamsterUnavailableException(
+                "XHamster's category directory did not provide its category pages.",
+            )
+        }
+
+        val requestLimit = Semaphore(4)
+        val otherPages = coroutineScope {
+            indexPaths.map { path ->
+                async {
+                    requestLimit.withPermit {
+                        requestPage("$BASE_URL$path")
+                    }
+                }
+            }.awaitAll()
+        }
+
+        (listOf(directoryHtml) + otherPages)
+            .flatMap(::parseXHamsterCategories)
+            .distinctBy(XHamsterCategory::path)
+            .sortedBy { it.title.lowercase() }
     }
 
     fun videoPageUrl(videoId: String): String {
@@ -252,6 +282,28 @@ internal fun parseXHamsterCategories(html: String): List<XHamsterCategory> {
         .sortedBy { it.title.lowercase() }
 }
 
+internal fun parseXHamsterCategoryIndexPaths(html: String): List<String> {
+    val document = Jsoup.parse(html)
+    return document.select("a[href]")
+        .mapNotNull { anchor ->
+            normalizeXHamsterCategoryIndexPath(anchor.attr("href"))
+        }
+        .distinct()
+        .sorted()
+}
+
+private fun normalizeXHamsterCategoryIndexPath(raw: String): String? {
+    val value = raw.trim().takeIf(String::isNotBlank) ?: return null
+    val parsed = runCatching {
+        "https://xhamster.com/".toHttpUrl().resolve(value)
+    }.getOrNull() ?: return null
+    if (parsed.scheme != "https" || parsed.host != "xhamster.com") return null
+    val path = parsed.encodedPath.removeSuffix("/")
+    return path.takeIf {
+        Regex("^/categories(?:-(?:[0-9a-z]|4k|vr))?$").matches(it)
+    }
+}
+
 private fun normalizeXHamsterCategoryPath(raw: String): String? {
     val value = raw.trim().takeIf(String::isNotBlank) ?: return null
     val parsed = runCatching {
@@ -259,7 +311,7 @@ private fun normalizeXHamsterCategoryPath(raw: String): String? {
     }.getOrNull() ?: return null
     if (!isAllowedXHamsterUrl(parsed.toString())) return null
     val path = parsed.encodedPath.removeSuffix("/")
-    if (!Regex("^/(?:[a-z0-9-]+/)?categories/[a-z0-9-]+$").matches(path)) {
+    if (!Regex("^/categories/[a-z0-9-]+$").matches(path)) {
         return null
     }
     return path

@@ -108,7 +108,7 @@ class XHamsterRepositoryTest {
     }
 
     @Test
-    fun parsesAndDeduplicatesCategoryCardsFromOfficialCatalog() {
+    fun parsesOnlyMainSiteCategoryCardsFromOfficialCatalog() {
         val categories = parseXHamsterCategories(
             """
             <html><body>
@@ -127,10 +127,39 @@ class XHamsterRepositoryTest {
             """.trimIndent(),
         )
 
-        assertEquals(2, categories.size)
+        assertEquals(1, categories.size)
         assertEquals("/categories/amateur", categories[0].path)
-        assertEquals("/gay/categories/big-cock", categories[1].path)
         assertEquals("https://ic-tt-nss.xhcdn.com/amateur.webp", categories[0].thumbnail)
+    }
+
+    @Test
+    fun findsAllOfficialCategoryDirectoryPages() {
+        val paths = parseXHamsterCategoryIndexPaths(
+            """
+            <html><body>
+              <a href="/categories">All</a>
+              <a href="/categories-0">#</a>
+              <a href="/categories-a">A</a>
+              <a href="https://xhamster.com/categories-z?from=menu">Z</a>
+              <a href="/categories-4k">4K</a>
+              <a href="/categories-vr">VR</a>
+              <a href="/gay/categories">Gay</a>
+              <a href="https://outside.example/categories-a">External</a>
+            </body></html>
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            listOf(
+                "/categories",
+                "/categories-0",
+                "/categories-4k",
+                "/categories-a",
+                "/categories-vr",
+                "/categories-z",
+            ),
+            paths,
+        )
     }
 
     @Test
@@ -169,10 +198,11 @@ class XHamsterRepositoryTest {
             "https://xhamster.com/categories/amateur/3",
             buildXHamsterListingUrl("", 3, "/categories/amateur"),
         )
-        assertEquals(
-            "https://xhamster.com/gay/categories/big-cock",
-            buildXHamsterListingUrl("", 1, "/gay/categories/big-cock"),
-        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsGaySpecificCategoryPaths() {
+        buildXHamsterListingUrl("", 1, "/gay/categories/big-cock")
     }
 
     @Test(expected = IllegalArgumentException::class)
