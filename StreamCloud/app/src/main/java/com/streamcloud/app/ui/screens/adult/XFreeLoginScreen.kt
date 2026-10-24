@@ -34,6 +34,10 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicBoolean
 
+// Start at the provider home page so its age check precedes account sign-in.
+// The provider's own account menu owns navigation to login after verification.
+internal const val XFREE_ACCOUNT_START_URL = "https://www.xfree.com/"
+
 private val XFREE_SIGNED_IN_CHECK = """
     (function() {
       var bodyText = document.body ? document.body.innerText : '';
@@ -345,7 +349,7 @@ fun XFreeLoginScreen(
             }
             Column(Modifier.weight(1f)) {
                 Text(
-                    if (canFinish) "Signed in to XFree" else "Sign in to XFree",
+                    if (canFinish) "Signed in to XFree" else "Set up XFree",
                     color = Color.White,
                     style = MaterialTheme.typography.titleSmall,
                 )
@@ -354,8 +358,7 @@ fun XFreeLoginScreen(
                         canFinish -> "Press Back or Done to return"
                         verificationReadyToContinue ->
                             "Continue on this page to finish linking with XFree."
-                        canReturn -> "Return when finished signing in"
-                        else -> "Use XFree’s official page to sign in"
+                        else -> "Verify on XFree first, then sign in using its account menu"
                     },
                     color = Color.White.copy(alpha = 0.68f),
                     style = MaterialTheme.typography.labelSmall,
@@ -376,7 +379,7 @@ fun XFreeLoginScreen(
                         when {
                             canFinish -> "Done"
                             verificationReadyToContinue -> "Continue"
-                            else -> "Return"
+                            else -> "Back"
                         },
                         color = Color(0xFF4F8DFF),
                     )
@@ -468,7 +471,7 @@ fun XFreeLoginScreen(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                             ),
                         )
-                        mainView.loadUrl("https://www.xfree.com/login?lang=en-US")
+                        mainView.loadUrl(XFREE_ACCOUNT_START_URL)
                         container
                     },
                     modifier = Modifier.fillMaxSize(),

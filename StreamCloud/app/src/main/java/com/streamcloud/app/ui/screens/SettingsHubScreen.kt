@@ -4251,13 +4251,13 @@ private fun XFreeAccountRow(onLogin: () -> Unit) {
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                if (signedIn) "XFree" else "Sign in to XFree",
+                if (signedIn) "XFree" else "Set up XFree",
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
                 if (signedIn) "Signed in — tap to manage the account"
-                else "Use XFree’s official page for login and verification",
+                else "Open XFree home: verify first, then sign in",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,

@@ -52,4 +52,12 @@ const handler = source.split('fun continueAfterVerification()')[1]
   .split('fun canConfirmSession')[0];
 assert.doesNotMatch(handler, /\.loadUrl\(|destroyWebView\(/);
 assert.match(handler, /evaluateJavascript\(XFREE_CONTINUE_VERIFICATION/);
+// Account setup starts at home, not a forced /login entry point.
+assert.match(source, /const val XFREE_ACCOUNT_START_URL = "https:\/\/www\.xfree\.com\/"/);
+assert.match(source, /mainView\.loadUrl\(XFREE_ACCOUNT_START_URL\)/);
+assert.doesNotMatch(source, /loadUrl\("https:\/\/www\.xfree\.com\/login/);
+const app = fs.readFileSync(path.join(__dirname,
+  '../app/src/main/java/com/streamcloud/app/ui/StreamCloudApp.kt'), 'utf8');
+const route = app.split('composable("xfree-login")')[1].split('onBack =')[0];
+assert.match(route, /onLoginSuccess = \{[\s\S]*setXFreeSignedIn\(true\)[\s\S]*nav\.popBackStack\(\)/);
 console.log('XFree continuation and sign-in detection regression checks passed.');
