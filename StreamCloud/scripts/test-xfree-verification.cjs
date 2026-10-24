@@ -60,4 +60,19 @@ const app = fs.readFileSync(path.join(__dirname,
   '../app/src/main/java/com/streamcloud/app/ui/StreamCloudApp.kt'), 'utf8');
 const route = app.split('composable("xfree-login")')[1].split('onBack =')[0];
 assert.match(route, /onLoginSuccess = \{[\s\S]*setXFreeSignedIn\(true\)[\s\S]*nav\.popBackStack\(\)/);
+// Playback has a separate WebView: enforce the shared navigation policy and
+// popup transport wiring there too. Real Android callback behavior still needs
+// device validation; these assertions catch source-level policy regressions.
+const player = fs.readFileSync(path.join(__dirname,
+  '../app/src/main/java/com/streamcloud/app/player/XFreePlayerScreen.kt'), 'utf8');
+assert.match(player, /isAllowedXFreeLoginNavigation\(\s*url\.scheme, url\.host, mainFrame/);
+assert.doesNotMatch(player, /isOfficialPageUrl\(/);
+assert.match(player, /setSupportMultipleWindows\(true\)/);
+assert.match(player, /override fun onCreateWindow\(/);
+assert.match(player, /transport\.webView = popup\s+message\.sendToTarget\(\)/);
+assert.match(player, /override fun onCloseWindow\(/);
+assert.match(player, /popupWebView != null -> closePopup\(\)/);
+assert.equal((player.match(/configureXFreeWebViewSession\(this, context\)/g) || []).length, 2);
+assert.equal((player.match(/loadUrl\(/g) || []).length, 1,
+  'Only initial video load is permitted; do not force navigation on verification success');
 console.log('XFree continuation and sign-in detection regression checks passed.');
