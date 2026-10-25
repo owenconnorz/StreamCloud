@@ -27,6 +27,7 @@ import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
 import com.streamcloud.app.data.spotify.SpotifyTrack
+import com.streamcloud.app.data.spotify.SpotifyWebPlayerRepository
 import com.streamcloud.app.data.ytmusic.YtMusicSearchRepository
 import com.streamcloud.app.data.ytmusic.YtPlayback
 import com.streamcloud.app.data.ytmusic.YtmSong
@@ -78,6 +79,10 @@ fun SpotifyPlaylistScreen(
     var tracks by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var syncing by remember { mutableStateOf(false) }
+    var loadingMore by remember(playlistId) { mutableStateOf(false) }
+    var nextTrackOffset by remember(playlistId) { mutableStateOf<Int?>(null) }
+    var totalTrackCount by remember(playlistId) { mutableStateOf(0) }
+    var loadMoreError by remember(playlistId) { mutableStateOf<String?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var playingIndex by remember { mutableStateOf<Int?>(null) }
     var showAddSheet by remember { mutableStateOf(false) }
@@ -86,20 +91,36 @@ fun SpotifyPlaylistScreen(
     var searchLoading by remember { mutableStateOf(false) }
     var removeTarget by remember { mutableStateOf<Pair<Int, SpotifyTrack>?>(null) }
 
-    suspend fun syncTracks() {
+    suspend fun syncTracks(forceRefresh: Boolean = false) {
         if (spDc.isBlank()) {
             loading = false
             loadError = "Sign in to Spotify in Settings to view this collection."
             return
         }
         try {
-            tracks = withContext(Dispatchers.IO) {
+            val page = withContext(Dispatchers.IO) {
                 when {
-                    albumId != null -> SpotifyPlaylistRepository.getAlbumTracks(spDc, collectionId)
-                    artistId != null -> SpotifyPlaylistRepository.getArtistTopTracks(spDc, collectionId)
-                    else -> SpotifyPlaylistRepository.getPlaylistTracks(spDc, collectionId)
+                    albumId != null -> SpotifyWebPlayerRepository.getAlbumTracksPage(
+                        spDc,
+                        collectionId,
+                        forceRefresh = forceRefresh,
+                    )
+                    artistId != null -> SpotifyWebPlayerRepository.getArtistTopTracks(
+                        spDc,
+                        collectionId,
+                        forceRefresh = forceRefresh,
+                    )
+                    else -> SpotifyWebPlayerRepository.getPlaylistTracksPage(
+                        spDc,
+                        collectionId,
+                        forceRefresh = forceRefresh,
+                    )
                 }
             }
+            tracks = page.items
+            nextTrackOffset = page.nextOffset
+            totalTrackCount = page.totalCount.coerceAtLeast(page.items.size)
+            loadMoreError = null
             loadError = null
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -108,6 +129,41 @@ fun SpotifyPlaylistScreen(
         } finally {
             loading = false
             syncing = false
+        }
+    }
+
+    fun loadMoreTracks() {
+        val offset = nextTrackOffset ?: return
+        if (loadingMore) return
+        loadingMore = true
+        loadMoreError = null
+        scope.launch {
+            try {
+                val page = withContext(Dispatchers.IO) {
+                    when {
+                        albumId != null -> SpotifyWebPlayerRepository.getAlbumTracksPage(
+                            spDc,
+                            collectionId,
+                            offset = offset,
+                        )
+                        artistId != null -> SpotifyWebPlayerRepository.getArtistTopTracks(spDc, collectionId)
+                        else -> SpotifyWebPlayerRepository.getPlaylistTracksPage(
+                            spDc,
+                            collectionId,
+                            offset = offset,
+                        )
+                    }
+                }
+                tracks = (tracks + page.items).distinctBy { it.uri }
+                nextTrackOffset = page.nextOffset
+                totalTrackCount = maxOf(totalTrackCount, page.totalCount, tracks.size)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                loadMoreError = failure.message ?: "More Spotify tracks could not be loaded."
+            } finally {
+                loadingMore = false
+            }
         }
     }
 
@@ -200,7 +256,7 @@ fun SpotifyPlaylistScreen(
                                         }
                                         if (ok) {
                                             snackbarHostState.showSnackbar("\"${track.title}\" added")
-                                            scope.launch { loading = true; syncTracks() }
+                                 scope.launch { loading = true; syncTracks(forceRefresh = true) }
                                         } else {
                                             snackbarHostState.showSnackbar("Couldn't add track")
                                         }
@@ -268,7 +324,7 @@ fun SpotifyPlaylistScreen(
                             }
                         } else {
                             IconButton(onClick = {
-                                scope.launch { syncing = true; syncTracks() }
+                                scope.launch { syncing = true; syncTracks(forceRefresh = true) }
                             }) {
                                 Icon(Icons.Default.Refresh, "Sync playlist")
                             }
@@ -313,7 +369,11 @@ fun SpotifyPlaylistScreen(
         ) {
             item(key = "count") {
                 Text(
-                    "${tracks.size} songs",
+                    if (totalTrackCount > tracks.size) {
+                        "${tracks.size} of $totalTrackCount songs"
+                    } else {
+                        "${tracks.size} songs"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp),
@@ -335,7 +395,7 @@ fun SpotifyPlaylistScreen(
                     ) {
                         Text(loadError!!, color = MaterialTheme.colorScheme.error)
                         TextButton(onClick = {
-                            scope.launch { loading = true; syncTracks() }
+                            scope.launch { loading = true; syncTracks(forceRefresh = true) }
                         }) { Text("Retry") }
                     }
                 }
@@ -380,6 +440,29 @@ fun SpotifyPlaylistScreen(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
                         modifier = Modifier.padding(start = 68.dp),
                     )
+                }
+            }
+            if (!loading && nextTrackOffset != null) {
+                item(key = "spotify-collection-load-more") {
+                    TextButton(
+                        onClick = ::loadMoreTracks,
+                        enabled = !loadingMore,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    ) {
+                        if (loadingMore) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text(if (loadingMore) "Loading more…" else "Load more")
+                    }
+                }
+            }
+            loadMoreError?.let { message ->
+                item(key = "spotify-collection-load-more-error") {
+                    Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                        Text(message, color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = ::loadMoreTracks) { Text("Try again") }
+                    }
                 }
             }
         }

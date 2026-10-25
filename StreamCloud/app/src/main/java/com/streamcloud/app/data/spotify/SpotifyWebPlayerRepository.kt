@@ -23,6 +23,9 @@ object SpotifyWebPlayerRepository {
     private const val HOME_HASH = "3357ffed7961629ba92b4e0a41514e4d5004a14355c964c23ce442205c9e44a1"
     private const val LIBRARY_HASH = "390c78e5b951029bad359785e69b07b536a509c581cbcd0aded5e5067f187455"
     private const val SAVED_TRACKS_HASH = "087278b20b743578a6262c2b0b4bcd20d879c503cc359a2285baf083ef944240"
+    private const val PLAYLIST_HASH = "cd2275433b29f7316176e7b5b5e098ae7744724e1a52d63549c76636b3257749"
+    private const val ALBUM_HASH = "b9bfabef66ed756e5e13f68a942deb60bd4125ec1f1be8cc42769dc0259b4b10"
+    private const val ARTIST_HASH = "7f86ff63e38c24973a2842b672abe44c910c1973978dc8a4a0cb648edef34527"
     private const val PAGE_SIZE = 50
     private const val HOME_PAGE_SIZE = 20
     private const val CACHE_TTL_MS = 5L * 60L * 1000L
@@ -121,6 +124,122 @@ object SpotifyWebPlayerRepository {
             items = items,
             totalCount = total,
             nextOffset = nextOffset(offset, rawItems.length(), total),
+        )
+    }
+
+    suspend fun getPlaylistTracksPage(
+        cookie: String,
+        playlistId: String,
+        offset: Int = 0,
+        forceRefresh: Boolean = false,
+    ): SpotifyLibraryPage<SpotifyTrack> = withContext(Dispatchers.IO) {
+        require(offset >= 0) { "Spotify playlist offset cannot be negative." }
+        val session = session(cookie)
+        val variables = JSONObject()
+            .put("uri", "spotify:playlist:$playlistId")
+            .put("offset", offset)
+            .put("limit", PAGE_SIZE)
+            .put("enableWatchFeedEntrypoint", true)
+        val response = request(
+            session = session,
+            operation = "fetchPlaylist",
+            variables = variables,
+            hash = PLAYLIST_HASH,
+            forceRefresh = forceRefresh,
+        )
+        val playlist = response.optJSONObject("data")
+            ?.optJSONObject("playlistV2")
+            ?: throw IllegalStateException("Spotify did not return this playlist.")
+        val content = playlist.optJSONObject("content")
+        val rawItems = content?.optJSONArray("items") ?: JSONArray()
+        val items = buildList {
+            for (index in 0 until rawItems.length()) {
+                val item = rawItems.optJSONObject(index)
+                    ?.optJSONObject("itemV2")
+                    ?.optJSONObject("data") ?: continue
+                parseTrack(item)?.let(::add)
+            }
+        }
+        val total = content?.optInt("totalCount", rawItems.length()) ?: rawItems.length()
+        SpotifyLibraryPage(
+            items = items,
+            totalCount = total,
+            nextOffset = nextOffset(offset, rawItems.length(), total),
+        )
+    }
+
+    suspend fun getAlbumTracksPage(
+        cookie: String,
+        albumId: String,
+        offset: Int = 0,
+        forceRefresh: Boolean = false,
+    ): SpotifyLibraryPage<SpotifyTrack> = withContext(Dispatchers.IO) {
+        require(offset >= 0) { "Spotify album offset cannot be negative." }
+        val session = session(cookie)
+        val variables = JSONObject()
+            .put("uri", "spotify:album:$albumId")
+            .put("locale", "")
+            .put("offset", offset)
+            .put("limit", PAGE_SIZE)
+        val response = request(
+            session = session,
+            operation = "getAlbum",
+            variables = variables,
+            hash = ALBUM_HASH,
+            forceRefresh = forceRefresh,
+        )
+        val album = response.optJSONObject("data")
+            ?.optJSONObject("albumUnion")
+            ?: throw IllegalStateException("Spotify did not return this album.")
+        val trackList = album.optJSONObject("tracksV2")
+        val rawItems = trackList?.optJSONArray("items") ?: JSONArray()
+        val items = buildList {
+            for (index in 0 until rawItems.length()) {
+                val item = rawItems.optJSONObject(index)?.optJSONObject("track") ?: continue
+                parseTrack(item)?.let(::add)
+            }
+        }
+        val total = trackList?.optInt("totalCount", rawItems.length()) ?: rawItems.length()
+        SpotifyLibraryPage(
+            items = items,
+            totalCount = total,
+            nextOffset = nextOffset(offset, rawItems.length(), total),
+        )
+    }
+
+    suspend fun getArtistTopTracks(
+        cookie: String,
+        artistId: String,
+        forceRefresh: Boolean = false,
+    ): SpotifyLibraryPage<SpotifyTrack> = withContext(Dispatchers.IO) {
+        val session = session(cookie)
+        val variables = JSONObject()
+            .put("uri", "spotify:artist:$artistId")
+            .put("locale", "")
+            .put("preReleaseV2", false)
+        val response = request(
+            session = session,
+            operation = "queryArtistOverview",
+            variables = variables,
+            hash = ARTIST_HASH,
+            forceRefresh = forceRefresh,
+        )
+        val artist = response.optJSONObject("data")
+            ?.optJSONObject("artistUnion")
+            ?: throw IllegalStateException("Spotify did not return this artist.")
+        val topTracks = artist.optJSONObject("discography")?.optJSONObject("topTracks")
+            ?: throw IllegalStateException("Spotify did not return this artist's top tracks.")
+        val rawItems = topTracks.optJSONArray("items") ?: JSONArray()
+        val items = buildList {
+            for (index in 0 until rawItems.length()) {
+                val track = rawItems.optJSONObject(index)?.optJSONObject("track") ?: continue
+                parseTrack(track)?.let(::add)
+            }
+        }
+        SpotifyLibraryPage(
+            items = items,
+            totalCount = topTracks.optInt("totalCount", rawItems.length()),
+            nextOffset = null,
         )
     }
 
@@ -431,9 +550,9 @@ object SpotifyWebPlayerRepository {
         val uri = data.optString("uri").ifBlank { data.optString("_uri") }
         val id = spotifyId(uri, "playlist") ?: return null
         val owner = data.optJSONObject("ownerV2")?.optJSONObject("data")
-        val trackCount = data.optJSONObject("content")?.optInt("totalCount")
-            ?: data.optJSONObject("tracks")?.optInt("total")
-            ?: 0
+        val trackCount = data.optJSONObject("content")?.intOrNull("totalCount")
+            ?: data.optJSONObject("tracksV2")?.intOrNull("totalCount")
+            ?: data.optJSONObject("tracks")?.intOrNull("total")
         return SpotifyPlaylist(
             id = id,
             name = data.optString("name").takeIf(String::isNotBlank) ?: "Playlist",
@@ -457,7 +576,8 @@ object SpotifyWebPlayerRepository {
             name = data.optString("name").takeIf(String::isNotBlank) ?: "Album",
             artists = artists,
             imageUrl = imageFrom(data, "coverArt"),
-            trackCount = data.optJSONObject("tracks")?.optInt("totalCount") ?: 0,
+            trackCount = data.optJSONObject("tracksV2")?.intOrNull("totalCount")
+                ?: data.optJSONObject("tracks")?.intOrNull("totalCount"),
             releaseDate = date?.optString("isoString").orEmpty(),
         )
     }
@@ -522,6 +642,9 @@ object SpotifyWebPlayerRepository {
             }
         }.joinToString(", ")
     }
+
+    private fun JSONObject.intOrNull(name: String): Int? =
+        if (has(name) && !isNull(name)) optInt(name) else null
 
     private fun imageFrom(data: JSONObject, field: String? = null): String? {
         val source = if (field == null) data else data.optJSONObject(field) ?: return null
