@@ -182,6 +182,43 @@ object SpotifyPlaylistRepository {
         )
     }
 
+    private fun parsePodcast(podcast: JSONObject): SpotifyPodcast? {
+        val id = podcast.optString("id").takeIf(String::isNotBlank) ?: return null
+        return SpotifyPodcast(
+            id = id,
+            name = podcast.optString("name", "Podcast"),
+            publisher = podcast.optString("publisher", ""),
+            imageUrl = podcast.optJSONArray("images")?.optJSONObject(0)?.optString("url")
+                ?.takeIf(String::isNotBlank),
+        )
+    }
+
+    private fun parseEpisode(episode: JSONObject): SpotifyEpisode? {
+        val id = episode.optString("id").takeIf(String::isNotBlank) ?: return null
+        return SpotifyEpisode(
+            id = id,
+            name = episode.optString("name", "Episode"),
+            podcast = episode.optJSONObject("show")?.optString("name").orEmpty(),
+            imageUrl = episode.optJSONObject("show")?.optJSONArray("images")
+                ?.optJSONObject(0)?.optString("url")?.takeIf(String::isNotBlank),
+            durationMs = episode.optLong("duration_ms", 0L),
+        )
+    }
+
+    private fun <T> parseSearchItems(
+        response: JSONObject,
+        type: String,
+        parse: (JSONObject) -> T?,
+    ): List<T> {
+        val items = response.optJSONObject(type)?.optJSONArray("items") ?: return emptyList()
+        return buildList {
+            for (index in 0 until items.length()) {
+                val item = items.optJSONObject(index) ?: continue
+                parse(item)?.let(::add)
+            }
+        }
+    }
+
     // ── Playlists ─────────────────────────────────────────────────────────────
 
     suspend fun getPlaylists(spDc: String): List<SpotifyPlaylist> = withContext(Dispatchers.IO) {
@@ -323,7 +360,7 @@ object SpotifyPlaylistRepository {
         }
     }
 
-    private suspend fun getRecentlyPlayedTracks(spDc: String): List<SpotifyTrack> =
+    suspend fun getRecentlyPlayedTracks(spDc: String): List<SpotifyTrack> =
         withContext(Dispatchers.IO) {
             val token = accessToken(spDc)
             val response = getJson(token, "$BASE/me/player/recently-played?limit=20")
@@ -494,4 +531,36 @@ object SpotifyPlaylistRepository {
             }
         }.getOrElse { Log.e(TAG, "searchTracks: ${it.message}"); emptyList() }
     }
+
+    suspend fun searchCatalog(spDc: String, query: String): SpotifySearchResults =
+        withContext(Dispatchers.IO) {
+            val cleanQuery = query.trim()
+            if (cleanQuery.isBlank()) return@withContext SpotifySearchResults()
+            val token = accessToken(spDc)
+            val encodedQuery = URLEncoder.encode(cleanQuery, "UTF-8")
+            val response = getJson(
+                token,
+                "$BASE/search?q=$encodedQuery&type=track,artist,album,playlist,show,episode&limit=10",
+            )
+            SpotifySearchResults(
+                tracks = parseSearchItems(response, "tracks", ::parseTrack),
+                artists = parseSearchItems(response, "artists", ::parseArtist),
+                albums = parseSearchItems(response, "albums", ::parseAlbum),
+                playlists = parseSearchItems(response, "playlists") { playlist ->
+                    val id = playlist.optString("id").takeIf(String::isNotBlank) ?: return@parseSearchItems null
+                    SpotifyPlaylist(
+                        id = id,
+                        name = playlist.optString("name", "Playlist"),
+                        description = playlist.optString("description", ""),
+                        imageUrl = playlist.optJSONArray("images")?.optJSONObject(0)
+                            ?.optString("url")?.takeIf(String::isNotBlank),
+                        trackCount = playlist.optJSONObject("tracks")?.optInt("total", 0) ?: 0,
+                        ownerName = playlist.optJSONObject("owner")
+                            ?.optString("display_name").orEmpty(),
+                    )
+                },
+                podcasts = parseSearchItems(response, "shows", ::parsePodcast),
+                episodes = parseSearchItems(response, "episodes", ::parseEpisode),
+            )
+        }
 }

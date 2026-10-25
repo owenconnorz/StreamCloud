@@ -61,6 +61,30 @@ data class SpotifyHomeFeed(
     val warnings: List<String> = emptyList(),
 )
 
+data class SpotifySearchResults(
+    val tracks: List<SpotifyTrack> = emptyList(),
+    val artists: List<SpotifyArtist> = emptyList(),
+    val albums: List<SpotifyAlbum> = emptyList(),
+    val playlists: List<SpotifyPlaylist> = emptyList(),
+    val podcasts: List<SpotifyPodcast> = emptyList(),
+    val episodes: List<SpotifyEpisode> = emptyList(),
+)
+
+data class SpotifyPodcast(
+    val id: String,
+    val name: String,
+    val publisher: String = "",
+    val imageUrl: String? = null,
+)
+
+data class SpotifyEpisode(
+    val id: String,
+    val name: String,
+    val podcast: String = "",
+    val imageUrl: String? = null,
+    val durationMs: Long = 0L,
+)
+
 data class SpotifyLibraryPage<T>(
     val items: List<T>,
     val totalCount: Int,

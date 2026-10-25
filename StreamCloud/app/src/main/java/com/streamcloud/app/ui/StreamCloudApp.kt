@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,7 +29,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -45,7 +43,6 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Theaters
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.Icon
@@ -82,8 +79,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.compose.ui.graphics.Brush
 import com.streamcloud.app.data.ServiceLocator
-import com.streamcloud.app.player.toAddonSubtitles
 import com.streamcloud.app.player.NativePlayerScreen
+import com.streamcloud.app.player.toAddonSubtitles
 import com.streamcloud.app.ui.screens.AdultScreen
 import com.streamcloud.app.ui.screens.AdultSearchScreen
 import com.streamcloud.app.ui.screens.LibraryScreen
@@ -144,7 +141,6 @@ import com.streamcloud.app.data.util.GoogleAccountHelper
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.FocusDirection
-import com.streamcloud.app.ui.theme.tvUnpinnedFocusRestorer
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
@@ -163,6 +159,7 @@ import dev.chrisbanes.haze.hazeSource
 import androidx.compose.ui.text.style.TextOverflow
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
+import com.streamcloud.app.ui.theme.tvUnpinnedFocusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -182,7 +179,7 @@ private sealed class Tab(
     data object Settings : Tab("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
-@OptIn(UnstableApi::class, ExperimentalComposeUiApi::class)
+@OptIn(UnstableApi::class)
 @Composable
 fun StreamCloudApp() {
     val nav = rememberNavController()
@@ -468,34 +465,10 @@ fun StreamCloudApp() {
         val firstTvNavFocus = remember { FocusRequester() }
         val firstMovieCardFocus = remember { FocusRequester() }
         val navHostFocusRestoreRequester = remember { FocusRequester() }
-        val seenNavDestinationIds = remember { mutableSetOf<String>() }
-        var navHostHasTvFocus by remember { mutableStateOf(false) }
-        var tvNavHasFocus by remember { mutableStateOf(false) }
-        var hideTvTopNav by remember { mutableStateOf(false) }
-        val tvTopNavOffset by animateDpAsState(
-            targetValue = if (hideTvTopNav && !tvNavHasFocus) (-190).dp else 0.dp,
-            animationSpec = tween(durationMillis = 220),
-            label = "tvTopNavScrollVisibility",
-        )
-        // Dedicated requester always attached to the current hero Play button so
-        // D-pad Down from the top nav bar reliably lands there regardless of
-        // which startupFocusTarget the content decides to use.
+        // Shared requester for the active tab's exact Down target from the
+        // persistent TV nav (for example, the movie hero or selected settings row).
         val tvNavHeroFocus = remember { FocusRequester() }
         val focusManager = LocalFocusManager.current
-        LaunchedEffect(isTv, backStack?.id) {
-            val destinationId = backStack?.id ?: return@LaunchedEffect
-            val isReturningToSavedDestination = !seenNavDestinationIds.add(destinationId)
-            if (!isTv || !isReturningToSavedDestination) return@LaunchedEffect
-
-            // When Back restores a destination, the nav overlay may otherwise
-            // reclaim TV focus. Re-enter the content focus group so it restores
-            // the caller's last focused card/control across every screen.
-            repeat(10) {
-                kotlinx.coroutines.delay(100L)
-                runCatching { navHostFocusRestoreRequester.requestFocus() }
-                if (navHostHasTvFocus) return@LaunchedEffect
-            }
-        }
         LaunchedEffect(showRail) {
             // On non-TV form factors, firstRailFocus is attached to the first NavigationRailItem.
             // On TV, focus starts on the persistent navigation launcher.
@@ -503,6 +476,13 @@ fun StreamCloudApp() {
         }
         // Netflix-style TV nav: track which item last had startup focus so Up-from-hero focuses nav
         var firstMovieFocused by remember { mutableStateOf(false) }
+        var tvNavHasFocus by remember { mutableStateOf(false) }
+        var hideTvTopNav by remember { mutableStateOf(false) }
+        val tvTopNavOffset by animateDpAsState(
+            targetValue = if (hideTvTopNav && !tvNavHasFocus) (-190).dp else 0.dp,
+            animationSpec = tween(durationMillis = 220),
+            label = "tvTopNavScrollVisibility",
+        )
         LaunchedEffect(currentRoute) {
             firstMovieFocused = false
             hideTvTopNav = false
@@ -541,12 +521,16 @@ fun StreamCloudApp() {
                         when {
                             event.key == Key.Menu -> {
                                 hideTvTopNav = false
-                                runCatching { firstTvNavFocus.requestFocus() }
+                                runCatching {
+                                    firstTvNavFocus.requestFocus()
+                                }
                                 true
                             }
                             event.key == Key.DirectionUp && firstMovieFocused -> {
                                 hideTvTopNav = false
-                                runCatching { firstTvNavFocus.requestFocus() }
+                                runCatching {
+                                    firstTvNavFocus.requestFocus()
+                                }
                                 true
                             }
                             else -> false
@@ -644,20 +628,14 @@ fun StreamCloudApp() {
             ) {
                 Column(Modifier.fillMaxSize()) {
                     Box(
-                        Modifier
-                            .weight(1f)
-                            .fillMaxSize()
-                            .then(
-                                if (isTv) {
-                                    Modifier
-                                        .focusRequester(navHostFocusRestoreRequester)
-                                        .onFocusChanged { navHostHasTvFocus = it.hasFocus }
-                                        .tvUnpinnedFocusRestorer(navHostFocusRestoreRequester)
-                                        .focusGroup()
-                                } else {
-                                    Modifier
-                                },
-                            ),
+                        Modifier.weight(1f).fillMaxSize().then(
+                            if (isTv) {
+                                Modifier
+                                    .focusRequester(navHostFocusRestoreRequester)
+                                    .tvUnpinnedFocusRestorer(navHostFocusRestoreRequester)
+                                    .tvFocusGroup()
+                            } else Modifier,
+                        ),
                     ) {
                         val startRoute = resolvedStartRoute
                          if (startRoute != null && libraryScopeReady) {
@@ -1000,9 +978,9 @@ fun StreamCloudApp() {
                                 sources, progressKey,
                                 tmdbId = progressKey.tmdbId,
                                 mediaType = progressKey.mediaType,
+                                pauseOverlayMetadata = pauseOverlayMetadata,
                                 bingeEpisodes = bingeEpisodes,
                                 currentBingeIndex = currentBingeIndex,
-                                pauseOverlayMetadata = pauseOverlayMetadata,
                             )
                             val u = URLEncoder.encode(initialUrl, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
@@ -1028,9 +1006,13 @@ fun StreamCloudApp() {
                         navArgument("name") { type = NavType.StringType },
                     ),
                 ) { entry ->
-                    val personName = URLDecoder.decode(entry.arguments!!.getString("name")!!, "UTF-8")
+                    val personId = entry.arguments!!.getLong("id")
+                    val personName = URLDecoder.decode(
+                        entry.arguments!!.getString("name")!!,
+                        "UTF-8",
+                    )
                     com.streamcloud.app.ui.screens.ActorFilmographyScreen(
-                        personId = entry.arguments!!.getLong("id"),
+                        personId = personId,
                         personName = personName,
                         onBack = { nav.popBackStack() },
                         onMovieClick = { id -> nav.navigate("movie/$id") },
@@ -1065,9 +1047,9 @@ fun StreamCloudApp() {
                                 sources, progressKey,
                                 tmdbId = progressKey.tmdbId,
                                 mediaType = progressKey.mediaType,
+                                pauseOverlayMetadata = pauseOverlayMetadata,
                                 bingeEpisodes = bingeEpisodes,
                                 currentBingeIndex = currentBingeIndex,
-                                pauseOverlayMetadata = pauseOverlayMetadata,
                             )
                             val u = URLEncoder.encode(initialUrl, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
@@ -1114,9 +1096,9 @@ fun StreamCloudApp() {
                                 progressKey,
                                 tmdbId = progressKey.tmdbId,
                                 mediaType = progressKey.mediaType,
+                                pauseOverlayMetadata = pauseOverlayMetadata,
                                 bingeEpisodes = bingeEpisodes,
                                 currentBingeIndex = currentBingeIndex,
-                                pauseOverlayMetadata = pauseOverlayMetadata,
                             )
                             val u = URLEncoder.encode(initialUrl, "UTF-8")
                             val tArg = URLEncoder.encode(title, "UTF-8")
@@ -1152,6 +1134,7 @@ fun StreamCloudApp() {
                         },
                         onSearchWithQuery = { q -> nav.navigate("music-search?q=${java.net.URLEncoder.encode(q, "UTF-8")}") },
                         onSearchClick = { nav.navigate("music-search") },
+                        onSpotifySearchClick = { nav.navigate("spotify-search") },
                         onProfileClick = { navigateToTab(nav, Tab.Settings.route) },
                     )
                 }
@@ -1204,6 +1187,16 @@ fun StreamCloudApp() {
                             val i = URLEncoder.encode(id, "UTF-8")
                             val t = URLEncoder.encode(title, "UTF-8")
                             nav.navigate("yt-playlist/$i/$t")
+                        },
+                    )
+                }
+                composable("spotify-search") {
+                    com.streamcloud.app.ui.screens.SpotifySearchScreen(
+                        onBack = { nav.popBackStack() },
+                        onOpenPlaylist = { id, title ->
+                            val encodedId = URLEncoder.encode(id, "UTF-8")
+                            val encodedTitle = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("spotify-playlist/$encodedId/$encodedTitle")
                         },
                     )
                 }
@@ -1743,7 +1736,8 @@ fun StreamCloudApp() {
                         mutableStateOf(sources.firstOrNull { it.url == initial }?.id)
                     }
                     val active = sources.firstOrNull { it.id == currentId }
-                    val sourceSubtitles = (addonSubtitles + active?.subtitleTracks.orEmpty()).distinctBy { it.url }
+                    val sourceSubtitles = (addonSubtitles + active?.subtitleTracks.orEmpty())
+                        .distinctBy { it.url }
                     val subtitle = active?.let { "${it.addonName}${it.qualityTag?.let { q -> " · $q" } ?: ""}" }
                     val refreshScope = rememberCoroutineScope()
 
@@ -1764,7 +1758,8 @@ fun StreamCloudApp() {
                         nuvioScanning = nuvioScanning,
                         forceDirectPlay = true,
                         artworkUrl = com.streamcloud.app.player.MoviePlayerSession.progressKey?.posterUrl,
-                        pauseOverlayMetadata = com.streamcloud.app.player.MoviePlayerSession.pauseOverlayMetadata,
+                        pauseOverlayMetadata =
+                            com.streamcloud.app.player.MoviePlayerSession.pauseOverlayMetadata,
                         onSwitchSource = { src ->
                             currentUrl = src.url
                             currentId = src.id
@@ -1938,12 +1933,12 @@ fun StreamCloudApp() {
                         currentRoute          = currentRoute,
                         firstTabFocus         = firstTvNavFocus,
                         contentFocusRequester = tvNavHeroFocus,
-                        contentFocusReceived = firstMovieFocused,
-                        onNavFocusChanged = {
+                        contentFocusReceived  = firstMovieFocused,
+                        onNavFocusChanged     = {
                             tvNavHasFocus = it
                             if (it) hideTvTopNav = false
                         },
-                        onNavFocusGained = {
+                        onNavFocusGained      = {
                             hideTvTopNav = false
                             if (currentRoute == Tab.Movies.route) {
                                 navScrollToTopVersion++
@@ -1995,9 +1990,11 @@ fun StreamCloudApp() {
                             )
                         }
                         val showBar = currentRoute == null ||
-                            (tabs.any { it.route == currentRoute } &&
-                                currentRoute != Tab.Settings.route &&
-                                (currentRoute != Tab.Adult.route || adultHomeNavigationVisible))
+                            (
+                                tabs.any { it.route == currentRoute } &&
+                                    currentRoute != Tab.Settings.route &&
+                                    (currentRoute != Tab.Adult.route || adultHomeNavigationVisible)
+                            )
                         if (showBar) {
                             val effectiveShowLabel = navExpanded && showNavLabels
                             Box(
@@ -2120,78 +2117,78 @@ private fun TvNetflixTopNav(
     modifier: Modifier = Modifier,
 ) {
     var navHasFocus by remember { mutableStateOf(false) }
-      var pendingDownFocusHandoff by remember { mutableStateOf(false) }
-      var downFocusAttempt by remember { mutableStateOf(0) }
-      var searchActionFocused by remember { mutableStateOf(false) }
-      var settingsActionFocused by remember { mutableStateOf(false) }
-      val clockFormatter = remember {
-          java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-      }
-      var clockText by remember {
-          mutableStateOf(clockFormatter.format(java.util.Date()))
-      }
-      val focusManager = LocalFocusManager.current
-      LaunchedEffect(clockFormatter) {
-          while (true) {
-              val millisUntilNextMinute = 60_000L - (System.currentTimeMillis() % 60_000L)
-              kotlinx.coroutines.delay(millisUntilNextMinute)
-              clockText = clockFormatter.format(java.util.Date())
-          }
-      }
-      LaunchedEffect(
-          downFocusAttempt,
-          pendingDownFocusHandoff,
-          navHasFocus,
-          currentRoute,
-          contentFocusReceived,
-      ) {
-          if (!pendingDownFocusHandoff) return@LaunchedEffect
-          if (currentRoute == Tab.Movies.route && contentFocusReceived) {
-              pendingDownFocusHandoff = false
-              return@LaunchedEffect
-          }
-      
-          repeat(16) {
-              kotlinx.coroutines.delay(100L)
-              if (!pendingDownFocusHandoff) return@LaunchedEffect
-      
-              // The destination requester is exact. Try it before spatial search,
-              // which can otherwise focus a stale row while Movies is returning to top.
-              runCatching { contentFocusRequester.requestFocus() }
-              kotlinx.coroutines.delay(60L)
-              if (currentRoute == Tab.Movies.route && contentFocusReceived) {
-                  pendingDownFocusHandoff = false
-                  return@LaunchedEffect
-              }
-              if (currentRoute != Tab.Movies.route && !navHasFocus) {
-                  pendingDownFocusHandoff = false
-                  return@LaunchedEffect
-              }
-      
-              // Movies must land on its hero, not whichever card happens to be
-              // nearest while the lazy list is being reset. Other screens can use
-              // spatial search as a fallback when their direct target is unavailable.
-              if (currentRoute != Tab.Movies.route) {
-                  val movedSpatially = runCatching {
-                      focusManager.moveFocus(FocusDirection.Down)
-                  }.getOrDefault(false)
-                  if (movedSpatially) {
-                      kotlinx.coroutines.delay(60L)
-                      if (currentRoute != Tab.Movies.route && !navHasFocus) {
-                          pendingDownFocusHandoff = false
-                          return@LaunchedEffect
-                      }
-                  }
-              }
-          }
-          // A Movies hero may be disabled or unavailable. Preserve navigation to
-          // other visible content, but only after the exact target had time to attach.
-          if (pendingDownFocusHandoff) {
-              runCatching { focusManager.moveFocus(FocusDirection.Down) }
-              kotlinx.coroutines.delay(60L)
-          }
-          pendingDownFocusHandoff = false
-      }
+    var pendingDownFocusHandoff by remember { mutableStateOf(false) }
+    var downFocusAttempt by remember { mutableStateOf(0) }
+    var searchActionFocused by remember { mutableStateOf(false) }
+    var settingsActionFocused by remember { mutableStateOf(false) }
+    val clockFormatter = remember {
+        java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+    }
+    var clockText by remember {
+        mutableStateOf(clockFormatter.format(java.util.Date()))
+    }
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(clockFormatter) {
+        while (true) {
+            val millisUntilNextMinute = 60_000L - (System.currentTimeMillis() % 60_000L)
+            kotlinx.coroutines.delay(millisUntilNextMinute)
+            clockText = clockFormatter.format(java.util.Date())
+        }
+    }
+    LaunchedEffect(
+        downFocusAttempt,
+        pendingDownFocusHandoff,
+        navHasFocus,
+        currentRoute,
+        contentFocusReceived,
+    ) {
+        if (!pendingDownFocusHandoff) return@LaunchedEffect
+        if (currentRoute == Tab.Movies.route && contentFocusReceived) {
+            pendingDownFocusHandoff = false
+            return@LaunchedEffect
+        }
+
+        repeat(16) {
+            kotlinx.coroutines.delay(100L)
+            if (!pendingDownFocusHandoff) return@LaunchedEffect
+
+            // The destination requester is exact. Try it before spatial search,
+            // which can otherwise focus a stale row while Movies is returning to top.
+            runCatching { contentFocusRequester.requestFocus() }
+            kotlinx.coroutines.delay(60L)
+            if (currentRoute == Tab.Movies.route && contentFocusReceived) {
+                pendingDownFocusHandoff = false
+                return@LaunchedEffect
+            }
+            if (currentRoute != Tab.Movies.route && !navHasFocus) {
+                pendingDownFocusHandoff = false
+                return@LaunchedEffect
+            }
+
+            // Movies must land on its hero, not whichever card happens to be
+            // nearest while the lazy list is being reset. Other screens can use
+            // spatial search as a fallback when their direct target is unavailable.
+            if (currentRoute != Tab.Movies.route) {
+                val movedSpatially = runCatching {
+                    focusManager.moveFocus(FocusDirection.Down)
+                }.getOrDefault(false)
+                if (movedSpatially) {
+                    kotlinx.coroutines.delay(60L)
+                    if (currentRoute != Tab.Movies.route && !navHasFocus) {
+                        pendingDownFocusHandoff = false
+                        return@LaunchedEffect
+                    }
+                }
+            }
+        }
+        // A Movies hero may be disabled or unavailable. Preserve navigation to
+        // other visible content, but only after the exact target had time to attach.
+        if (pendingDownFocusHandoff) {
+            runCatching { focusManager.moveFocus(FocusDirection.Down) }
+            kotlinx.coroutines.delay(60L)
+        }
+        pendingDownFocusHandoff = false
+    }
     val gradStartAlpha by animateFloatAsState(
         targetValue = if (navHasFocus) 0.97f else 0.72f,
         animationSpec = tween(250),
@@ -2204,39 +2201,39 @@ private fun TvNetflixTopNav(
     )
 
     Box(
-          modifier = modifier
-              .onFocusChanged {
-                  val gainedFocus = it.hasFocus && !navHasFocus
-                  navHasFocus = it.hasFocus
-                  onNavFocusChanged(it.hasFocus)
-                  if (gainedFocus) onNavFocusGained()
-                  if (!it.hasFocus) pendingDownFocusHandoff = false
-              }
-              .tvFocusGroup()
-              .onPreviewKeyEvent { event ->
-                  if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+        modifier = modifier
+            .onFocusChanged {
+                val gainedFocus = it.hasFocus && !navHasFocus
+                navHasFocus = it.hasFocus
+                onNavFocusChanged(it.hasFocus)
+                if (gainedFocus) onNavFocusGained()
+                if (!it.hasFocus) pendingDownFocusHandoff = false
+            }
+            .tvFocusGroup()
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
 
-                  if (event.key != Key.DirectionDown) {
-                      pendingDownFocusHandoff = false
-                  }
+                if (event.key != Key.DirectionDown) {
+                    pendingDownFocusHandoff = false
+                }
 
-                  when (event.key) {
-                      Key.DirectionDown -> {
-                          if (!pendingDownFocusHandoff) {
-                              pendingDownFocusHandoff = true
-                              downFocusAttempt++
-                              onDownFocusHandoffRequested()
-                          }
-                          // Movies nav items declare a direct Down focus target above.
-                          // Let Compose execute that mapping instead of consuming the key.
-                          false
-                      }
-                      // Nothing focusable above the nav bar — consume Up.
-                      Key.DirectionUp -> true
-                      else -> false
-                  }
-              },
-      ) {
+                when (event.key) {
+                    Key.DirectionDown -> {
+                        if (!pendingDownFocusHandoff) {
+                            pendingDownFocusHandoff = true
+                            downFocusAttempt++
+                            onDownFocusHandoffRequested()
+                        }
+                        // Let Compose apply the nav item's explicit Down target;
+                        // the retry loop remains a fallback while content composes.
+                        false
+                    }
+                    // Nothing focusable above the nav bar — consume Up.
+                    Key.DirectionUp -> true
+                    else -> false
+                }
+            },
+    ) {
         // Gradient scrim — readable at all times, heavier when nav has focus
         Box(
             Modifier
@@ -2279,92 +2276,106 @@ private fun TvNetflixTopNav(
             }
 
             // Main destinations stay centred; Search and Settings sit with the
-                // local clock at the right edge, matching the TV home layout.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(horizontal = 208.dp),
-                ) {
-                    tabs.filterNot { it.route == Tab.Settings.route }.forEach { tab ->
-                        val selected = currentRoute == tab.route
-                        var itemFocused by remember { mutableStateOf(false) }
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(
-                                    when {
-                                        selected -> Color.White.copy(alpha = 0.20f)
-                                        itemFocused -> Color.White.copy(alpha = 0.12f)
-                                        else -> Color.Transparent
-                                    }
-                                )
-                                .tvFocusBorder(RoundedCornerShape(50), showOutline = false)
-                                .onFocusChanged { itemFocused = it.isFocused }
-                                .clickable { onTabSelected(tab.route) }
-                                .padding(horizontal = 20.dp, vertical = 8.dp),
-                        ) {
-                            Text(
-                                tab.label,
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                color = when {
-                                    selected || itemFocused -> Color.White
-                                    else -> Color.White.copy(alpha = 0.60f)
-                                },
-                            )
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.align(Alignment.CenterEnd),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+            // local clock at the right edge, matching the TV home layout.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 208.dp),
+            ) {
+                tabs.filterNot { it.route == Tab.Settings.route }.forEach { tab ->
+                    val selected = currentRoute == tab.route
+                    var itemFocused by remember { mutableStateOf(false) }
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (searchActionFocused) Color.White.copy(alpha = 0.16f)
-                                else Color.Transparent,
-                            )
-                            .focusRequester(firstTabFocus)
-                            .onFocusChanged { searchActionFocused = it.isFocused }
-                            .tvFocusBorder(CircleShape, showOutline = false)
-                            .clickable(onClick = onSearchClick),
-                    ) {
-                        Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White, modifier = Modifier.size(22.dp))
-                    }
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
+                            .clip(RoundedCornerShape(50))
                             .background(
                                 when {
-                                    currentRoute == Tab.Settings.route -> Color.White.copy(alpha = 0.20f)
-                                    settingsActionFocused -> Color.White.copy(alpha = 0.16f)
+                                    selected -> Color.White.copy(alpha = 0.20f)
+                                    itemFocused -> Color.White.copy(alpha = 0.12f)
                                     else -> Color.Transparent
-                                },
+                                }
                             )
-                            .onFocusChanged { settingsActionFocused = it.isFocused }
-                            .tvFocusBorder(CircleShape, showOutline = false)
-                            .clickable { onTabSelected(Tab.Settings.route) },
+                            .tvFocusBorder(RoundedCornerShape(50), showOutline = false)
+                            .onFocusChanged { itemFocused = it.isFocused }
+                            .clickable { onTabSelected(tab.route) }
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
                     ) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color.White, modifier = Modifier.size(22.dp))
+                        Text(
+                            tab.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            color = when {
+                                selected || itemFocused -> Color.White
+                                else -> Color.White.copy(alpha = 0.60f)
+                            },
+                        )
                     }
-                    Text(
-                        text = clockText,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White,
-                        modifier = Modifier.padding(start = 4.dp),
+                }
+            }
+
+            Row(
+                modifier = Modifier.align(Alignment.CenterEnd),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (searchActionFocused) Color.White.copy(alpha = 0.16f)
+                            else Color.Transparent,
+                        )
+                        .focusRequester(firstTabFocus)
+                        .onFocusChanged { searchActionFocused = it.isFocused }
+                        .tvFocusBorder(CircleShape, showOutline = false)
+                        .clickable(onClick = onSearchClick),
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp),
                     )
                 }
+
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(
+                            when {
+                                currentRoute == Tab.Settings.route ->
+                                    Color.White.copy(alpha = 0.20f)
+                                settingsActionFocused ->
+                                    Color.White.copy(alpha = 0.16f)
+                                else -> Color.Transparent
+                            },
+                        )
+                        .onFocusChanged { settingsActionFocused = it.isFocused }
+                        .tvFocusBorder(CircleShape, showOutline = false)
+                        .clickable { onTabSelected(Tab.Settings.route) },
+                ) {
+                    Icon(
+                        Icons.Default.Settings,
+                        contentDescription = "Settings",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+
+                Text(
+                    text = clockText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
         }
     }
 }
@@ -2587,7 +2598,7 @@ private fun ProfileNavItem(
         targetValue = if (selected) accentColor.copy(alpha = 0.24f) else Color.Transparent,
         label = "profileNavItemBg",
     )
-    val itemLabel = "Settings"
+    val itemLabel = if (avatar.isNotBlank()) "Profile" else "Settings"
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,

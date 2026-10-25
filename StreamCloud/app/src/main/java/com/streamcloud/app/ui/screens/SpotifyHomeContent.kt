@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,17 +25,23 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -57,6 +64,7 @@ import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.data.spotify.SpotifyArtist
 import com.streamcloud.app.data.spotify.SpotifyHomeFeed
 import com.streamcloud.app.data.spotify.SpotifyHomeSection
+import com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
 import com.streamcloud.app.data.spotify.SpotifyTrack
 import com.streamcloud.app.data.spotify.SpotifyWebPlayerRepository
 import com.streamcloud.app.data.ytmusic.YtMusicSearchRepository
@@ -89,9 +97,11 @@ private fun String.spotifyDisplayText(): String? =
     trim().takeUnless { it.isEmpty() || it.equals("null", ignoreCase = true) }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 internal fun SpotifyHomeContent(
     spotifyCookie: String,
     onOpenCollection: (id: String, title: String) -> Unit,
+    onSearchClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -102,6 +112,10 @@ internal fun SpotifyHomeContent(
     var refreshGeneration by remember { mutableIntStateOf(0) }
     var playingTrackId by remember { mutableStateOf<String?>(null) }
     var selectedCategory by rememberSaveable { mutableStateOf(SpotifyHomeCategory.All) }
+    var showHistory by remember { mutableStateOf(false) }
+    var historyLoading by remember { mutableStateOf(false) }
+    var historyError by remember { mutableStateOf<String?>(null) }
+    var recentlyPlayed by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
 
     LaunchedEffect(spotifyCookie, refreshGeneration) {
         if (spotifyCookie.isBlank()) {
@@ -157,7 +171,49 @@ internal fun SpotifyHomeContent(
         }
     }
 
+    fun openHistory() {
+        showHistory = true
+        if (spotifyCookie.isBlank()) {
+            historyError = "Sign in to Spotify in Settings to see your listening history."
+            return
+        }
+        if (historyLoading) return
+        historyLoading = true
+        historyError = null
+        scope.launch {
+            try {
+                recentlyPlayed = withContext(Dispatchers.IO) {
+                    SpotifyPlaylistRepository.getRecentlyPlayedTracks(spotifyCookie)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                historyError = failure.message ?: "Spotify listening history could not be loaded."
+            } finally {
+                historyLoading = false
+            }
+        }
+    }
+
     Column(modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 6.dp, bottom = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Spotify",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            IconButton(onClick = onSearchClick) {
+                Icon(Icons.Default.Search, contentDescription = "Search Spotify")
+            }
+            IconButton(onClick = ::openHistory) {
+                Icon(Icons.Default.History, contentDescription = "Recently played on Spotify")
+            }
+        }
         Row(
             Modifier.fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
@@ -251,6 +307,88 @@ internal fun SpotifyHomeContent(
                                 )
                                 TextButton(onClick = { refreshGeneration++ }) { Text("Refresh") }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showHistory) {
+        ModalBottomSheet(
+            onDismissRequest = { showHistory = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            Text(
+                "Recently played",
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+            )
+            when {
+                historyLoading -> Box(
+                    Modifier.fillMaxWidth().height(160.dp),
+                    contentAlignment = Alignment.Center,
+                ) { CircularProgressIndicator() }
+                historyError != null -> Column(
+                    Modifier.fillMaxWidth().padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(historyError.orEmpty(), color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = ::openHistory) { Text("Try again") }
+                }
+                recentlyPlayed.isEmpty() -> Box(
+                    Modifier.fillMaxWidth().height(160.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "No recent Spotify listening history was found.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                else -> LazyColumn(
+                    Modifier.fillMaxWidth().heightIn(max = 560.dp),
+                    contentPadding = PaddingValues(bottom = 28.dp),
+                ) {
+                    itemsIndexed(recentlyPlayed, key = { index, track -> "${track.id}-$index" }) { _, track ->
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .clickable {
+                                    showHistory = false
+                                    playTrack(track)
+                                }
+                                .padding(horizontal = 18.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AsyncImage(
+                                model = track.imageUrl,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(48.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                            )
+                            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                                Text(
+                                    track.title,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Text(
+                                    track.artists,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            }
+                            Icon(
+                                Icons.Default.PlayArrow,
+                                contentDescription = "Play ${track.title}",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
                         }
                     }
                 }

@@ -55,6 +55,7 @@ fun MusicScreen(
     onOpenPlaylist: (String, String, String?) -> Unit = { _, _, _ -> },
     onProfileClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
+    onSpotifySearchClick: () -> Unit = onSearchClick,
     onSearchWithQuery: (String) -> Unit = {},
     tvNavFocusRequester: FocusRequester? = null,
     onSpotifyPlaylistClick: (String, String) -> Unit = { _, _ -> },
@@ -142,6 +143,7 @@ fun MusicScreen(
                         SpotifyHomeContent(
                             spotifyCookie = spotifyCookie,
                             onOpenCollection = onSpotifyPlaylistClick,
+                            onSearchClick = onSpotifySearchClick,
                         )
                     }
                 }
