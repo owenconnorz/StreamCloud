@@ -287,7 +287,7 @@ fun SpotifySearchScreen(
                 singleLine = true,
                 shape = RoundedCornerShape(28.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = ::submitSearch),
+                keyboardActions = KeyboardActions(onSearch = { submitSearch() }),
             )
 
             Row(
