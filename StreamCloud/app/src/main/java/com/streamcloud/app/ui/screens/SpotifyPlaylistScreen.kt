@@ -24,8 +24,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.ServiceLocator
-import com.streamcloud.app.data.downloads.PlaylistMusicDownloadManager
-import com.streamcloud.app.ui.components.PlaylistDownloadToggle
 import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
 import com.streamcloud.app.data.spotify.SpotifyTrack
@@ -33,11 +31,7 @@ import com.streamcloud.app.data.ytmusic.YtMusicSearchRepository
 import com.streamcloud.app.data.ytmusic.YtPlayback
 import com.streamcloud.app.data.ytmusic.YtmSong
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -59,31 +53,6 @@ private fun Long.toMinSec(): String {
     return "%d:%02d".format(s / 60, s % 60)
 }
 
-private data class SpotifyPlaylistDownloadResolution(
-    val songs: List<YtmSong>,
-    val unmatchedCount: Int,
-)
-
-private suspend fun resolveSpotifyPlaylistSongs(
-    tracks: List<SpotifyTrack>,
-): SpotifyPlaylistDownloadResolution = coroutineScope {
-    val semaphore = Semaphore(3)
-    val matches = tracks.map { track ->
-        async(Dispatchers.IO) {
-            semaphore.withPermit {
-                runCatching {
-                    YtMusicSearchRepository.songs(track.title + " " + track.artists)
-                        .firstOrNull()
-                        ?.asYtmSong()
-                }.getOrNull()
-            }
-        }
-    }.awaitAll()
-    SpotifyPlaylistDownloadResolution(
-        songs = matches.filterNotNull(),
-        unmatchedCount = matches.count { it == null },
-    )
-}
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -96,21 +65,17 @@ fun SpotifyPlaylistScreen(
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
     val spDc by sl.settings.spotifyCookie.collectAsState(initial = "")
+    val albumId = remember(playlistId) {
+        playlistId.takeIf { it.startsWith("album:") }?.removePrefix("album:")
+    }
+    val collectionId = albumId ?: playlistId
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    val playlistDownloadOwner = remember(playlistId) {
-        PlaylistMusicDownloadManager.playlistOwnerKey("spotify", playlistId)
-    }
-    val playlistDownloadEnabled by remember(context, playlistDownloadOwner) {
-        PlaylistMusicDownloadManager.observeEnabled(context, playlistDownloadOwner)
-    }.collectAsState(initial = false)
-    var playlistDownloadBusy by remember(playlistId) { mutableStateOf(false) }
-    var playlistRefreshVersion by remember(playlistId) { mutableStateOf(0) }
-    var lastSpotifyDownloadSnapshot by remember(playlistId) { mutableStateOf<String?>(null) }
 
-    var tracks by remember(playlistId) { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
-    var loading by remember(playlistId) { mutableStateOf(true) }
+    var tracks by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
     var syncing by remember { mutableStateOf(false) }
+    var loadError by remember { mutableStateOf<String?>(null) }
     var playingIndex by remember { mutableStateOf<Int?>(null) }
     var showAddSheet by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -119,68 +84,31 @@ fun SpotifyPlaylistScreen(
     var removeTarget by remember { mutableStateOf<Pair<Int, SpotifyTrack>?>(null) }
 
     suspend fun syncTracks() {
-        if (spDc.isBlank()) { loading = false; return }
-        tracks = withContext(Dispatchers.IO) {
-            SpotifyPlaylistRepository.getPlaylistTracks(spDc, playlistId)
+        if (spDc.isBlank()) {
+            loading = false
+            loadError = "Sign in to Spotify in Settings to view this collection."
+            return
         }
-        playlistRefreshVersion++
-        loading = false
-        syncing = false
+        try {
+            tracks = withContext(Dispatchers.IO) {
+                if (albumId != null) {
+                    SpotifyPlaylistRepository.getAlbumTracks(spDc, collectionId)
+                } else {
+                    SpotifyPlaylistRepository.getPlaylistTracks(spDc, collectionId)
+                }
+            }
+            loadError = null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            loadError = failure.message ?: "Spotify collection could not be loaded."
+        } finally {
+            loading = false
+            syncing = false
+        }
     }
 
     LaunchedEffect(spDc, playlistId) { syncTracks() }
-
-    LaunchedEffect(playlistId, playlistDownloadEnabled, tracks, loading, playlistRefreshVersion) {
-        if (!playlistDownloadEnabled) {
-            lastSpotifyDownloadSnapshot = null
-            PlaylistMusicDownloadManager.cleanupDisabledPlaylist(context, playlistDownloadOwner)
-            return@LaunchedEffect
-        }
-        if (loading) return@LaunchedEffect
-        val snapshot = tracks.joinToString("|") { it.uri }
-        if (tracks.isEmpty()) {
-            if (snapshot != lastSpotifyDownloadSnapshot) {
-                PlaylistMusicDownloadManager.syncEnabledPlaylist(
-                    context = context,
-                    ownerKey = playlistDownloadOwner,
-                    songs = emptyList(),
-                    pruneMissing = true,
-                )
-                lastSpotifyDownloadSnapshot = snapshot
-            }
-            return@LaunchedEffect
-        }
-        if (snapshot == lastSpotifyDownloadSnapshot) return@LaunchedEffect
-        playlistDownloadBusy = true
-        try {
-            val resolution = resolveSpotifyPlaylistSongs(tracks)
-            val summary = PlaylistMusicDownloadManager.syncEnabledPlaylist(
-                context = context,
-                ownerKey = playlistDownloadOwner,
-                songs = resolution.songs,
-                pruneMissing = resolution.unmatchedCount == 0,
-            )
-            lastSpotifyDownloadSnapshot = snapshot
-            val unmatchedMessage = when (resolution.unmatchedCount) {
-                0 -> null
-                1 -> "1 Spotify song could not be matched"
-                else -> "${resolution.unmatchedCount} Spotify songs could not be matched"
-            }
-            when {
-                summary.failed > 0 -> snackbarHostState.showSnackbar("Some matched songs could not be queued")
-                unmatchedMessage != null && summary.queued > 0 -> snackbarHostState.showSnackbar(
-                    "Downloading matched songs; $unmatchedMessage",
-                )
-                unmatchedMessage != null -> snackbarHostState.showSnackbar(unmatchedMessage)
-                summary.queued > 0 -> snackbarHostState.showSnackbar("Downloading matched songs for offline listening")
-                else -> Unit
-            }
-        } catch (_: Throwable) {
-            snackbarHostState.showSnackbar("Could not prepare Spotify playlist downloads")
-        } finally {
-            playlistDownloadBusy = false
-        }
-    }
 
     // Debounced Spotify search for the "Add songs" sheet
     LaunchedEffect(searchQuery) {
@@ -203,7 +131,7 @@ fun SpotifyPlaylistScreen(
                     removeTarget = null
                     if (target != null) scope.launch {
                         val ok = withContext(Dispatchers.IO) {
-                            SpotifyPlaylistRepository.removeTrack(spDc, playlistId, target.second.uri)
+                            SpotifyPlaylistRepository.removeTrack(spDc, collectionId, target.second.uri)
                         }
                         if (ok) {
                             tracks = tracks.toMutableList().also { it.removeAt(target.first) }
@@ -265,7 +193,7 @@ fun SpotifyPlaylistScreen(
                                 .clickable {
                                     scope.launch {
                                         val ok = withContext(Dispatchers.IO) {
-                                            SpotifyPlaylistRepository.addTrack(spDc, playlistId, track.uri)
+                                            SpotifyPlaylistRepository.addTrack(spDc, collectionId, track.uri)
                                         }
                                         if (ok) {
                                             snackbarHostState.showSnackbar("\"${track.title}\" added")
@@ -348,7 +276,7 @@ fun SpotifyPlaylistScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            if (!loading && spDc.isNotBlank()) {
+            if (!loading && spDc.isNotBlank() && albumId == null) {
                 FloatingActionButton(
                     onClick = { showAddSheet = true },
                     containerColor = Color(0xFF1DB954),
@@ -388,47 +316,6 @@ fun SpotifyPlaylistScreen(
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
             }
-            item(key = "playlist_download_toggle") {
-                PlaylistDownloadToggle(
-                    checked = playlistDownloadEnabled,
-                    busy = playlistDownloadBusy,
-                    enabled = !loading,
-                    detailText = "Saves matching YouTube Music versions, not Spotify files",
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    onCheckedChange = { enabled ->
-                        scope.launch {
-                            playlistDownloadBusy = true
-                            try {
-                                if (enabled) {
-                                    lastSpotifyDownloadSnapshot = null
-                                    PlaylistMusicDownloadManager.setEnabled(
-                                        context = context,
-                                        ownerKey = playlistDownloadOwner,
-                                        enabled = true,
-                                        songs = emptyList(),
-                                        pruneMissing = false,
-                                    )
-                                    snackbarHostState.showSnackbar("Preparing playlist downloads")
-                                } else {
-                                    PlaylistMusicDownloadManager.setEnabled(
-                                        context = context,
-                                        ownerKey = playlistDownloadOwner,
-                                        enabled = false,
-                                        songs = emptyList(),
-                                        pruneMissing = false,
-                                    )
-                                    lastSpotifyDownloadSnapshot = null
-                                    snackbarHostState.showSnackbar("Removed playlist downloads")
-                                }
-                            } catch (_: Throwable) {
-                                snackbarHostState.showSnackbar("Could not update playlist downloads")
-                            } finally {
-                                playlistDownloadBusy = false
-                            }
-                        }
-                    },
-                )
-            }
 
             if (loading) {
                 item(key = "loading") {
@@ -437,6 +324,18 @@ fun SpotifyPlaylistScreen(
                         contentAlignment = Alignment.Center,
                     ) { CircularProgressIndicator(color = Color(0xFF1DB954)) }
                 }
+            } else if (loadError != null) {
+                item(key = "error") {
+                    Column(
+                        Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(loadError!!, color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = {
+                            scope.launch { loading = true; syncTracks() }
+                        }) { Text("Retry") }
+                    }
+                }
             } else if (tracks.isEmpty()) {
                 item(key = "empty") {
                     Box(
@@ -444,7 +343,8 @@ fun SpotifyPlaylistScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            "This playlist is empty. Tap + to add songs.",
+                            if (albumId != null) "This album has no available tracks."
+                            else "This playlist is empty. Tap + to add songs.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -454,6 +354,7 @@ fun SpotifyPlaylistScreen(
                     SpotifyTrackRow(
                         track     = track,
                         isLoading = playingIndex == index,
+                        allowRemove = albumId == null,
                         onClick   = {
                             scope.launch {
                                 playingIndex = index
@@ -487,6 +388,7 @@ fun SpotifyPlaylistScreen(
 private fun SpotifyTrackRow(
     track: SpotifyTrack,
     isLoading: Boolean,
+    allowRemove: Boolean,
     onClick: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -541,13 +443,15 @@ private fun SpotifyTrackRow(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        IconButton(onClick = onRemove, modifier = Modifier.size(40.dp)) {
-            Icon(
-                Icons.Default.MoreVert,
-                contentDescription = "Remove from playlist",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
+        if (allowRemove) {
+            IconButton(onClick = onRemove, modifier = Modifier.size(40.dp)) {
+                Icon(
+                    Icons.Default.MoreVert,
+                    contentDescription = "Remove from playlist",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
         }
     }
 }

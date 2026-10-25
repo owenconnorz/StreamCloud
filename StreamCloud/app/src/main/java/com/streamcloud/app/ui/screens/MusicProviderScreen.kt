@@ -2,18 +2,15 @@ package com.streamcloud.app.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.layout.ContentScale
-import coil.compose.AsyncImage
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -30,8 +27,6 @@ import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.TrackEntity
 import com.streamcloud.app.data.music.MusicProvider
 import com.streamcloud.app.data.music.MusicProviderCatalogRepository
-import com.streamcloud.app.data.spotify.SpotifyPlaylist
-import com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
 import com.streamcloud.app.data.downloads.YtMusicDownloadUtil
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
@@ -124,7 +119,10 @@ fun MusicScreen(
                             Modifier.align(Alignment.Center).padding(24.dp),
                         )
                     } else {
-                        SpotifyMusicHome(spotifyCookie, onSpotifyPlaylistClick)
+                        SpotifyLibraryContent(
+                            spotifyCookie = spotifyCookie,
+                            onOpenCollection = onSpotifyPlaylistClick,
+                        )
                     }
                 }
                 null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
@@ -313,11 +311,9 @@ fun MusicScreen(
                     enabled = repositoryInput.isNotBlank(),
                     onClick = {
                         scope.launch {
-                            var addedRepository: String? = null
                             try {
                                 val normalized = MusicProviderCatalogRepository
                                     .normalizeRepositoryUrl(repositoryInput)
-                                addedRepository = normalized
                                 services.settings.addMusicProviderRepository(normalized)
                                 showAddRepository = false
                                 repositoryInput = ""
@@ -326,10 +322,6 @@ fun MusicScreen(
                                 throw cancelled
                             } catch (failure: Exception) {
                                 error = failure.message ?: "Could not add this repository."
-                            } finally {
-                                addedRepository?.let {
-                                    loadingRepositories = loadingRepositories - it
-                                }
                             }
                         }
                     },
@@ -339,78 +331,6 @@ fun MusicScreen(
                 TextButton(onClick = { showAddRepository = false }) { Text("Cancel") }
             },
         )
-    }
-}
-
-@Composable
-private fun SpotifyMusicHome(
-    spotifyCookie: String,
-    onPlaylistClick: (String, String) -> Unit,
-) {
-    var playlists by remember { mutableStateOf<List<SpotifyPlaylist>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var retryGeneration by remember { mutableIntStateOf(0) }
-    LaunchedEffect(spotifyCookie, retryGeneration) {
-        loading = true
-        error = null
-        if (spotifyCookie.isBlank()) {
-            playlists = emptyList()
-            error = "Sign in to Spotify in Settings to load your playlists."
-            loading = false
-        } else {
-            try {
-                playlists = withContext(Dispatchers.IO) {
-                    SpotifyPlaylistRepository.getPlaylists(spotifyCookie)
-                }
-                if (playlists.isEmpty()) error = "No Spotify playlists returned. Reconnect Spotify in Settings and try again."
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                error = "Spotify playlists could not be loaded. Reconnect Spotify in Settings and retry."
-            } finally {
-                loading = false
-            }
-        }
-    }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 180.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item { Text("Spotify", style = MaterialTheme.typography.headlineMedium) }
-        item {
-            Text(
-                "Browse playlists with your existing Spotify sign-in. Playback uses YouTube matches, not Spotify audio.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-        if (loading) item { CircularProgressIndicator() }
-        error?.let { message ->
-            item {
-                Text(message)
-                TextButton(onClick = { retryGeneration++ }) { Text("Retry") }
-            }
-        }
-        items(playlists, key = { it.id }) { playlist ->
-            OutlinedButton(
-                onClick = { onPlaylistClick(playlist.id, playlist.name) },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    AsyncImage(
-                        model = playlist.imageUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(64.dp),
-                    )
-                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text(playlist.name, style = MaterialTheme.typography.titleMedium)
-                        Text("${playlist.trackCount} tracks", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
-        }
     }
 }
 

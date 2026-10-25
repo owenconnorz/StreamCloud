@@ -4,7 +4,7 @@ package com.streamcloud.app.data.music
 enum class MusicProvider(val id: String, val title: String, val description: String) {
     YouTubeMusic("youtube_music", "YouTube Music", "Recommendations, playlists and music discovery"),
     Offline("offline", "Offline downloads", "Music downloaded to this device"),
-    Spotify("spotify", "Spotify", "Your Spotify playlists in StreamCloud");
+    Spotify("spotify", "Spotify", "Your playlists, albums, saved songs and followed artists");
 
     companion object {
         fun fromId(id: String?): MusicProvider =

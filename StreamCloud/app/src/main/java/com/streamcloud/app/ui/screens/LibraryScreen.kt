@@ -43,9 +43,9 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.animation.animateColorAsState
@@ -80,6 +80,7 @@ import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.library.moveMovieWatchlistItems
 import com.streamcloud.app.data.library.toWatchlistEntity
+import com.streamcloud.app.data.music.MusicProvider
 import com.streamcloud.app.data.ytmusic.YtMusicLibrary
 import com.streamcloud.app.data.ytmusic.YtmLibraryArtist
 import com.streamcloud.app.data.ytmusic.YtmPlaylist
@@ -139,6 +140,7 @@ fun LibraryScreen(
     val dao = remember(db) { db.tracks() }
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
     val spotifyCookie by sl.settings.spotifyCookie.collectAsState(initial = "")
+    val activeMusicProvider by sl.settings.musicHomeProvider.collectAsState(initial = MusicProvider.YouTubeMusic)
     val playlistThumbsJson by sl.settings.playlistThumbsJson.collectAsState(initial = "{}")
     val playlistThumbs = remember(playlistThumbsJson) {
         playlistThumbsJson
@@ -169,9 +171,6 @@ fun LibraryScreen(
 
     var ytLibrary by remember { mutableStateOf(com.streamcloud.app.data.ytmusic.YtMusicLibrary()) }
     var ytLoading by remember { mutableStateOf(false) }
-    var spotifyPlaylists by remember { mutableStateOf<List<com.streamcloud.app.data.spotify.SpotifyPlaylist>>(emptyList()) }
-    var spotifyLoading by remember { mutableStateOf(false) }
-
     LaunchedEffect(ytCookie) {
         if (ytCookie.isBlank()) {
             ytLibrary = com.streamcloud.app.data.ytmusic.YtMusicLibrary(
@@ -218,13 +217,6 @@ fun LibraryScreen(
                 }
             }
         }
-    }
-
-    LaunchedEffect(spotifyCookie) {
-        if (spotifyCookie.isBlank()) { spotifyPlaylists = emptyList(); return@LaunchedEffect }
-        spotifyLoading = true
-        spotifyPlaylists = com.streamcloud.app.data.spotify.SpotifyPlaylistRepository.getPlaylists(spotifyCookie)
-        spotifyLoading = false
     }
 
     val combined by remember(dao) {
@@ -324,11 +316,15 @@ fun LibraryScreen(
                             .size(36.dp)
                             .clip(CircleShape)
                             // Focus the default section when moving down from the TV navigation bar.
-                            .let {
+                            .then(
                                 if (tvNavFocusRequester != null && idx == defaultTvSectionIndex) {
-                                    it.focusRequester(tvNavFocusRequester).onFocusChanged { movieSectionFocused = it.isFocused }
-                                } else it
-                            }
+                                    Modifier
+                                        .focusRequester(tvNavFocusRequester)
+                                        .onFocusChanged { movieSectionFocused = it.isFocused }
+                                } else {
+                                    Modifier
+                                },
+                            )
                             .tvFocusBorder(CircleShape)
                             .background(
                                 if (selected) MaterialTheme.colorScheme.primary
@@ -505,7 +501,13 @@ fun LibraryScreen(
                 )
             }
         } else {
-
+            if (activeMusicProvider == MusicProvider.Spotify) {
+                SpotifyLibraryContent(
+                    spotifyCookie = spotifyCookie,
+                    onOpenCollection = onOpenSpotifyPlaylist,
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
         Row(
             Modifier
                 .fillMaxWidth()
@@ -636,62 +638,6 @@ fun LibraryScreen(
                         items(ytLibrary.playlists, key = { "yp_${it.id}" }) { pl ->
                             YtPlaylistTile(pl, customThumb = playlistThumbs[pl.id]) { onOpenPlaylist(pl.id, pl.title) }
                         }
-                        // ── Spotify playlists ──────────────────────────────────
-                        if (spotifyCookie.isNotBlank()) {
-                            if (spotifyLoading) {
-                                item(span = { GridItemSpan(gridColumns) }) {
-                                    Row(
-                                        Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        CircularProgressIndicator(
-                                            Modifier.size(18.dp),
-                                            strokeWidth = 2.dp,
-                                            color = androidx.compose.ui.graphics.Color(0xFF1DB954),
-                                        )
-                                        Spacer(Modifier.width(10.dp))
-                                        Text(
-                                            "Loading Spotify playlists…",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
-                            } else if (spotifyPlaylists.isNotEmpty()) {
-                                item(span = { GridItemSpan(gridColumns) }) {
-                                    Row(
-                                        Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Box(
-                                            Modifier
-                                                .size(20.dp)
-                                                .clip(androidx.compose.foundation.shape.CircleShape)
-                                                .background(androidx.compose.ui.graphics.Color(0xFF1DB954)),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Icon(
-                                                Icons.Default.MusicNote,
-                                                contentDescription = null,
-                                                tint = androidx.compose.ui.graphics.Color.White,
-                                                modifier = Modifier.size(12.dp),
-                                            )
-                                        }
-                                        Spacer(Modifier.width(8.dp))
-                                        Text(
-                                            "Spotify",
-                                            style = MaterialTheme.typography.titleSmall.copy(
-                                                fontWeight = FontWeight.Bold,
-                                            ),
-                                            color = MaterialTheme.colorScheme.onBackground,
-                                        )
-                                    }
-                                }
-                                items(spotifyPlaylists, key = { "sp_${it.id}" }) { pl ->
-                                    SpotifyPlaylistTile(pl) { onOpenSpotifyPlaylist(pl.id, pl.name) }
-                                }
-                            }
-                        }
                     }
                     LibTab.Albums -> {
                         if (ytLibrary.albums.isEmpty() && !ytLoading) {
@@ -771,6 +717,7 @@ fun LibraryScreen(
             }
             }
         }
+            } // end provider-specific music content
         } // end Music else
     }
 
@@ -904,7 +851,9 @@ private fun MovieWatchlistsLibrarySection(
     LaunchedEffect(pendingTvMutation, tvStableFocus) {
         val mutation = pendingTvMutation ?: return@LaunchedEffect
         if (!isTv) {
-            runCatching { applyMovieWatchlistMutation(context, db, mutation, userId, profileId) }
+            runCatching {
+                applyMovieWatchlistMutation(context, db, mutation, userId, profileId)
+            }
                 .onFailure {
                     Toast.makeText(context, "Could not update the library item.", Toast.LENGTH_SHORT).show()
                 }
@@ -937,7 +886,9 @@ private fun MovieWatchlistsLibrarySection(
 
         delay(100)
         if (!tvStableFocus) return@LaunchedEffect
-        runCatching { applyMovieWatchlistMutation(context, db, mutation, userId, profileId) }
+        runCatching {
+            applyMovieWatchlistMutation(context, db, mutation, userId, profileId)
+        }
             .onSuccess { pendingTvMutation = null }
             .onFailure {
                 pendingTvMutation = null

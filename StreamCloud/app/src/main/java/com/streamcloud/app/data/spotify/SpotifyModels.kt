@@ -7,6 +7,23 @@ data class SpotifyPlaylist(
     val imageUrl: String? = null,
     val trackCount: Int = 0,
     val snapshotId: String = "",
+    val ownerName: String = "",
+)
+
+data class SpotifyAlbum(
+    val id: String,
+    val name: String,
+    val artists: String,
+    val imageUrl: String? = null,
+    val trackCount: Int = 0,
+    val releaseDate: String = "",
+)
+
+data class SpotifyArtist(
+    val id: String,
+    val name: String,
+    val imageUrl: String? = null,
+    val followers: Long = 0,
 )
 
 data class SpotifyTrack(
