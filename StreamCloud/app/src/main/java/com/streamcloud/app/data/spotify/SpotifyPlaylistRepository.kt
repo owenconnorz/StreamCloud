@@ -22,6 +22,7 @@ object SpotifyPlaylistRepository {
     private const val BASE = "https://api.spotify.com/v1"
     private const val RATE_LIMIT_PREFS = "spotify_api_rate_limits"
     private const val RATE_LIMIT_UNTIL_KEY = "retry_until_ms"
+    private const val CATALOG_RATE_LIMIT_UNTIL_KEY = "catalog_retry_until_ms"
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -32,6 +33,7 @@ object SpotifyPlaylistRepository {
 
     private val responseCache = ConcurrentHashMap<String, CachedResponse>()
     @Volatile private var spotifyRetryAtMs = 0L
+    @Volatile private var catalogRetryAtMs = 0L
     @Volatile private var rateLimitPreferences: SharedPreferences? = null
 
     private const val RESPONSE_CACHE_TTL_MS = 15L * 60L * 1000L
@@ -54,6 +56,10 @@ object SpotifyPlaylistRepository {
         spotifyRetryAtMs = maxOf(
             spotifyRetryAtMs,
             preferences.getLong(RATE_LIMIT_UNTIL_KEY, 0L),
+        )
+        catalogRetryAtMs = maxOf(
+            catalogRetryAtMs,
+            preferences.getLong(CATALOG_RATE_LIMIT_UNTIL_KEY, 0L),
         )
     }
 
@@ -78,6 +84,30 @@ object SpotifyPlaylistRepository {
         val retryAt = maxOf(currentRetryAtMs(), candidateRetryAtMs)
         spotifyRetryAtMs = retryAt
         rateLimitPreferences?.edit()?.putLong(RATE_LIMIT_UNTIL_KEY, retryAt)?.apply()
+        return retryAt
+    }
+
+    @Synchronized
+    private fun currentCatalogRetryAtMs(): Long {
+        val preferences = rateLimitPreferences
+        val retryAt = maxOf(
+            catalogRetryAtMs,
+            preferences?.getLong(CATALOG_RATE_LIMIT_UNTIL_KEY, 0L) ?: 0L,
+        )
+        if (retryAt <= System.currentTimeMillis()) {
+            catalogRetryAtMs = 0L
+            preferences?.edit()?.remove(CATALOG_RATE_LIMIT_UNTIL_KEY)?.apply()
+            return 0L
+        }
+        catalogRetryAtMs = retryAt
+        return retryAt
+    }
+
+    @Synchronized
+    private fun extendCatalogRetryAtMs(candidateRetryAtMs: Long): Long {
+        val retryAt = maxOf(currentCatalogRetryAtMs(), candidateRetryAtMs)
+        catalogRetryAtMs = retryAt
+        rateLimitPreferences?.edit()?.putLong(CATALOG_RATE_LIMIT_UNTIL_KEY, retryAt)?.apply()
         return retryAt
     }
 
@@ -741,7 +771,9 @@ object SpotifyPlaylistRepository {
                 return@withContext parseGraphQlSearch(JSONObject(it))
             }
 
-            val retryAtMs = currentRetryAtMs()
+            // The web-player catalogue endpoint has its own server-provided Retry-After.
+            // Don't let a REST/library 429 prevent this separate search route from running.
+            val retryAtMs = currentCatalogRetryAtMs()
             if (retryAtMs > System.currentTimeMillis()) {
                 cachedBody(cacheKey, STALE_RESPONSE_TTL_MS)?.let {
                     return@withContext parseGraphQlSearch(JSONObject(it))
@@ -756,7 +788,7 @@ object SpotifyPlaylistRepository {
                     ?.toLongOrNull()
                     ?.let { TimeUnit.SECONDS.toMillis(it.coerceAtLeast(1L)) }
                     ?: DEFAULT_RETRY_AFTER_MS
-                val retryAt = extendRetryAtMs(System.currentTimeMillis() + retryAfterMs)
+                val retryAt = extendCatalogRetryAtMs(System.currentTimeMillis() + retryAfterMs)
                 cachedBody(cacheKey, STALE_RESPONSE_TTL_MS)?.let {
                     return@withContext parseGraphQlSearch(JSONObject(it))
                 }
