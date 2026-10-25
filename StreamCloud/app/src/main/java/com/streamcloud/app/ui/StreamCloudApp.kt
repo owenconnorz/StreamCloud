@@ -1132,6 +1132,11 @@ fun StreamCloudApp() {
                 composable(Tab.Music.route)    {
                     MusicScreen(
                         tvNavFocusRequester = tvNavHeroFocus,
+                        onSpotifyPlaylistClick = { id, title ->
+                            val i = URLEncoder.encode(id, "UTF-8")
+                            val t = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("spotify-playlist/$i/$t")
+                        },
                         onArtistClick = { url, thumb ->
                             val u = URLEncoder.encode(url, "UTF-8")
                             val t = URLEncoder.encode(thumb.orEmpty(), "UTF-8")

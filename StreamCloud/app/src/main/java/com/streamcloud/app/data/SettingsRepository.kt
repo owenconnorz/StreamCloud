@@ -267,6 +267,22 @@ class SettingsRepository(private val context: Context) {
     suspend fun setMusicHomeProvider(provider: com.streamcloud.app.data.music.MusicProvider) {
         context.dataStore.edit { it[musicProviderKey] = provider.id }
     }
+    private val installedMusicProvidersKey = stringPreferencesKey("installed_music_providers")
+    val installedMusicProviders: Flow<Map<String, Int>> = context.dataStore.data.map { prefs ->
+        prefs[installedMusicProvidersKey].orEmpty().split(',').mapNotNull { item ->
+            val p = item.split(':', limit = 2); val v = p.getOrNull(1)?.toIntOrNull()
+            if (p.size == 2 && p[0].matches(Regex("[a-z0-9_-]{1,40}")) && v != null && v > 0) p[0] to v else null
+        }.toMap()
+    }
+    suspend fun setInstalledMusicProvider(id: String, version: Int?) = context.dataStore.edit { prefs ->
+        val values = prefs[installedMusicProvidersKey].orEmpty().split(',').mapNotNull { item ->
+            val p = item.split(':', limit = 2); p.getOrNull(1)?.toIntOrNull()?.let { p[0] to it }
+        }.toMap().toMutableMap()
+        if (version == null) values.remove(id) else values[id] = version
+        if (values.isEmpty()) prefs.remove(installedMusicProvidersKey)
+        else prefs[installedMusicProvidersKey] = values.toSortedMap().entries.joinToString(",") { "${it.key}:${it.value}" }
+        if (version == null && prefs[musicProviderKey] == id) prefs[musicProviderKey] = com.streamcloud.app.data.music.MusicProvider.YouTubeMusic.id
+    }
 
     val backendUrl: Flow<String> = context.dataStore.data.map {
         it[SettingsKeys.BACKEND_URL] ?: BuildConfig.DEFAULT_BACKEND_URL
