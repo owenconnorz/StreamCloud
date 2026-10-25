@@ -646,33 +646,55 @@ object SpotifyWebPlayerRepository {
     private fun JSONObject.intOrNull(name: String): Int? =
         if (has(name) && !isNull(name)) optInt(name) else null
 
+    private data class SpotifyImageCandidate(
+        val url: String,
+        val pixelArea: Long,
+        val order: Int,
+    )
+
     private fun imageFrom(data: JSONObject, field: String? = null): String? {
         val source = if (field == null) data else data.optJSONObject(field) ?: return null
         val sources = source.optJSONArray("sources")
             ?: source.optJSONObject("items")?.optJSONArray("sources")
         if (sources != null) {
-            for (index in sources.length() - 1 downTo 0) {
-                val url = sources.optJSONObject(index)?.optString("url")
-                    ?.takeIf(String::isNotBlank)
-                if (url != null) return url
-            }
+            bestImageUrl(sources)?.let { return it }
         }
         val images = source.optJSONObject("images")?.optJSONArray("items")
             ?: source.optJSONArray("images")
             ?: source.optJSONArray("items")
-        if (images != null) {
-            for (index in 0 until images.length()) {
-                val image = images.optJSONObject(index) ?: continue
-                image.optString("url").takeIf(String::isNotBlank)?.let { return it }
-                val nestedSources = image.optJSONArray("sources") ?: continue
-                for (sourceIndex in nestedSources.length() - 1 downTo 0) {
-                    nestedSources.optJSONObject(sourceIndex)?.optString("url")
-                        ?.takeIf(String::isNotBlank)
-                        ?.let { return it }
-                }
+        return images?.let(::bestImageUrl)
+    }
+
+    private fun bestImageUrl(images: JSONArray): String? {
+        val candidates = mutableListOf<SpotifyImageCandidate>()
+        var order = 0
+
+        fun addCandidate(image: JSONObject) {
+            val url = image.optString("url").takeIf(String::isNotBlank) ?: return
+            val width = image.optInt("width").coerceAtLeast(0)
+            val height = image.optInt("height").coerceAtLeast(0)
+            val area = if (width > 0 && height > 0) {
+                width.toLong() * height.toLong()
+            } else {
+                maxOf(width, height).toLong()
+            }
+            candidates += SpotifyImageCandidate(url, area, order++)
+        }
+
+        for (index in 0 until images.length()) {
+            val image = images.optJSONObject(index) ?: continue
+            addCandidate(image)
+            val variants = image.optJSONArray("sources") ?: continue
+            for (variantIndex in 0 until variants.length()) {
+                variants.optJSONObject(variantIndex)?.let(::addCandidate)
             }
         }
-        return null
+
+        // Spotify commonly orders artwork from largest to smallest. Prefer explicit
+        // dimensions when present and retain that first-item fallback when they are not.
+        return candidates.minWithOrNull(
+            compareByDescending<SpotifyImageCandidate> { it.pixelArea }.thenBy { it.order },
+        )?.url
     }
 
     private fun label(value: Any?): String = when (value) {

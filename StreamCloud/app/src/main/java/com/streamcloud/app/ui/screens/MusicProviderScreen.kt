@@ -1,11 +1,19 @@
 package com.streamcloud.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -17,10 +25,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import com.streamcloud.app.R
 import com.streamcloud.app.audio.MusicController
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.library.LibraryDb
@@ -57,6 +69,7 @@ fun MusicScreen(
     val spotifyCookie by services.settings.spotifyCookie.collectAsState(initial = "")
     val scope = rememberCoroutineScope()
     var showProviders by rememberSaveable { mutableStateOf(false) }
+    var showRepositoryManager by rememberSaveable { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var catalogues by remember { mutableStateOf<Map<String, List<com.streamcloud.app.data.music.MusicProviderManifest>>>(emptyMap()) }
     var loadingRepositories by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -100,8 +113,14 @@ fun MusicScreen(
                     else Modifier,
                 ),
         ) {
-            Text(activeProvider?.title ?: "Music providers")
-            Spacer(Modifier.width(8.dp))
+            if (activeProvider != null) {
+                MusicProviderLogo(activeProvider, Modifier.size(22.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(activeProvider.title)
+            } else {
+                Text("Music providers")
+            }
+            Spacer(Modifier.width(4.dp))
             Icon(Icons.Default.ExpandMore, contentDescription = "Switch music provider")
         }
         error?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) }
@@ -130,18 +149,51 @@ fun MusicScreen(
         }
     }
     if (showProviders) {
-        AlertDialog(
+        ModalBottomSheet(
             onDismissRequest = { showProviders = false },
-            title = { Text("Music providers") },
-            text = {
-                Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState())) {
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            Column(
+                Modifier.fillMaxWidth()
+                    .heightIn(max = 680.dp)
+                    .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding()
+                    .padding(horizontal = 20.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { showProviders = false }) {
+                        Icon(Icons.Default.Close, contentDescription = "Close music providers")
+                    }
+                    Text(
+                        "Music Extensions",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    IconButton(
+                        onClick = {
+                            showProviders = false
+                            showRepositoryManager = true
+                        },
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = "Manage extensions")
+                    }
+                }
+                Text(
+                    "Choose a source for your Music home.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 14.dp),
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     MusicProvider.entries.forEach { provider ->
                         if (provider == MusicProvider.Spotify &&
                             (installed["spotify"] == null || repositories.isEmpty() ||
                                 catalogues.values.flatten().none { it.id == "spotify" })
                         ) return@forEach
-                        TextButton(
-                            modifier = Modifier.fillMaxWidth(),
+                        MusicProviderOptionRow(
+                            provider = provider,
+                            selected = provider == activeProvider,
                             onClick = {
                                 scope.launch {
                                     try {
@@ -150,140 +202,199 @@ fun MusicScreen(
                                         showProviders = false
                                     } catch (cancelled: CancellationException) {
                                         throw cancelled
-                                    } catch (failure: Exception) {
+                                    } catch (_: Exception) {
                                         error = "Could not save music provider. Please try again."
                                         showProviders = false
                                     }
                                 }
                             },
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(provider.title)
-                                Text(provider.description, style = MaterialTheme.typography.bodySmall)
-                            }
-                            if (provider == activeProvider) Icon(Icons.Default.Check, "Selected")
-                        }
+                        )
                     }
+                }
+                if (repositories.isEmpty()) {
                     Text(
-                        "Additional music providers will be available in a future update.",
+                        "Add a repository to browse optional music providers.",
                         style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(top = 12.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp, top = 12.dp),
                     )
-                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                    Text("Plugin repositories", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        if (repositories.isEmpty()) {
-                            "No repositories added. Add a GitHub link to browse music providers."
-                        } else "Only these added repositories are checked for providers.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                }
+                error?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            showProviders = false
+                            showRepositoryManager = true
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Manage") }
+                    Button(
+                        onClick = {
+                            showProviders = false
+                            showAddRepository = true
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Add") }
+                }
+            }
+        }
+    }
+    if (showRepositoryManager) {
+        AlertDialog(
+            onDismissRequest = { showRepositoryManager = false },
+            title = { Text("Manage music extensions") },
+            text = {
+                Column(
+                    Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    if (repositories.isEmpty()) {
+                        Text(
+                            "No repositories added yet. Add a GitHub link to browse provider updates.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     repositories.forEach { repository ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(repository, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                            IconButton(
-                                enabled = repository !in loadingRepositories,
-                                onClick = {
-                                    scope.launch {
-                                        loadingRepositories = loadingRepositories + repository
-                                        try {
-                                            catalogues = catalogues +
-                                                (repository to MusicProviderCatalogRepository.fetch(repository))
-                                            error = null
-                                        } catch (cancelled: CancellationException) {
-                                            throw cancelled
-                                        } catch (failure: Exception) {
-                                            error = failure.message ?: "Could not load this repository."
-                                        } finally {
-                                            loadingRepositories = loadingRepositories - repository
-                                        }
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        ) {
+                            Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Provider repository", style = MaterialTheme.typography.labelMedium)
+                                        Text(
+                                            repository,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            maxLines = 2,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        )
                                     }
-                                },
-                            ) {
-                                if (repository in loadingRepositories) {
-                                    CircularProgressIndicator(Modifier.size(20.dp))
-                                } else {
-                                    Icon(Icons.Default.Refresh, contentDescription = "Refresh $repository")
-                                }
-                            }
-                            TextButton(
-                                onClick = {
-                                    scope.launch {
-                                        try {
-                                            services.settings.removeMusicProviderRepository(repository)
-                                            catalogues = catalogues - repository
-                                            error = null
-                                        } catch (cancelled: CancellationException) {
-                                            throw cancelled
-                                        } catch (_: Exception) {
-                                            error = "Could not remove this repository."
-                                        }
-                                    }
-                                },
-                            ) { Text("Remove") }
-                        }
-                        repositoryErrors[repository]?.let {
-                            Text(it, color = MaterialTheme.colorScheme.error)
-                        }
-                        catalogues[repository].orEmpty().forEach { manifest ->
-                            val version = installed[manifest.id]
-                            Row(
-                                Modifier.fillMaxWidth().padding(start = 12.dp, bottom = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text("${manifest.name} · v${manifest.version}")
-                                    Text(manifest.description, style = MaterialTheme.typography.bodySmall)
-                                    Text(
-                                        "Playlist audio uses YouTube matches, not Spotify audio.",
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
-                                }
-                                TextButton(
-                                    enabled = version != manifest.version,
-                                    onClick = {
-                                        scope.launch {
-                                            try {
-                                                services.settings.setInstalledMusicProvider(manifest.id, manifest.version)
-                                                error = null
-                                            } catch (cancelled: CancellationException) {
-                                                throw cancelled
-                                            } catch (_: Exception) {
-                                                error = "Could not install this provider."
+                                    IconButton(
+                                        enabled = repository !in loadingRepositories,
+                                        onClick = {
+                                            scope.launch {
+                                                loadingRepositories = loadingRepositories + repository
+                                                try {
+                                                    catalogues = catalogues +
+                                                        (repository to MusicProviderCatalogRepository.fetch(repository))
+                                                    repositoryErrors = repositoryErrors - repository
+                                                    error = null
+                                                } catch (cancelled: CancellationException) {
+                                                    throw cancelled
+                                                } catch (failure: Exception) {
+                                                    repositoryErrors = repositoryErrors +
+                                                        (repository to (failure.message ?: "Could not load this repository."))
+                                                } finally {
+                                                    loadingRepositories = loadingRepositories - repository
+                                                }
                                             }
+                                        },
+                                    ) {
+                                        if (repository in loadingRepositories) {
+                                            CircularProgressIndicator(Modifier.size(20.dp))
+                                        } else {
+                                            Icon(Icons.Default.Refresh, contentDescription = "Refresh repository")
                                         }
-                                    },
-                                ) {
-                                    Text(when {
-                                        version == null -> "Install"
-                                        version < manifest.version -> "Update"
-                                        else -> "Installed"
-                                    })
-                                }
-                                if (version != null) {
+                                    }
                                     TextButton(
                                         onClick = {
                                             scope.launch {
                                                 try {
-                                                    services.settings.setInstalledMusicProvider(manifest.id, null)
+                                                    services.settings.removeMusicProviderRepository(repository)
+                                                    catalogues = catalogues - repository
+                                                    repositoryErrors = repositoryErrors - repository
                                                     error = null
                                                 } catch (cancelled: CancellationException) {
                                                     throw cancelled
                                                 } catch (_: Exception) {
-                                                    error = "Could not remove this provider."
+                                                    error = "Could not remove this repository."
                                                 }
                                             }
                                         },
-                                    ) { Text("Uninstall") }
+                                    ) { Text("Remove") }
+                                }
+                                repositoryErrors[repository]?.let {
+                                    Text(it, color = MaterialTheme.colorScheme.error)
+                                }
+                                catalogues[repository].orEmpty().forEach { manifest ->
+                                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                                    val version = installed[manifest.id]
+                                    Text(manifest.name, style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        "v${manifest.version} · ${manifest.description}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Text(
+                                        "Playlist audio uses YouTube matches, not Spotify audio.",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        TextButton(
+                                            enabled = version != manifest.version,
+                                            onClick = {
+                                                scope.launch {
+                                                    try {
+                                                        services.settings.setInstalledMusicProvider(
+                                                            manifest.id,
+                                                            manifest.version,
+                                                        )
+                                                        error = null
+                                                    } catch (cancelled: CancellationException) {
+                                                        throw cancelled
+                                                    } catch (_: Exception) {
+                                                        error = "Could not install this provider."
+                                                    }
+                                                }
+                                            },
+                                        ) {
+                                            Text(when {
+                                                version == null -> "Install"
+                                                version < manifest.version -> "Update"
+                                                else -> "Installed"
+                                            })
+                                        }
+                                        if (version != null) {
+                                            TextButton(
+                                                onClick = {
+                                                    scope.launch {
+                                                        try {
+                                                            services.settings.setInstalledMusicProvider(manifest.id, null)
+                                                            error = null
+                                                        } catch (cancelled: CancellationException) {
+                                                            throw cancelled
+                                                        } catch (_: Exception) {
+                                                            error = "Could not remove this provider."
+                                                        }
+                                                    }
+                                                },
+                                            ) { Text("Uninstall") }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                    TextButton(onClick = { showAddRepository = true }) { Text("Add repository URL") }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showProviders = false }) { Text("Close") }
+                TextButton(
+                    onClick = {
+                        showRepositoryManager = false
+                        showAddRepository = true
+                    },
+                ) { Text("Add repository") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRepositoryManager = false }) { Text("Close") }
             },
         )
     }
@@ -331,6 +442,73 @@ fun MusicScreen(
                 TextButton(onClick = { showAddRepository = false }) { Text("Cancel") }
             },
         )
+    }
+}
+
+@Composable
+private fun MusicProviderLogo(provider: MusicProvider, modifier: Modifier = Modifier) {
+    when (provider) {
+        MusicProvider.YouTubeMusic -> Image(
+            painter = painterResource(R.drawable.ic_youtube_music_logo),
+            contentDescription = null,
+            modifier = modifier,
+        )
+        MusicProvider.Spotify -> Image(
+            painter = painterResource(R.drawable.ic_spotify_logo),
+            contentDescription = null,
+            modifier = modifier,
+        )
+        MusicProvider.Offline -> Icon(
+            Icons.Default.MusicNote,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = modifier,
+        )
+    }
+}
+
+@Composable
+private fun MusicProviderOptionRow(
+    provider: MusicProvider,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(16.dp)
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier.fillMaxWidth().clip(shape).clickable(onClick = onClick),
+        shape = shape,
+        color = if (selected) colors.primaryContainer else colors.surfaceVariant.copy(alpha = 0.52f),
+        border = if (selected) BorderStroke(1.dp, colors.primary.copy(alpha = 0.7f)) else null,
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MusicProviderLogo(provider, Modifier.size(42.dp))
+            Column(Modifier.weight(1f).padding(start = 14.dp, end = 8.dp)) {
+                Text(
+                    provider.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (selected) colors.onPrimaryContainer else colors.onSurface,
+                )
+                Text(
+                    provider.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (selected) colors.onPrimaryContainer.copy(alpha = 0.82f)
+                    else colors.onSurfaceVariant,
+                    maxLines = 2,
+                )
+            }
+            if (selected) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = "Selected",
+                    tint = colors.primary,
+                )
+            }
+        }
     }
 }
 

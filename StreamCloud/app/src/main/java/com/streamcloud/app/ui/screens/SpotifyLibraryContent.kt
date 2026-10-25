@@ -55,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -631,14 +632,15 @@ private fun SpotifyCollectionRow(
                 model = imageUrl,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.size(58.dp).clip(RoundedCornerShape(8.dp)),
+                filterQuality = FilterQuality.High,
+                modifier = Modifier.size(68.dp).clip(RoundedCornerShape(8.dp)),
             )
         } else {
             Icon(
                 icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(58.dp).padding(14.dp),
+                modifier = Modifier.size(68.dp).padding(18.dp),
             )
         }
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
@@ -699,6 +701,7 @@ private fun SpotifyCollectionGridTile(
                     model = imageUrl,
                     contentDescription = title,
                     contentScale = ContentScale.Crop,
+                    filterQuality = FilterQuality.High,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
@@ -749,6 +752,7 @@ private fun SpotifyTrackGridTile(
                     model = track.imageUrl,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
+                    filterQuality = FilterQuality.High,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -796,7 +800,8 @@ private fun SpotifyTrackRow(track: SpotifyTrack, loading: Boolean, onClick: () -
             model = track.imageUrl,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(6.dp))
+            filterQuality = FilterQuality.High,
+            modifier = Modifier.size(56.dp).clip(RoundedCornerShape(6.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         )
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
