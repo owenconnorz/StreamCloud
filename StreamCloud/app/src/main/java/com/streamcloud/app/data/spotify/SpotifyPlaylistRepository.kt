@@ -246,18 +246,175 @@ object SpotifyPlaylistRepository {
         )
     }
 
-    private fun <T> parseSearchItems(
-        response: JSONObject,
-        type: String,
+    private fun spotifyId(item: JSONObject, uriKey: String = "uri"): String? =
+        item.optString("id").takeIf(String::isNotBlank)
+            ?: item.optString(uriKey).takeIf(String::isNotBlank)
+                ?.substringAfterLast(':')
+                ?.takeIf(String::isNotBlank)
+
+    private fun firstSourceUrl(container: JSONObject?): String? =
+        container?.optJSONArray("sources")
+            ?.optJSONObject(0)
+            ?.optString("url")
+            ?.takeIf(String::isNotBlank)
+
+    private fun firstImageItemSourceUrl(container: JSONObject?, key: String): String? =
+        container?.optJSONObject(key)
+            ?.optJSONArray("items")
+            ?.optJSONObject(0)
+            ?.let { firstSourceUrl(it) ?: firstSourceUrl(it.optJSONObject("image")) }
+            ?.takeIf(String::isNotBlank)
+
+    private fun graphQlItems(search: JSONObject, key: String): JSONArray? =
+        search.optJSONObject(key)?.optJSONArray("items")
+
+    private fun graphQlItemData(item: JSONObject): JSONObject =
+        item.optJSONObject("item")?.optJSONObject("data")
+            ?: item.optJSONObject("data")
+            ?: item
+
+    private fun graphQlArtistNames(artists: JSONObject?): String {
+        val items = artists?.optJSONArray("items") ?: return ""
+        return buildList {
+            for (index in 0 until items.length()) {
+                val profile = items.optJSONObject(index)?.optJSONObject("profile") ?: continue
+                profile.optString("name").takeIf(String::isNotBlank)?.let(::add)
+            }
+        }.joinToString(", ")
+    }
+
+    private fun graphQlArtistIds(artists: JSONObject?): List<String> {
+        val items = artists?.optJSONArray("items") ?: return emptyList()
+        return buildList {
+            for (index in 0 until items.length()) {
+                val artist = items.optJSONObject(index) ?: continue
+                spotifyId(artist)?.let(::add)
+            }
+        }
+    }
+
+    private fun parseGraphQlTrack(item: JSONObject): SpotifyTrack? {
+        val track = graphQlItemData(item)
+        val uri = track.optString("uri")
+        val id = spotifyId(track) ?: return null
+        val album = track.optJSONObject("albumOfTrack")
+        return SpotifyTrack(
+            id = id,
+            uri = uri.ifBlank { "spotify:track:$id" },
+            title = track.optString("name", "Track"),
+            artists = graphQlArtistNames(track.optJSONObject("artists")),
+            artistIds = graphQlArtistIds(track.optJSONObject("artists")),
+            album = album?.optString("name").orEmpty(),
+            imageUrl = firstSourceUrl(album?.optJSONObject("coverArt")),
+            durationMs = track.optJSONObject("duration")
+                ?.optLong("totalMilliseconds", 0L) ?: 0L,
+        )
+    }
+
+    private fun parseGraphQlArtist(item: JSONObject): SpotifyArtist? {
+        val artist = graphQlItemData(item)
+        val id = spotifyId(artist) ?: return null
+        return SpotifyArtist(
+            id = id,
+            name = artist.optJSONObject("profile")?.optString("name")
+                ?.takeIf(String::isNotBlank) ?: "Artist",
+            imageUrl = firstSourceUrl(
+                artist.optJSONObject("visuals")?.optJSONObject("avatarImage"),
+            ),
+        )
+    }
+
+    private fun parseGraphQlAlbum(item: JSONObject): SpotifyAlbum? {
+        val album = graphQlItemData(item)
+        val id = spotifyId(album) ?: return null
+        val date = album.optJSONObject("date")
+        val count = album.optJSONObject("tracks")?.optInt("totalCount", -1)
+            ?.takeIf { it >= 0 }
+        return SpotifyAlbum(
+            id = id,
+            name = album.optString("name", "Album"),
+            artists = graphQlArtistNames(album.optJSONObject("artists")),
+            imageUrl = firstSourceUrl(album.optJSONObject("coverArt")),
+            trackCount = count,
+            releaseDate = date?.optString("isoString")
+                ?.takeIf(String::isNotBlank)
+                ?: date?.optInt("year", 0)?.takeIf { it > 0 }?.toString().orEmpty(),
+        )
+    }
+
+    private fun parseGraphQlPlaylist(item: JSONObject): SpotifyPlaylist? {
+        val playlist = graphQlItemData(item)
+        val id = spotifyId(playlist) ?: return null
+        val owner = playlist.optJSONObject("ownerV2")?.optJSONObject("data")
+        val count = playlist.optInt("trackCount", -1)
+            .takeIf { it >= 0 }
+        return SpotifyPlaylist(
+            id = id,
+            name = playlist.optString("name", "Playlist"),
+            description = playlist.optString("description", ""),
+            imageUrl = firstImageItemSourceUrl(playlist, "images"),
+            trackCount = count,
+            ownerName = owner?.optString("name").orEmpty(),
+        )
+    }
+
+    private fun parseGraphQlPodcast(item: JSONObject): SpotifyPodcast? {
+        val podcast = graphQlItemData(item)
+        val id = spotifyId(podcast) ?: return null
+        val cover = podcast.optJSONObject("coverArt")
+            ?: podcast.optJSONObject("coverImage")
+        return SpotifyPodcast(
+            id = id,
+            name = podcast.optString("name", "Podcast"),
+            publisher = podcast.optString("publisher", ""),
+            imageUrl = firstSourceUrl(cover)
+                ?: firstImageItemSourceUrl(podcast, "images"),
+        )
+    }
+
+    private fun parseGraphQlEpisode(item: JSONObject): SpotifyEpisode? {
+        val episode = graphQlItemData(item)
+        val id = spotifyId(episode) ?: return null
+        val podcast = episode.optJSONObject("podcast")
+            ?: episode.optJSONObject("podcastV2")?.optJSONObject("data")
+        val cover = episode.optJSONObject("coverArt")
+            ?: podcast?.optJSONObject("coverArt")
+        return SpotifyEpisode(
+            id = id,
+            name = episode.optString("name", "Episode"),
+            podcast = podcast?.optString("name").orEmpty(),
+            imageUrl = firstSourceUrl(cover)
+                ?: firstImageItemSourceUrl(episode, "images"),
+            durationMs = episode.optJSONObject("duration")
+                ?.optLong("totalMilliseconds", 0L) ?: 0L,
+        )
+    }
+
+    private fun <T> parseGraphQlItems(
+        search: JSONObject,
+        key: String,
         parse: (JSONObject) -> T?,
     ): List<T> {
-        val items = response.optJSONObject(type)?.optJSONArray("items") ?: return emptyList()
+        val items = graphQlItems(search, key) ?: return emptyList()
         return buildList {
             for (index in 0 until items.length()) {
                 val item = items.optJSONObject(index) ?: continue
                 parse(item)?.let(::add)
             }
         }
+    }
+
+    private fun parseGraphQlSearch(response: JSONObject): SpotifySearchResults {
+        val search = response.optJSONObject("data")?.optJSONObject("searchV2")
+            ?: throw IllegalStateException("Spotify returned an unreadable search response.")
+        return SpotifySearchResults(
+            tracks = parseGraphQlItems(search, "tracksV2", ::parseGraphQlTrack),
+            artists = parseGraphQlItems(search, "artists", ::parseGraphQlArtist),
+            albums = parseGraphQlItems(search, "albumsV2", ::parseGraphQlAlbum),
+            playlists = parseGraphQlItems(search, "playlists", ::parseGraphQlPlaylist),
+            podcasts = parseGraphQlItems(search, "podcasts", ::parseGraphQlPodcast),
+            episodes = parseGraphQlItems(search, "episodes", ::parseGraphQlEpisode),
+        )
     }
 
     // ── Playlists ─────────────────────────────────────────────────────────────
@@ -578,30 +735,55 @@ object SpotifyPlaylistRepository {
             val cleanQuery = query.trim()
             if (cleanQuery.isBlank()) return@withContext SpotifySearchResults()
             val token = accessToken(spDc)
-            val encodedQuery = URLEncoder.encode(cleanQuery, "UTF-8")
-            val response = getJson(
-                token,
-                "$BASE/search?q=$encodedQuery&type=track,artist,album,playlist,show,episode&limit=10",
-            )
-            SpotifySearchResults(
-                tracks = parseSearchItems(response, "tracks", ::parseTrack),
-                artists = parseSearchItems(response, "artists", ::parseArtist),
-                albums = parseSearchItems(response, "albums", ::parseAlbum),
-                playlists = parseSearchItems(response, "playlists") { playlist ->
-                    val id = playlist.optString("id").takeIf(String::isNotBlank) ?: return@parseSearchItems null
-                    SpotifyPlaylist(
-                        id = id,
-                        name = playlist.optString("name", "Playlist"),
-                        description = playlist.optString("description", ""),
-                        imageUrl = playlist.optJSONArray("images")?.optJSONObject(0)
-                            ?.optString("url")?.takeIf(String::isNotBlank),
-                        trackCount = playlist.optJSONObject("tracks")?.optInt("total", 0) ?: 0,
-                        ownerName = playlist.optJSONObject("owner")
-                            ?.optString("display_name").orEmpty(),
-                    )
-                },
-                podcasts = parseSearchItems(response, "shows", ::parsePodcast),
-                episodes = parseSearchItems(response, "episodes", ::parseEpisode),
-            )
+            val cacheKey =
+                "${tokenCacheScope(token)}|pathfinder-v2/searchDesktop/${URLEncoder.encode(cleanQuery, "UTF-8")}"
+            cachedBody(cacheKey, RESPONSE_CACHE_TTL_MS)?.let {
+                return@withContext parseGraphQlSearch(JSONObject(it))
+            }
+
+            val retryAtMs = currentRetryAtMs()
+            if (retryAtMs > System.currentTimeMillis()) {
+                cachedBody(cacheKey, STALE_RESPONSE_TTL_MS)?.let {
+                    return@withContext parseGraphQlSearch(JSONObject(it))
+                }
+                throw RateLimitedException(retryAtMs)
+            }
+
+            val response = SpotifyCanvasRepository.searchCatalog(token, spDc, cleanQuery)
+            if (response.statusCode == 429) {
+                val retryAfterMs = response.retryAfter
+                    ?.trim()
+                    ?.toLongOrNull()
+                    ?.let { TimeUnit.SECONDS.toMillis(it.coerceAtLeast(1L)) }
+                    ?: DEFAULT_RETRY_AFTER_MS
+                val retryAt = extendRetryAtMs(System.currentTimeMillis() + retryAfterMs)
+                cachedBody(cacheKey, STALE_RESPONSE_TTL_MS)?.let {
+                    return@withContext parseGraphQlSearch(JSONObject(it))
+                }
+                throw RateLimitedException(retryAt)
+            }
+            if (response.statusCode !in 200..299) {
+                val message = when (response.statusCode) {
+                    401 -> "Spotify sign-in has expired. Sign out in StreamCloud Settings, then sign in again."
+                    403 -> "Spotify denied access to this catalogue search (HTTP 403). Reconnect the account and try again."
+                    else -> "Spotify search failed (HTTP ${response.statusCode})."
+                }
+                throw IllegalStateException(message)
+            }
+
+            val body = response.body
+                .takeIf(String::isNotBlank)
+                ?: throw IllegalStateException("Spotify returned an empty search response.")
+            val json = JSONObject(body)
+            val errors = json.optJSONArray("errors")
+            val hasSearchData = json.optJSONObject("data")?.optJSONObject("searchV2") != null
+            if (errors != null && errors.length() > 0 && !hasSearchData) {
+                val message = errors.optJSONObject(0)?.optString("message")
+                    ?.takeIf(String::isNotBlank)
+                    ?: "Spotify catalogue search failed."
+                throw IllegalStateException(message)
+            }
+            storeBody(cacheKey, body)
+            parseGraphQlSearch(json)
         }
 }

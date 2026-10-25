@@ -51,6 +51,8 @@ object SpotifyCanvasRepository {
 
     private const val BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
     private const val SEARCH_SHA = "bc1ca2fcd0ba1013a0fc88e6cc4f190af501851e3dafd3e1ef85840297694428"
+    private const val CATALOG_SEARCH_SHA = "d9f785900f0710b31c07818d617f4f7600c1e21217e80f5b043d1e78d74e6026"
+    private const val CATALOG_SEARCH_ENDPOINT = "https://api-partner.spotify.com/pathfinder/v2/query"
 
     // Client body matches SimpMusic SpotifyClientBody exactly
     private const val CLIENT_BODY = """{"client_data":{"client_version":"1.2.62.476.g2ad6e7f3","client_id":"d8a5ed958d274c2e8ee717e6a4b0971d","js_sdk_data":{"device_brand":"Apple","device_model":"unknown","os":"macos","os_version":"10.15.7","device_id":"4fd0c748-b282-4927-9658-6d51a24e58b7","device_type":"computer"}}}"""
@@ -301,6 +303,112 @@ object SpotifyCanvasRepository {
     /** Returns a valid personal access token for the given sp_dc cookie.
      *  Must be called from a background thread / IO dispatcher. */
     fun getPersonalToken(spDc: String): String? = ensureToken(spDc)
+
+    data class CatalogSearchResponse(
+        val statusCode: Int,
+        val body: String,
+        val retryAfter: String?,
+    )
+
+    /**
+     * Spotify's web-player catalogue search request, authenticated with the signed-in user's
+     * access token and the web player's client token. Keep this separate from REST calls so
+     * callers can apply the same Spotify-wide Retry-After policy to either endpoint.
+     */
+    fun searchCatalog(token: String, spDc: String, query: String): CatalogSearchResponse {
+        val clientToken = ensureClientToken()
+            ?: throw IllegalStateException("Spotify search could not get a client token.")
+        seedPartnerCookies(spDc)
+
+        val variables = JSONObject()
+            .put("searchTerm", query)
+            .put("offset", 0)
+            .put("limit", 10)
+            .put("numberOfTopResults", 5)
+            .put("includeAudiobooks", true)
+            .put("includeArtistHasConcertsField", false)
+            .put("includePreReleases", true)
+            .put("includeLocalConcertsField", false)
+            .put("includeAuthors", false)
+        val extensions = JSONObject()
+            .put(
+                "persistedQuery",
+                JSONObject()
+                    .put("version", 1)
+                    .put("sha256Hash", CATALOG_SEARCH_SHA),
+            )
+        val requestBody = JSONObject()
+            .put("operationName", "searchDesktop")
+            .put("variables", variables)
+            .put("extensions", extensions)
+            .toString()
+            .toRequestBody("application/json".toMediaType())
+
+        val request = Request.Builder()
+            .url(CATALOG_SEARCH_ENDPOINT)
+            .header("Authorization", "Bearer $token")
+            .header("Client-Token", clientToken)
+            .header("User-Agent", UA_WEB)
+            .header("Accept", "application/json")
+            .header("App-Platform", "WebPlayer")
+            .header("Spotify-App-Version", APP_VER)
+            .header("Origin", "https://open.spotify.com")
+            .header("Referer", "https://open.spotify.com/")
+            .post(requestBody)
+            .build()
+
+        return http.newCall(request).execute().use { response ->
+            CatalogSearchResponse(
+                statusCode = response.code,
+                body = response.body?.string().orEmpty(),
+                retryAfter = response.header("Retry-After"),
+            )
+        }
+    }
+
+    private fun seedPartnerCookies(spDc: String) {
+        val extractedSpDc = if (spDc.contains("sp_dc=")) {
+            spDc.split(";").map(String::trim)
+                .firstOrNull { it.startsWith("sp_dc=") }
+                ?.removePrefix("sp_dc=")
+                ?.takeIf(String::isNotBlank)
+        } else {
+            spDc.trim().takeIf(String::isNotBlank)
+        } ?: return
+
+        val partnerCookies = synchronized(cookieStore) {
+            val now = System.currentTimeMillis()
+            val copiedSessionCookies = cookieStore["open.spotify.com"].orEmpty()
+                .filter { it.expiresAt > now && it.name != "sp_dc" }
+                .mapNotNull { cookie ->
+                    runCatching {
+                        Cookie.Builder()
+                            .name(cookie.name)
+                            .value(cookie.value)
+                            .domain("api-partner.spotify.com")
+                            .path(cookie.path)
+                            .expiresAt(cookie.expiresAt)
+                            .apply {
+                                if (cookie.secure) secure()
+                                if (cookie.httpOnly) httpOnly()
+                            }
+                            .build()
+                    }.getOrNull()
+                }
+            val partnerSpDc = Cookie.Builder()
+                .name("sp_dc")
+                .value(extractedSpDc)
+                .domain("api-partner.spotify.com")
+                .path("/")
+                .secure()
+                .expiresAt(now + 365L * 24 * 3600 * 1000)
+                .build()
+            listOf(partnerSpDc) + copiedSessionCookies
+        }
+        synchronized(cookieStore) {
+            cookieStore["api-partner.spotify.com"] = partnerCookies.toMutableList()
+        }
+    }
 
     /** Session cookies learned from Spotify's token flow, such as sp_t, for web-player metadata. */
     fun getStoredSessionCookie(name: String): String? = synchronized(cookieStore) {
