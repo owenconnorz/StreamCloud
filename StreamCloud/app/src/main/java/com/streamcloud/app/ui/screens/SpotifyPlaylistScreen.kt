@@ -68,7 +68,10 @@ fun SpotifyPlaylistScreen(
     val albumId = remember(playlistId) {
         playlistId.takeIf { it.startsWith("album:") }?.removePrefix("album:")
     }
-    val collectionId = albumId ?: playlistId
+    val artistId = remember(playlistId) {
+        playlistId.takeIf { it.startsWith("artist:") }?.removePrefix("artist:")
+    }
+    val collectionId = albumId ?: artistId ?: playlistId
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -91,10 +94,10 @@ fun SpotifyPlaylistScreen(
         }
         try {
             tracks = withContext(Dispatchers.IO) {
-                if (albumId != null) {
-                    SpotifyPlaylistRepository.getAlbumTracks(spDc, collectionId)
-                } else {
-                    SpotifyPlaylistRepository.getPlaylistTracks(spDc, collectionId)
+                when {
+                    albumId != null -> SpotifyPlaylistRepository.getAlbumTracks(spDc, collectionId)
+                    artistId != null -> SpotifyPlaylistRepository.getArtistTopTracks(spDc, collectionId)
+                    else -> SpotifyPlaylistRepository.getPlaylistTracks(spDc, collectionId)
                 }
             }
             loadError = null
@@ -276,7 +279,7 @@ fun SpotifyPlaylistScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            if (!loading && spDc.isNotBlank() && albumId == null) {
+            if (!loading && spDc.isNotBlank() && albumId == null && artistId == null) {
                 FloatingActionButton(
                     onClick = { showAddSheet = true },
                     containerColor = Color(0xFF1DB954),
@@ -344,6 +347,7 @@ fun SpotifyPlaylistScreen(
                     ) {
                         Text(
                             if (albumId != null) "This album has no available tracks."
+                            else if (artistId != null) "No top tracks for this artist were returned by Spotify."
                             else "This playlist is empty. Tap + to add songs.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -354,7 +358,7 @@ fun SpotifyPlaylistScreen(
                     SpotifyTrackRow(
                         track     = track,
                         isLoading = playingIndex == index,
-                        allowRemove = albumId == null,
+                        allowRemove = albumId == null && artistId == null,
                         onClick   = {
                             scope.launch {
                                 playingIndex = index

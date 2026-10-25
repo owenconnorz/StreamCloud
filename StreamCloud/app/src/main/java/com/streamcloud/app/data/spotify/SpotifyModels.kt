@@ -34,4 +34,12 @@ data class SpotifyTrack(
     val album: String = "",
     val imageUrl: String? = null,
     val durationMs: Long = 0L,
+    val artistIds: List<String> = emptyList(),
+)
+
+data class SpotifyHomeFeed(
+    val topArtists: List<SpotifyArtist> = emptyList(),
+    val topTracks: List<SpotifyTrack> = emptyList(),
+    val recentlyPlayed: List<SpotifyTrack> = emptyList(),
+    val warnings: List<String> = emptyList(),
 )

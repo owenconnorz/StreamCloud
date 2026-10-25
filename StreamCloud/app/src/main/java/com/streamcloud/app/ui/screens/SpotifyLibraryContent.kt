@@ -116,7 +116,7 @@ internal fun SpotifyLibraryContent(
             loading = false
             return@LaunchedEffect
         }
-        if (selectedTab in loadedTabs && retryGeneration == 0) return@LaunchedEffect
+        if (selectedTab in loadedTabs) return@LaunchedEffect
 
         loading = true
         error = null
@@ -190,7 +190,10 @@ internal fun SpotifyLibraryContent(
         } else if (error != null) {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
                 Text(error!!, color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = { retryGeneration++ }) {
+                TextButton(onClick = {
+                    loadedTabs = loadedTabs - selectedTab
+                    retryGeneration++
+                }) {
                     Icon(Icons.Default.Refresh, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
                     Text("Retry")
@@ -206,6 +209,7 @@ internal fun SpotifyLibraryContent(
                     SpotifyLibraryTab.Playlists -> {
                         if (playlists.isEmpty()) item {
                             SpotifyEmptyMessage("No playlists were returned for this Spotify account.") {
+                                loadedTabs = loadedTabs - selectedTab
                                 retryGeneration++
                             }
                         }
@@ -226,6 +230,7 @@ internal fun SpotifyLibraryContent(
                     SpotifyLibraryTab.Albums -> {
                         if (albums.isEmpty()) item {
                             SpotifyEmptyMessage("No saved albums were returned for this Spotify account.") {
+                                loadedTabs = loadedTabs - selectedTab
                                 retryGeneration++
                             }
                         }
@@ -246,6 +251,7 @@ internal fun SpotifyLibraryContent(
                     SpotifyLibraryTab.Artists -> {
                         if (artists.isEmpty()) item {
                             SpotifyEmptyMessage("No followed artists were returned for this Spotify account.") {
+                                loadedTabs = loadedTabs - selectedTab
                                 retryGeneration++
                             }
                         }
@@ -263,6 +269,7 @@ internal fun SpotifyLibraryContent(
                     SpotifyLibraryTab.Songs -> {
                         if (tracks.isEmpty()) item {
                             SpotifyEmptyMessage("No liked songs were returned for this Spotify account.") {
+                                loadedTabs = loadedTabs - selectedTab
                                 retryGeneration++
                             }
                         }

@@ -9,8 +9,11 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.MessageDigest
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 
 object SpotifyPlaylistRepository {
     private const val TAG = "SpotifyPlaylistRepo"
@@ -21,6 +24,20 @@ object SpotifyPlaylistRepository {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    private data class CachedResponse(val body: String, val storedAtMs: Long)
+
+    private val responseCache = ConcurrentHashMap<String, CachedResponse>()
+    @Volatile private var spotifyRetryAtMs = 0L
+
+    private const val RESPONSE_CACHE_TTL_MS = 15L * 60L * 1000L
+    private const val STALE_RESPONSE_TTL_MS = 12L * 60L * 60L * 1000L
+    private const val DEFAULT_RETRY_AFTER_MS = 60_000L
+    private const val MAX_CACHED_RESPONSES = 256
+
+    private class SpotifyRateLimitedException(retryAfterMs: Long) : IllegalStateException(
+        "Spotify is rate-limiting requests. Try again in ${((retryAfterMs + 999L) / 1000L).coerceAtLeast(1L)} seconds.",
+    )
+
     private fun authHeader(token: String) = "Bearer $token"
 
     private fun accessToken(spDc: String): String =
@@ -29,7 +46,45 @@ object SpotifyPlaylistRepository {
                 "Spotify sign-in has expired. Sign out of Spotify in StreamCloud Settings, then sign in again.",
             )
 
+    private fun tokenCacheScope(token: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(token.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+    }
+
+    private fun cachedBody(key: String, maxAgeMs: Long): String? {
+        val cached = responseCache[key] ?: return null
+        val age = System.currentTimeMillis() - cached.storedAtMs
+        return cached.body.takeIf { age in 0..maxAgeMs }
+    }
+
+    private fun storeBody(key: String, body: String) {
+        if (responseCache.size >= MAX_CACHED_RESPONSES) {
+            val oldest = responseCache.entries.minByOrNull { it.value.storedAtMs }
+            if (oldest != null) responseCache.remove(oldest.key)
+        }
+        responseCache[key] = CachedResponse(body, System.currentTimeMillis())
+    }
+
+    private fun invalidatePlaylistTrackResponses(token: String, playlistId: String) {
+        val prefix = "${tokenCacheScope(token)}|$BASE/playlists/$playlistId/tracks?"
+        responseCache.keys
+            .filter { it.startsWith(prefix) }
+            .forEach(responseCache::remove)
+    }
+
     private fun getJson(token: String, url: String): JSONObject {
+        // Cache account-specific GET responses in memory. The token is hashed in the cache key
+        // so neither the Spotify credential nor private library data is persisted to disk.
+        val cacheKey = "${tokenCacheScope(token)}|$url"
+        cachedBody(cacheKey, RESPONSE_CACHE_TTL_MS)?.let { return JSONObject(it) }
+
+        val remainingLimitMs = spotifyRetryAtMs - System.currentTimeMillis()
+        if (remainingLimitMs > 0L) {
+            cachedBody(cacheKey, STALE_RESPONSE_TTL_MS)?.let { return JSONObject(it) }
+            throw SpotifyRateLimitedException(remainingLimitMs)
+        }
+
         val request = Request.Builder()
             .url(url)
             .header("Authorization", authHeader(token))
@@ -38,15 +93,32 @@ object SpotifyPlaylistRepository {
             .build()
         return http.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
+                if (response.code == 429) {
+                    val retryAfterMs = response.header("Retry-After")
+                        ?.trim()
+                        ?.toLongOrNull()
+                        ?.let { TimeUnit.SECONDS.toMillis(it.coerceAtLeast(1L)) }
+                        ?: DEFAULT_RETRY_AFTER_MS
+                    spotifyRetryAtMs = maxOf(
+                        spotifyRetryAtMs,
+                        System.currentTimeMillis() + retryAfterMs,
+                    )
+                    cachedBody(cacheKey, STALE_RESPONSE_TTL_MS)?.let {
+                        return@use JSONObject(it)
+                    }
+                    throw SpotifyRateLimitedException(spotifyRetryAtMs - System.currentTimeMillis())
+                }
                 val message = when (response.code) {
                     401 -> "Spotify sign-in has expired. Sign out in StreamCloud Settings, then sign in again."
-                    403 -> "Spotify denied access to this library (HTTP 403). Reconnect the account and check its library permissions."
-                    429 -> "Spotify is temporarily rate-limiting library requests. Wait a moment and retry."
-                    else -> "Spotify library request failed (HTTP ${response.code})."
+                    403 -> "Spotify denied access to this data (HTTP 403). Reconnect the account and check its permissions."
+                    else -> "Spotify request failed (HTTP ${response.code})."
                 }
                 throw IllegalStateException(message)
             }
-            JSONObject(response.body?.string() ?: throw IllegalStateException("Spotify returned an empty response."))
+            val body = response.body?.string()
+                ?: throw IllegalStateException("Spotify returned an empty response.")
+            storeBody(cacheKey, body)
+            JSONObject(body)
         }
     }
 
@@ -63,15 +135,37 @@ object SpotifyPlaylistRepository {
         if (track.isNull("id")) return null
         val id = track.optString("id").takeIf(String::isNotBlank) ?: return null
         val album = track.optJSONObject("album")
+        val artists = track.optJSONArray("artists")
+        val artistIds = buildList {
+            if (artists != null) {
+                for (index in 0 until artists.length()) {
+                    artists.optJSONObject(index)?.optString("id")
+                        ?.takeIf(String::isNotBlank)
+                        ?.let(::add)
+                }
+            }
+        }
         return SpotifyTrack(
             id = id,
             uri = track.optString("uri"),
             title = track.optString("name", ""),
-            artists = parseArtists(track.optJSONArray("artists")),
+            artists = parseArtists(artists),
+            artistIds = artistIds,
             album = album?.optString("name").orEmpty(),
             imageUrl = album?.optJSONArray("images")?.optJSONObject(0)?.optString("url")
                 ?.takeIf(String::isNotBlank),
             durationMs = track.optLong("duration_ms", 0L),
+        )
+    }
+
+    private fun parseArtist(artist: JSONObject): SpotifyArtist? {
+        val id = artist.optString("id").takeIf(String::isNotBlank) ?: return null
+        return SpotifyArtist(
+            id = id,
+            name = artist.optString("name", "Artist"),
+            imageUrl = artist.optJSONArray("images")?.optJSONObject(0)?.optString("url")
+                ?.takeIf(String::isNotBlank),
+            followers = artist.optJSONObject("followers")?.optLong("total", 0L) ?: 0L,
         )
     }
 
@@ -178,6 +272,87 @@ object SpotifyPlaylistRepository {
         result
     }
 
+    suspend fun getHomeFeed(spDc: String): SpotifyHomeFeed {
+        val warnings = mutableListOf<String>()
+
+        suspend fun <T> loadSection(label: String, load: suspend () -> List<T>): List<T> =
+            try {
+                load()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                warnings += "$label: ${failure.message ?: "could not be loaded."}"
+                emptyList()
+            }
+
+        // Keep requests sequential. This feed is separate from the account Library and should
+        // not fan out a burst of Spotify requests when Home opens.
+        val artists = loadSection("Your top artists") { getTopArtists(spDc) }
+        val tracks = loadSection("Recommended for you") { getTopTracks(spDc) }
+        val recent = loadSection("Recently played") { getRecentlyPlayedTracks(spDc) }
+        if (artists.isEmpty() && tracks.isEmpty() && recent.isEmpty() && warnings.isNotEmpty()) {
+            throw IllegalStateException(warnings.first())
+        }
+        return SpotifyHomeFeed(
+            topArtists = artists,
+            topTracks = tracks,
+            recentlyPlayed = recent,
+            warnings = warnings.distinct(),
+        )
+    }
+
+    private suspend fun getTopArtists(spDc: String): List<SpotifyArtist> = withContext(Dispatchers.IO) {
+        val token = accessToken(spDc)
+        val response = getJson(token, "$BASE/me/top/artists?limit=20&time_range=medium_term")
+        val items = response.optJSONArray("items") ?: return@withContext emptyList()
+        buildList {
+            for (index in 0 until items.length()) {
+                parseArtist(items.optJSONObject(index) ?: continue)?.let(::add)
+            }
+        }
+    }
+
+    private suspend fun getTopTracks(spDc: String): List<SpotifyTrack> = withContext(Dispatchers.IO) {
+        val token = accessToken(spDc)
+        val response = getJson(token, "$BASE/me/top/tracks?limit=20&time_range=medium_term")
+        val items = response.optJSONArray("items") ?: return@withContext emptyList()
+        buildList {
+            for (index in 0 until items.length()) {
+                parseTrack(items.optJSONObject(index) ?: continue)?.let(::add)
+            }
+        }
+    }
+
+    private suspend fun getRecentlyPlayedTracks(spDc: String): List<SpotifyTrack> =
+        withContext(Dispatchers.IO) {
+            val token = accessToken(spDc)
+            val response = getJson(token, "$BASE/me/player/recently-played?limit=20")
+            val items = response.optJSONArray("items") ?: return@withContext emptyList()
+            buildList {
+                for (index in 0 until items.length()) {
+                    val track = items.optJSONObject(index)?.optJSONObject("track") ?: continue
+                    parseTrack(track)?.let(::add)
+                }
+            }
+        }
+
+    suspend fun getArtistTopTracks(spDc: String, artistId: String): List<SpotifyTrack> =
+        withContext(Dispatchers.IO) {
+            require(artistId.matches(Regex("[A-Za-z0-9]+"))) { "Invalid Spotify artist ID." }
+            val token = accessToken(spDc)
+            val response = getJson(
+                token,
+                "$BASE/me/top/tracks?limit=50&time_range=long_term",
+            )
+            val items = response.optJSONArray("items") ?: return@withContext emptyList()
+            buildList {
+                for (index in 0 until items.length()) {
+                    val track = parseTrack(items.optJSONObject(index) ?: continue) ?: continue
+                    if (artistId in track.artistIds) add(track)
+                }
+            }
+        }
+
     suspend fun getAlbumTracks(spDc: String, albumId: String): List<SpotifyTrack> =
         withContext(Dispatchers.IO) {
             val token = accessToken(spDc)
@@ -230,7 +405,11 @@ object SpotifyPlaylistRepository {
                     .url("$BASE/playlists/$playlistId/tracks")
                     .header("Authorization", authHeader(tok))
                     .delete(body).build(),
-            ).execute().use { it.isSuccessful }
+            ).execute().use { response ->
+                val success = response.isSuccessful
+                if (success) invalidatePlaylistTrackResponses(tok, playlistId)
+                success
+            }
         }.getOrElse { Log.e(TAG, "removeTrack: ${it.message}"); false }
     }
 
@@ -245,7 +424,11 @@ object SpotifyPlaylistRepository {
                     .header("Authorization", authHeader(tok))
                     .header("Accept", "application/json")
                     .post(body).build(),
-            ).execute().use { it.isSuccessful }
+            ).execute().use { response ->
+                val success = response.isSuccessful
+                if (success) invalidatePlaylistTrackResponses(tok, playlistId)
+                success
+            }
         }.getOrElse { Log.e(TAG, "addTrack: ${it.message}"); false }
     }
 

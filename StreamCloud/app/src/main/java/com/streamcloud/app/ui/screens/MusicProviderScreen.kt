@@ -119,9 +119,11 @@ fun MusicScreen(
                             Modifier.align(Alignment.Center).padding(24.dp),
                         )
                     } else {
-                        SpotifyLibraryContent(
+                        SpotifyHomeContent(
                             spotifyCookie = spotifyCookie,
-                            onOpenCollection = onSpotifyPlaylistClick,
+                            onOpenArtist = { id, title ->
+                                onSpotifyPlaylistClick("artist:$id", title)
+                            },
                         )
                     }
                 }
