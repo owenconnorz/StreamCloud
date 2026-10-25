@@ -432,6 +432,28 @@ object SpotifyPlaylistRepository {
         }.getOrElse { Log.e(TAG, "addTrack: ${it.message}"); false }
     }
 
+    suspend fun saveTrack(spDc: String, trackId: String): Boolean = withContext(Dispatchers.IO) {
+        if (!trackId.matches(Regex("[A-Za-z0-9]+"))) return@withContext false
+        val tok = SpotifyCanvasRepository.getPersonalToken(spDc) ?: return@withContext false
+        runCatching {
+            val body = JSONObject().put("ids", JSONArray().put(trackId))
+                .toString().toRequestBody("application/json".toMediaType())
+            http.newCall(
+                Request.Builder()
+                    .url("$BASE/me/tracks")
+                    .header("Authorization", authHeader(tok))
+                    .header("Accept", "application/json")
+                    .put(body)
+                    .build(),
+            ).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "saveTrack: Spotify returned HTTP ${response.code}")
+                }
+                response.isSuccessful
+            }
+        }.getOrElse { Log.e(TAG, "saveTrack: ${it.message}"); false }
+    }
+
     // ── Search (for the "Add songs" sheet) ────────────────────────────────────
 
     suspend fun searchTracks(spDc: String, query: String): List<SpotifyTrack> = withContext(Dispatchers.IO) {

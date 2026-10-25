@@ -1,13 +1,24 @@
 package com.streamcloud.app.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import com.streamcloud.app.ui.icons.AppIcons as Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd as PlaylistAddIcon
+import androidx.compose.material.icons.filled.Album as AlbumIcon
+import androidx.compose.material.icons.filled.Delete as DeleteIcon
+import androidx.compose.material.icons.filled.FavoriteBorder as FavoriteBorderIcon
+import androidx.compose.material.icons.filled.Person as PersonIcon
+import androidx.compose.material.icons.filled.Podcasts as PodcastsIcon
+import androidx.compose.material.icons.filled.QueueMusic as QueueMusicIcon
+import androidx.compose.material.icons.filled.Share as ShareIcon
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -16,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -25,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.newpipe.YtTrack
+import com.streamcloud.app.data.spotify.SpotifyPlaylist
 import com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
 import com.streamcloud.app.data.spotify.SpotifyTrack
 import com.streamcloud.app.data.spotify.SpotifyWebPlayerRepository
@@ -90,6 +103,13 @@ fun SpotifyPlaylistScreen(
     var searchResults by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
     var searchLoading by remember { mutableStateOf(false) }
     var removeTarget by remember { mutableStateOf<Pair<Int, SpotifyTrack>?>(null) }
+    var menuTrack by remember { mutableStateOf<SpotifyTrack?>(null) }
+    var addToPlaylistTrack by remember { mutableStateOf<SpotifyTrack?>(null) }
+    var playlistChoices by remember { mutableStateOf<List<SpotifyPlaylist>>(emptyList()) }
+    var playlistChoicesLoading by remember { mutableStateOf(false) }
+    var loadingMorePlaylistChoices by remember { mutableStateOf(false) }
+    var nextPlaylistChoiceOffset by remember { mutableStateOf<Int?>(null) }
+    var playlistChoicesError by remember { mutableStateOf<String?>(null) }
 
     suspend fun syncTracks(forceRefresh: Boolean = false) {
         if (spDc.isBlank()) {
@@ -167,6 +187,69 @@ fun SpotifyPlaylistScreen(
         }
     }
 
+    fun queueTrack(track: SpotifyTrack, playNext: Boolean = false, startRadio: Boolean = false) {
+        menuTrack = null
+        scope.launch {
+            try {
+                val match = withContext(Dispatchers.IO) {
+                    YtMusicSearchRepository.songs("${track.title} ${track.artists}").firstOrNull()
+                }
+                if (match == null) {
+                    snackbarHostState.showSnackbar("\"${track.title}\" was not found on YouTube Music.")
+                    return@launch
+                }
+                val song = match.asYtmSong()
+                when {
+                    startRadio -> {
+                        YtPlayback.startRadioFromCurrent(
+                            context,
+                            "https://music.youtube.com/watch?v=${song.videoId}",
+                        )
+                        YtPlayback.playSong(context, song)
+                        snackbarHostState.showSnackbar("Started radio from ${track.title}")
+                    }
+                    playNext -> {
+                        YtPlayback.playNext(context, song)
+                        snackbarHostState.showSnackbar("Playing next: ${track.title}")
+                    }
+                    else -> {
+                        YtPlayback.addToQueue(context, song)
+                        snackbarHostState.showSnackbar("Added to queue: ${track.title}")
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                snackbarHostState.showSnackbar("Could not add this track to playback.")
+            }
+        }
+    }
+
+    fun loadMorePlaylistChoices() {
+        val offset = nextPlaylistChoiceOffset ?: return
+        if (loadingMorePlaylistChoices) return
+        loadingMorePlaylistChoices = true
+        scope.launch {
+            try {
+                val page = withContext(Dispatchers.IO) {
+                    SpotifyWebPlayerRepository.getPlaylistsPage(spDc, offset)
+                }
+                playlistChoices = (playlistChoices + page.items)
+                    .filter { it.id != collectionId }
+                    .distinctBy { it.id }
+                nextPlaylistChoiceOffset = page.nextOffset
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                snackbarHostState.showSnackbar(
+                    failure.message ?: "More Spotify playlists could not be loaded.",
+                )
+            } finally {
+                loadingMorePlaylistChoices = false
+            }
+        }
+    }
+
     LaunchedEffect(spDc, playlistId) { syncTracks() }
 
     // Debounced Spotify search for the "Add songs" sheet
@@ -176,6 +259,25 @@ fun SpotifyPlaylistScreen(
         searchLoading = true
         searchResults = SpotifyPlaylistRepository.searchTracks(spDc, searchQuery)
         searchLoading = false
+    }
+
+    LaunchedEffect(addToPlaylistTrack?.id, spDc) {
+        if (addToPlaylistTrack == null) return@LaunchedEffect
+        playlistChoicesLoading = true
+        playlistChoicesError = null
+        try {
+            val page = withContext(Dispatchers.IO) {
+                SpotifyWebPlayerRepository.getPlaylistsPage(spDc)
+            }
+            playlistChoices = page.items.filter { it.id != collectionId }
+            nextPlaylistChoiceOffset = page.nextOffset
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            playlistChoicesError = failure.message ?: "Your Spotify playlists could not be loaded."
+        } finally {
+            playlistChoicesLoading = false
+        }
     }
 
     // ── Remove dialog ─────────────────────────────────────────────────────────
@@ -203,6 +305,281 @@ fun SpotifyPlaylistScreen(
             },
             dismissButton = { TextButton(onClick = { removeTarget = null }) { Text("Cancel") } },
         )
+    }
+
+    menuTrack?.let { track ->
+        ModalBottomSheet(
+            onDismissRequest = { menuTrack = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = Color(0xFF202020),
+            contentColor = Color.White,
+            scrimColor = Color.Black.copy(alpha = 0.62f),
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 24.dp),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AsyncImage(
+                        model = track.imageUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.size(54.dp).clip(RoundedCornerShape(7.dp)),
+                    )
+                    Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+                        Text(
+                            track.title,
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            buildString {
+                                append(track.artists)
+                                if (track.album.isNotBlank()) append(" · ${track.album}")
+                            },
+                            color = Color.White.copy(alpha = 0.68f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
+                SpotifyTrackMenuAction(ShareIcon, "Share") {
+                    menuTrack = null
+                    val share = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, track.title)
+                        putExtra(
+                            Intent.EXTRA_TEXT,
+                            "${track.title} — ${track.artists}\nhttps://open.spotify.com/track/${track.id}",
+                        )
+                    }
+                    context.startActivity(Intent.createChooser(share, "Share track"))
+                }
+                SpotifyTrackMenuAction(FavoriteBorderIcon, "Add to Liked Songs") {
+                    menuTrack = null
+                    scope.launch {
+                        val saved = withContext(Dispatchers.IO) {
+                            SpotifyPlaylistRepository.saveTrack(spDc, track.id)
+                        }
+                        snackbarHostState.showSnackbar(
+                            if (saved) "Added to Spotify Liked Songs"
+                            else "Spotify couldn't save this track. Check your sign-in and try again.",
+                        )
+                    }
+                }
+                SpotifyTrackMenuAction(PlaylistAddIcon, "Add to playlist") {
+                    menuTrack = null
+                    playlistChoices = emptyList()
+                    addToPlaylistTrack = track
+                }
+                SpotifyTrackMenuAction(QueueMusicIcon, "Play next") {
+                    queueTrack(track, playNext = true)
+                }
+                SpotifyTrackMenuAction(PlaylistAddIcon, "Add to queue") {
+                    queueTrack(track)
+                }
+                if (track.album.isNotBlank()) {
+                    SpotifyTrackMenuAction(AlbumIcon, "Go to album") {
+                        menuTrack = null
+                        val url = "https://open.spotify.com/search/${Uri.encode(track.album)}"
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        }.onFailure {
+                            scope.launch { snackbarHostState.showSnackbar("Could not open Spotify.") }
+                        }
+                    }
+                }
+                if (track.artists.isNotBlank()) {
+                    SpotifyTrackMenuAction(PersonIcon, "Go to artists") {
+                        menuTrack = null
+                        val artistId = track.artistIds.firstOrNull()
+                        val url = artistId?.let { "https://open.spotify.com/artist/$it" }
+                            ?: "https://open.spotify.com/search/${Uri.encode(track.artists)}"
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        }.onFailure {
+                            scope.launch { snackbarHostState.showSnackbar("Could not open Spotify.") }
+                        }
+                    }
+                }
+                SpotifyTrackMenuAction(PodcastsIcon, "Go to song radio") {
+                    queueTrack(track, startRadio = true)
+                }
+                if (albumId == null && artistId == null) {
+                    SpotifyTrackMenuAction(DeleteIcon, "Remove from this playlist") {
+                        menuTrack = null
+                        val index = tracks.indexOfFirst { it.uri == track.uri }
+                        if (index >= 0) removeTarget = index to track
+                    }
+                }
+            }
+        }
+    }
+
+    addToPlaylistTrack?.let { track ->
+        ModalBottomSheet(
+            onDismissRequest = {
+                addToPlaylistTrack = null
+                playlistChoicesError = null
+            },
+            containerColor = Color(0xFF202020),
+            contentColor = Color.White,
+            scrimColor = Color.Black.copy(alpha = 0.62f),
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp),
+            ) {
+                Text(
+                    "Add to playlist",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+                Text(
+                    track.title,
+                    color = Color.White.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(12.dp))
+                when {
+                    playlistChoicesLoading -> Box(
+                        Modifier.fillMaxWidth().height(112.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { CircularProgressIndicator(color = Color(0xFF1DB954)) }
+                    playlistChoicesError != null -> Column(
+                        Modifier.fillMaxWidth().padding(vertical = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(playlistChoicesError!!, color = Color.White.copy(alpha = 0.8f))
+                        TextButton(onClick = {
+                            playlistChoicesError = null
+                            playlistChoicesLoading = true
+                            scope.launch {
+                                try {
+                                            val page = withContext(Dispatchers.IO) {
+                                                SpotifyWebPlayerRepository.getPlaylistsPage(spDc)
+                                            }
+                                            playlistChoices = page.items.filter { it.id != collectionId }
+                                            nextPlaylistChoiceOffset = page.nextOffset
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (failure: Exception) {
+                                    playlistChoicesError =
+                                        failure.message ?: "Your Spotify playlists could not be loaded."
+                                } finally {
+                                    playlistChoicesLoading = false
+                                }
+                            }
+                        }) { Text("Try again", color = Color(0xFF9ABEFF)) }
+                    }
+                    playlistChoices.isEmpty() -> Box(
+                        Modifier.fillMaxWidth().height(112.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "No other Spotify playlists were found.",
+                            color = Color.White.copy(alpha = 0.7f),
+                        )
+                    }
+                    else -> LazyColumn(
+                        Modifier.fillMaxWidth().heightIn(max = 460.dp),
+                    ) {
+                        items(playlistChoices, key = { it.id }) { playlist ->
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .clickable {
+                                        scope.launch {
+                                            val added = withContext(Dispatchers.IO) {
+                                                SpotifyPlaylistRepository.addTrack(
+                                                    spDc,
+                                                    playlist.id,
+                                                    track.uri,
+                                                )
+                                            }
+                                            if (added) {
+                                                addToPlaylistTrack = null
+                                                snackbarHostState.showSnackbar(
+                                                    "Added to ${playlist.name}",
+                                                )
+                                            } else {
+                                                snackbarHostState.showSnackbar(
+                                                    "Couldn't add this track to ${playlist.name}.",
+                                                )
+                                            }
+                                        }
+                                    }
+                                    .padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                AsyncImage(
+                                    model = playlist.imageUrl,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.size(46.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color.White.copy(alpha = 0.08f)),
+                                )
+                                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                                    Text(
+                                        playlist.name,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        "${playlist.trackCount ?: 0} songs",
+                                        color = Color.White.copy(alpha = 0.65f),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                                Icon(
+                                    Icons.Default.Add,
+                                    contentDescription = "Add to ${playlist.name}",
+                                    tint = Color(0xFF9ABEFF),
+                                )
+                            }
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                        }
+                        if (nextPlaylistChoiceOffset != null) {
+                            item(key = "spotify-playlist-picker-more") {
+                                TextButton(
+                                    onClick = ::loadMorePlaylistChoices,
+                                    enabled = !loadingMorePlaylistChoices,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                ) {
+                                    if (loadingMorePlaylistChoices) {
+                                        CircularProgressIndicator(
+                                            Modifier.size(18.dp),
+                                            color = Color(0xFF9ABEFF),
+                                            strokeWidth = 2.dp,
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                    }
+                                    Text(
+                                        if (loadingMorePlaylistChoices) "Loading…" else "Load more playlists",
+                                        color = Color(0xFF9ABEFF),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // ── Add songs sheet ───────────────────────────────────────────────────────
@@ -434,7 +811,7 @@ fun SpotifyPlaylistScreen(
                                 playingIndex = null
                             }
                         },
-                        onRemove  = { removeTarget = index to track },
+                        onMore = { menuTrack = track },
                     )
                     HorizontalDivider(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
@@ -477,7 +854,7 @@ private fun SpotifyTrackRow(
     isLoading: Boolean,
     allowRemove: Boolean,
     onClick: () -> Unit,
-    onRemove: () -> Unit,
+    onMore: () -> Unit,
 ) {
     Row(
         Modifier
@@ -531,14 +908,41 @@ private fun SpotifyTrackRow(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (allowRemove) {
-            IconButton(onClick = onRemove, modifier = Modifier.size(40.dp)) {
+            IconButton(onClick = onMore, modifier = Modifier.size(40.dp)) {
                 Icon(
                     Icons.Default.MoreVert,
-                    contentDescription = "Remove from playlist",
+                    contentDescription = "More track options",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp),
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SpotifyTrackMenuAction(
+    icon: ImageVector,
+    title: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.82f),
+            modifier = Modifier.size(24.dp),
+        )
+        Spacer(Modifier.width(18.dp))
+        Text(
+            title,
+            color = Color.White,
+            style = MaterialTheme.typography.bodyLarge,
+        )
     }
 }
