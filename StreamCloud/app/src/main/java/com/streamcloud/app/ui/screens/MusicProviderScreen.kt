@@ -121,9 +121,7 @@ fun MusicScreen(
                     } else {
                         SpotifyHomeContent(
                             spotifyCookie = spotifyCookie,
-                            onOpenArtist = { id, title ->
-                                onSpotifyPlaylistClick("artist:$id", title)
-                            },
+                            onOpenCollection = onSpotifyPlaylistClick,
                         )
                     }
                 }

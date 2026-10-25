@@ -62,15 +62,17 @@ object SpotifyCanvasRepository {
     private val cookieJar = object : CookieJar {
         override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
             val host = url.host
-            cookieStore.getOrPut(host) { mutableListOf() }.also { list ->
-                cookies.forEach { new ->
-                    list.removeAll { it.name == new.name }
-                    list.add(new)
+            synchronized(cookieStore) {
+                cookieStore.getOrPut(host) { mutableListOf() }.also { list ->
+                    cookies.forEach { new ->
+                        list.removeAll { it.name == new.name }
+                        list.add(new)
+                    }
                 }
             }
         }
         override fun loadForRequest(url: HttpUrl): List<Cookie> =
-            cookieStore[url.host] ?: emptyList()
+            synchronized(cookieStore) { cookieStore[url.host]?.toList().orEmpty() }
     }
 
     // OkHttp with an AcceptAll cookie jar — DO NOT override Accept-Encoding on JSON calls.
@@ -122,15 +124,17 @@ object SpotifyCanvasRepository {
         // overwrite our manual header — sp_dc would be dropped from every token request.
         // Fix: never set Cookie manually; instead seed the jar with sp_dc so OkHttp always
         // sends it automatically alongside any session cookies the jar accumulates.
-        cookieStore.clear()
-        if (extracted != null) {
-            val spDcCookie = Cookie.Builder()
-                .name("sp_dc").value(extracted)
-                .domain("open.spotify.com").path("/")
-                .secure()
-                .expiresAt(System.currentTimeMillis() + 365L * 24 * 3600 * 1000)
-                .build()
-            cookieStore["open.spotify.com"] = mutableListOf(spDcCookie)
+        synchronized(cookieStore) {
+            cookieStore.clear()
+            if (extracted != null) {
+                val spDcCookie = Cookie.Builder()
+                    .name("sp_dc").value(extracted)
+                    .domain("open.spotify.com").path("/")
+                    .secure()
+                    .expiresAt(System.currentTimeMillis() + 365L * 24 * 3600 * 1000)
+                    .build()
+                cookieStore["open.spotify.com"] = mutableListOf(spDcCookie)
+            }
         }
         Log.i(TAG, if (extracted != null) "sp_dc seeded in jar (${extracted.take(6)}…)" else "sp_dc cleared")
     }
@@ -297,6 +301,14 @@ object SpotifyCanvasRepository {
     /** Returns a valid personal access token for the given sp_dc cookie.
      *  Must be called from a background thread / IO dispatcher. */
     fun getPersonalToken(spDc: String): String? = ensureToken(spDc)
+
+    /** Session cookies learned from Spotify's token flow, such as sp_t, for web-player metadata. */
+    fun getStoredSessionCookie(name: String): String? = synchronized(cookieStore) {
+        cookieStore.values.asSequence()
+            .flatMap { it.toList().asSequence() }
+            .lastOrNull { it.name == name }
+            ?.value
+    }
 
     private fun ensureToken(spDc: String): String? {
         val now = System.currentTimeMillis()

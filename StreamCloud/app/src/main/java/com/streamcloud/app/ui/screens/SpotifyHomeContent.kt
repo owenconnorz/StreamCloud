@@ -51,8 +51,9 @@ import coil.compose.AsyncImage
 import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.data.spotify.SpotifyArtist
 import com.streamcloud.app.data.spotify.SpotifyHomeFeed
-import com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
+import com.streamcloud.app.data.spotify.SpotifyHomeSection
 import com.streamcloud.app.data.spotify.SpotifyTrack
+import com.streamcloud.app.data.spotify.SpotifyWebPlayerRepository
 import com.streamcloud.app.data.ytmusic.YtMusicSearchRepository
 import com.streamcloud.app.data.ytmusic.YtPlayback
 import com.streamcloud.app.data.ytmusic.YtmSong
@@ -75,7 +76,7 @@ private fun YtTrack.asSpotifyHomeSong() = YtmSong(
 @Composable
 internal fun SpotifyHomeContent(
     spotifyCookie: String,
-    onOpenArtist: (id: String, title: String) -> Unit,
+    onOpenCollection: (id: String, title: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -98,7 +99,10 @@ internal fun SpotifyHomeContent(
         error = null
         try {
             feed = withContext(Dispatchers.IO) {
-                SpotifyPlaylistRepository.getHomeFeed(spotifyCookie)
+                SpotifyWebPlayerRepository.getHomeFeed(
+                    spotifyCookie,
+                    forceRefresh = refreshGeneration > 0,
+                )
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -187,72 +191,115 @@ internal fun SpotifyHomeContent(
             ) {
                 val home = feed
                 if (home != null) {
-                    if (home.warnings.isNotEmpty()) {
-                        item(key = "home-warning") {
-                            Text(
-                                home.warnings.joinToString("\n"),
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
+                    itemsIndexed(
+                        items = home.sections,
+                        key = { index, section -> "${section.id}-$index" },
+                    ) { _, section ->
+                        SpotifyWebPlayerShelf(
+                            section = section,
+                            playingTrackId = playingTrackId,
+                            onPlay = ::playTrack,
+                            onOpenCollection = onOpenCollection,
+                        )
                     }
-
-                    if (home.topArtists.isNotEmpty()) {
-                        item(key = "top-mixes") {
-                            SpotifyArtistShelf(
-                                title = "Your top mixes",
-                                subtitle = "Based on the artists you listen to",
-                                artists = home.topArtists,
-                                onOpenArtist = onOpenArtist,
-                            )
-                        }
-                    }
-
-                    if (home.topTracks.isNotEmpty()) {
-                        item(key = "recommended-tracks") {
-                            SpotifyTrackShelf(
-                                title = "Recommended for today",
-                                subtitle = "Inspired by your listening",
-                                tracks = home.topTracks,
-                                playingTrackId = playingTrackId,
-                                onPlay = ::playTrack,
-                            )
-                        }
-                    }
-
-                    if (home.recentlyPlayed.isNotEmpty()) {
-                        item(key = "recently-played-title") {
-                            Text(
-                                "Recently played",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-                        itemsIndexed(
-                            items = home.recentlyPlayed,
-                            key = { index, track -> "recent-$index-${track.id}" },
-                        ) { _, track ->
-                            SpotifyRecentTrackRow(
-                                track = track,
-                                loading = playingTrackId == track.id,
-                                onClick = { playTrack(track) },
-                            )
-                        }
-                    }
-
-                    if (home.topArtists.isEmpty() && home.topTracks.isEmpty() &&
-                        home.recentlyPlayed.isEmpty()
-                    ) {
+                    if (home.sections.isEmpty()) {
                         item(key = "home-empty") {
                             Column(Modifier.fillMaxWidth().padding(vertical = 20.dp)) {
                                 Text(
-                                    "Spotify has no listening recommendations to show yet.",
+                                    "Spotify did not return any Home recommendations.",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 TextButton(onClick = { refreshGeneration++ }) { Text("Refresh") }
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpotifyWebPlayerShelf(
+    section: SpotifyHomeSection,
+    playingTrackId: String?,
+    onPlay: (SpotifyTrack) -> Unit,
+    onOpenCollection: (String, String) -> Unit,
+) {
+    Column {
+        SpotifyShelfTitle(section.title, section.subtitle)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(section.items, key = { it.id }) { card ->
+                val isTrack = card.track != null
+                val canOpen = isTrack || card.collectionId != null
+                Column(
+                    Modifier.width(148.dp)
+                        .clickable(enabled = canOpen) {
+                            val track = card.track
+                            if (track != null) onPlay(track)
+                            else card.collectionId?.let { onOpenCollection(it, card.title) }
+                        },
+                ) {
+                    Box(
+                        Modifier.size(148.dp)
+                            .clip(
+                                if (card.collectionId?.startsWith("artist:") == true) {
+                                    CircleShape
+                                } else {
+                                    RoundedCornerShape(12.dp)
+                                },
+                            )
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (!card.imageUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = card.imageUrl,
+                                contentDescription = card.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.Person,
+                                contentDescription = null,
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        card.track?.let { track ->
+                            if (playingTrackId == track.id) {
+                                CircularProgressIndicator(Modifier.size(30.dp))
+                            } else {
+                                Surface(
+                                    modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                                    shape = CircleShape,
+                                ) {
+                                    Icon(
+                                        Icons.Default.PlayArrow,
+                                        contentDescription = "Play ${card.title}",
+                                        modifier = Modifier.padding(8.dp).size(20.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(7.dp))
+                    Text(
+                        card.title,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        card.subtitle.ifBlank { "Spotify" },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }

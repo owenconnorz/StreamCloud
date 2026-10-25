@@ -31,3 +31,9 @@ Use an independent StreamCloud music-provider system, not Echo plugin compatibil
 **Why:** The user asked for Spotify Home to resemble its discovery feed and keep their playlists and library on the Library page.
 
 **How to apply:** Build Home from listening-based content such as top artists, top tracks, and recent plays. Do not reuse the Spotify account-library screen as the provider Home.
+
+**Spotify adapter licensing:** Keep Spotify metadata integration as StreamCloud-owned code; do not copy Spotube's AGPL-3.0 implementation into the app without an explicit license decision.
+
+**Why:** The user chose an independent StreamCloud adapter after discussing the license consequences.
+
+**How to apply:** Keep the app's adapter independent and ask before adopting Spotube's library or source code.

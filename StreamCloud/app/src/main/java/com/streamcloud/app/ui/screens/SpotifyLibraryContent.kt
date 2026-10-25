@@ -54,8 +54,8 @@ import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.data.spotify.SpotifyAlbum
 import com.streamcloud.app.data.spotify.SpotifyArtist
 import com.streamcloud.app.data.spotify.SpotifyPlaylist
-import com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
 import com.streamcloud.app.data.spotify.SpotifyTrack
+import com.streamcloud.app.data.spotify.SpotifyWebPlayerRepository
 import com.streamcloud.app.data.ytmusic.YtMusicSearchRepository
 import com.streamcloud.app.data.ytmusic.YtPlayback
 import com.streamcloud.app.data.ytmusic.YtmSong
@@ -99,10 +99,15 @@ internal fun SpotifyLibraryContent(
     var artists by remember { mutableStateOf<List<SpotifyArtist>>(emptyList()) }
     var tracks by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
     var loadedTabs by remember { mutableStateOf<Set<SpotifyLibraryTab>>(emptySet()) }
+    var nextOffsets by remember { mutableStateOf<Map<SpotifyLibraryTab, Int?>>(emptyMap()) }
+    var loadingMoreTab by remember { mutableStateOf<SpotifyLibraryTab?>(null) }
+    var loadMoreError by remember { mutableStateOf<Pair<SpotifyLibraryTab, String>?>(null) }
     var playingTrack by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(spotifyCookie) {
         loadedTabs = emptySet()
+        nextOffsets = emptyMap()
+        loadMoreError = null
         playlists = emptyList()
         albums = emptyList()
         artists = emptyList()
@@ -122,19 +127,48 @@ internal fun SpotifyLibraryContent(
         error = null
         try {
             when (selectedTab) {
-                SpotifyLibraryTab.Playlists -> playlists = withContext(Dispatchers.IO) {
-                    SpotifyPlaylistRepository.getPlaylists(spotifyCookie)
+                SpotifyLibraryTab.Playlists -> {
+                    val page = withContext(Dispatchers.IO) {
+                        SpotifyWebPlayerRepository.getPlaylistsPage(
+                            spotifyCookie,
+                            forceRefresh = retryGeneration > 0,
+                        )
+                    }
+                    playlists = page.items
+                    nextOffsets = nextOffsets + (selectedTab to page.nextOffset)
                 }
-                SpotifyLibraryTab.Albums -> albums = withContext(Dispatchers.IO) {
-                    SpotifyPlaylistRepository.getSavedAlbums(spotifyCookie)
+                SpotifyLibraryTab.Albums -> {
+                    val page = withContext(Dispatchers.IO) {
+                        SpotifyWebPlayerRepository.getAlbumsPage(
+                            spotifyCookie,
+                            forceRefresh = retryGeneration > 0,
+                        )
+                    }
+                    albums = page.items
+                    nextOffsets = nextOffsets + (selectedTab to page.nextOffset)
                 }
-                SpotifyLibraryTab.Artists -> artists = withContext(Dispatchers.IO) {
-                    SpotifyPlaylistRepository.getFollowedArtists(spotifyCookie)
+                SpotifyLibraryTab.Artists -> {
+                    val page = withContext(Dispatchers.IO) {
+                        SpotifyWebPlayerRepository.getArtistsPage(
+                            spotifyCookie,
+                            forceRefresh = retryGeneration > 0,
+                        )
+                    }
+                    artists = page.items
+                    nextOffsets = nextOffsets + (selectedTab to page.nextOffset)
                 }
-                SpotifyLibraryTab.Songs -> tracks = withContext(Dispatchers.IO) {
-                    SpotifyPlaylistRepository.getSavedTracks(spotifyCookie)
+                SpotifyLibraryTab.Songs -> {
+                    val page = withContext(Dispatchers.IO) {
+                        SpotifyWebPlayerRepository.getSavedTracksPage(
+                            spotifyCookie,
+                            forceRefresh = retryGeneration > 0,
+                        )
+                    }
+                    tracks = page.items
+                    nextOffsets = nextOffsets + (selectedTab to page.nextOffset)
                 }
             }
+            loadMoreError = null
             loadedTabs = loadedTabs + selectedTab
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -142,6 +176,55 @@ internal fun SpotifyLibraryContent(
             error = failure.message ?: "Spotify library could not be loaded."
         } finally {
             loading = false
+        }
+    }
+
+    fun loadMoreSelectedTab() {
+        val tab = selectedTab
+        val offset = nextOffsets[tab] ?: return
+        if (loadingMoreTab != null) return
+        loadingMoreTab = tab
+        loadMoreError = null
+        scope.launch {
+            try {
+                when (tab) {
+                    SpotifyLibraryTab.Playlists -> {
+                        val page = withContext(Dispatchers.IO) {
+                            SpotifyWebPlayerRepository.getPlaylistsPage(spotifyCookie, offset)
+                        }
+                        playlists = (playlists + page.items).distinctBy { it.id }
+                        nextOffsets = nextOffsets + (tab to page.nextOffset)
+                    }
+                    SpotifyLibraryTab.Albums -> {
+                        val page = withContext(Dispatchers.IO) {
+                            SpotifyWebPlayerRepository.getAlbumsPage(spotifyCookie, offset)
+                        }
+                        albums = (albums + page.items).distinctBy { it.id }
+                        nextOffsets = nextOffsets + (tab to page.nextOffset)
+                    }
+                    SpotifyLibraryTab.Artists -> {
+                        val page = withContext(Dispatchers.IO) {
+                            SpotifyWebPlayerRepository.getArtistsPage(spotifyCookie, offset)
+                        }
+                        artists = (artists + page.items).distinctBy { it.id }
+                        nextOffsets = nextOffsets + (tab to page.nextOffset)
+                    }
+                    SpotifyLibraryTab.Songs -> {
+                        val page = withContext(Dispatchers.IO) {
+                            SpotifyWebPlayerRepository.getSavedTracksPage(spotifyCookie, offset)
+                        }
+                        tracks = (tracks + page.items).distinctBy { it.id }
+                        nextOffsets = nextOffsets + (tab to page.nextOffset)
+                    }
+                }
+                loadMoreError = null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                loadMoreError = tab to (failure.message ?: "More Spotify items could not be loaded.")
+            } finally {
+                loadingMoreTab = null
+            }
         }
     }
 
@@ -167,6 +250,7 @@ internal fun SpotifyLibraryContent(
                     selected = selectedTab == tab,
                     onClick = {
                         retryGeneration = 0
+                        loadMoreError = null
                         selectedTab = tab
                     },
                     label = { Text(tab.label) },
@@ -218,7 +302,7 @@ internal fun SpotifyLibraryContent(
                                 imageUrl = playlist.imageUrl,
                                 title = playlist.name,
                                 subtitle = listOfNotNull(
-                                    "${playlist.trackCount} tracks",
+                                    playlist.trackCount?.let { "$it tracks" },
                                     playlist.ownerName.takeIf(String::isNotBlank)?.let { "by $it" },
                                 ).joinToString(" · "),
                                 detail = playlist.description,
@@ -240,7 +324,7 @@ internal fun SpotifyLibraryContent(
                                 title = album.name,
                                 subtitle = listOfNotNull(
                                     album.artists.takeIf(String::isNotBlank),
-                                    "${album.trackCount} tracks",
+                                    album.trackCount?.let { "$it tracks" },
                                     album.releaseDate.takeIf(String::isNotBlank),
                                 ).joinToString(" · "),
                                 icon = Icons.Default.Album,
@@ -307,6 +391,29 @@ internal fun SpotifyLibraryContent(
                                 },
                             )
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                        }
+                    }
+                }
+                if (nextOffsets[selectedTab] != null) {
+                    item(key = "spotify-library-load-more-${selectedTab.name}") {
+                        TextButton(
+                            onClick = ::loadMoreSelectedTab,
+                            enabled = loadingMoreTab == null,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        ) {
+                            if (loadingMoreTab == selectedTab) {
+                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text(if (loadingMoreTab == selectedTab) "Loading more…" else "Load more")
+                        }
+                    }
+                }
+                loadMoreError?.takeIf { it.first == selectedTab }?.let { (_, message) ->
+                    item(key = "spotify-library-load-more-error-${selectedTab.name}") {
+                        Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                            Text(message, color = MaterialTheme.colorScheme.error)
+                            TextButton(onClick = ::loadMoreSelectedTab) { Text("Try again") }
                         }
                     }
                 }
