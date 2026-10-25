@@ -3,6 +3,7 @@ package com.streamcloud.app.ui.screens
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -26,6 +28,8 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -38,6 +42,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,6 +78,16 @@ private fun YtTrack.asSpotifyHomeSong() = YtmSong(
     isVideo = isVideo,
 )
 
+private enum class SpotifyHomeCategory(val label: String) {
+    All("All"),
+    Music("Music"),
+    Podcasts("Podcasts"),
+    Audiobooks("Audiobooks"),
+}
+
+private fun String.spotifyDisplayText(): String? =
+    trim().takeUnless { it.isEmpty() || it.equals("null", ignoreCase = true) }
+
 @Composable
 internal fun SpotifyHomeContent(
     spotifyCookie: String,
@@ -86,6 +101,7 @@ internal fun SpotifyHomeContent(
     var error by remember { mutableStateOf<String?>(null) }
     var refreshGeneration by remember { mutableIntStateOf(0) }
     var playingTrackId by remember { mutableStateOf<String?>(null) }
+    var selectedCategory by rememberSaveable { mutableStateOf(SpotifyHomeCategory.All) }
 
     LaunchedEffect(spotifyCookie, refreshGeneration) {
         if (spotifyCookie.isBlank()) {
@@ -143,28 +159,52 @@ internal fun SpotifyHomeContent(
 
     Column(modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+            Modifier.fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Column {
-                Text("Spotify", style = MaterialTheme.typography.headlineMedium)
+            SpotifyHomeCategory.entries.forEach { category ->
+                val selected = selectedCategory == category
+                FilterChip(
+                    selected = selected,
+                    onClick = { selectedCategory = category },
+                    label = {
+                        Text(
+                            category.label,
+                            color = if (selected) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    colors = FilterChipDefaults.filterChipColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                    ),
+                )
+            }
+        }
+
+        if (selectedCategory == SpotifyHomeCategory.Podcasts ||
+            selectedCategory == SpotifyHomeCategory.Audiobooks
+        ) {
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 32.dp),
+                verticalArrangement = Arrangement.Center,
+            ) {
                 Text(
-                    "Picked for you",
+                    selectedCategory.label,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "This category isn’t available through the current Spotify integration.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                shape = CircleShape,
-            ) {
-                Text("Music", Modifier.padding(horizontal = 16.dp, vertical = 9.dp))
-            }
-        }
-
-        if (loading && feed == null) {
+        } else if (loading && feed == null) {
             Row(
                 Modifier.fillMaxWidth().padding(28.dp),
                 horizontalArrangement = Arrangement.Center,
@@ -172,7 +212,7 @@ internal fun SpotifyHomeContent(
             ) {
                 CircularProgressIndicator(Modifier.size(22.dp))
                 Spacer(Modifier.width(12.dp))
-                Text("Loading your Spotify Home…")
+                Text("Loading your Spotify Home…", color = MaterialTheme.colorScheme.onBackground)
             }
         } else if (error != null && feed == null) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
@@ -292,9 +332,10 @@ private fun SpotifyWebPlayerShelf(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onBackground,
                     )
                     Text(
-                        card.subtitle.ifBlank { "Spotify" },
+                        card.subtitle.spotifyDisplayText() ?: "Spotify",
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodySmall,
@@ -360,6 +401,7 @@ private fun SpotifyArtistShelf(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onBackground,
                     )
                     Text(
                         "Spotify · personal mix",
@@ -425,6 +467,7 @@ private fun SpotifyTrackShelf(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onBackground,
                     )
                     Text(
                         track.artists,
@@ -459,7 +502,13 @@ private fun SpotifyRecentTrackRow(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         )
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+            Text(
+                track.title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
             Text(
                 track.artists,
                 maxLines = 1,
@@ -469,18 +518,29 @@ private fun SpotifyRecentTrackRow(
             )
         }
         if (loading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-        else Icon(Icons.Default.PlayArrow, contentDescription = "Play ${track.title}")
+        else Icon(
+            Icons.Default.PlayArrow,
+            contentDescription = "Play ${track.title}",
+            tint = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 
 @Composable
 private fun SpotifyShelfTitle(title: String, subtitle: String) {
     Column(Modifier.padding(bottom = 10.dp)) {
-        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
         Text(
-            subtitle,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            title.spotifyDisplayText().orEmpty(),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground,
         )
+        subtitle.spotifyDisplayText()?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
