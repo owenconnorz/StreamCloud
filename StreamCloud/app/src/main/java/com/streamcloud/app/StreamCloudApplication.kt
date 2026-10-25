@@ -43,6 +43,7 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
         super.onCreate()
 
         com.streamcloud.app.data.network.Net.init(cacheDir)
+        com.streamcloud.app.data.spotify.SpotifyPlaylistRepository.initialize(applicationContext)
 
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "plugin_update_check",

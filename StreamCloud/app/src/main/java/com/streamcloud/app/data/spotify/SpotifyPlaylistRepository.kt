@@ -1,5 +1,7 @@
 package com.streamcloud.app.data.spotify
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,6 +20,8 @@ import kotlinx.coroutines.CancellationException
 object SpotifyPlaylistRepository {
     private const val TAG = "SpotifyPlaylistRepo"
     private const val BASE = "https://api.spotify.com/v1"
+    private const val RATE_LIMIT_PREFS = "spotify_api_rate_limits"
+    private const val RATE_LIMIT_UNTIL_KEY = "retry_until_ms"
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -28,15 +32,54 @@ object SpotifyPlaylistRepository {
 
     private val responseCache = ConcurrentHashMap<String, CachedResponse>()
     @Volatile private var spotifyRetryAtMs = 0L
+    @Volatile private var rateLimitPreferences: SharedPreferences? = null
 
     private const val RESPONSE_CACHE_TTL_MS = 15L * 60L * 1000L
     private const val STALE_RESPONSE_TTL_MS = 12L * 60L * 60L * 1000L
     private const val DEFAULT_RETRY_AFTER_MS = 60_000L
     private const val MAX_CACHED_RESPONSES = 256
 
-    private class SpotifyRateLimitedException(retryAfterMs: Long) : IllegalStateException(
-        "Spotify is rate-limiting requests. Try again in ${((retryAfterMs + 999L) / 1000L).coerceAtLeast(1L)} seconds.",
+    class RateLimitedException(val retryAtMs: Long) : IllegalStateException(
+        "Spotify is rate-limiting requests. Try again in " +
+            "${((retryAtMs - System.currentTimeMillis() + 999L) / 1000L).coerceAtLeast(1L)} seconds.",
     )
+
+    @Synchronized
+    fun initialize(context: Context) {
+        val preferences = context.applicationContext.getSharedPreferences(
+            RATE_LIMIT_PREFS,
+            Context.MODE_PRIVATE,
+        )
+        rateLimitPreferences = preferences
+        spotifyRetryAtMs = maxOf(
+            spotifyRetryAtMs,
+            preferences.getLong(RATE_LIMIT_UNTIL_KEY, 0L),
+        )
+    }
+
+    @Synchronized
+    private fun currentRetryAtMs(): Long {
+        val preferences = rateLimitPreferences
+        val retryAt = maxOf(
+            spotifyRetryAtMs,
+            preferences?.getLong(RATE_LIMIT_UNTIL_KEY, 0L) ?: 0L,
+        )
+        if (retryAt <= System.currentTimeMillis()) {
+            spotifyRetryAtMs = 0L
+            preferences?.edit()?.remove(RATE_LIMIT_UNTIL_KEY)?.apply()
+            return 0L
+        }
+        spotifyRetryAtMs = retryAt
+        return retryAt
+    }
+
+    @Synchronized
+    private fun extendRetryAtMs(candidateRetryAtMs: Long): Long {
+        val retryAt = maxOf(currentRetryAtMs(), candidateRetryAtMs)
+        spotifyRetryAtMs = retryAt
+        rateLimitPreferences?.edit()?.putLong(RATE_LIMIT_UNTIL_KEY, retryAt)?.apply()
+        return retryAt
+    }
 
     private fun authHeader(token: String) = "Bearer $token"
 
@@ -79,10 +122,11 @@ object SpotifyPlaylistRepository {
         val cacheKey = "${tokenCacheScope(token)}|$url"
         cachedBody(cacheKey, RESPONSE_CACHE_TTL_MS)?.let { return JSONObject(it) }
 
-        val remainingLimitMs = spotifyRetryAtMs - System.currentTimeMillis()
+        val retryAtMs = currentRetryAtMs()
+        val remainingLimitMs = retryAtMs - System.currentTimeMillis()
         if (remainingLimitMs > 0L) {
             cachedBody(cacheKey, STALE_RESPONSE_TTL_MS)?.let { return JSONObject(it) }
-            throw SpotifyRateLimitedException(remainingLimitMs)
+            throw RateLimitedException(retryAtMs)
         }
 
         val request = Request.Builder()
@@ -99,14 +143,11 @@ object SpotifyPlaylistRepository {
                         ?.toLongOrNull()
                         ?.let { TimeUnit.SECONDS.toMillis(it.coerceAtLeast(1L)) }
                         ?: DEFAULT_RETRY_AFTER_MS
-                    spotifyRetryAtMs = maxOf(
-                        spotifyRetryAtMs,
-                        System.currentTimeMillis() + retryAfterMs,
-                    )
+                    val retryAt = extendRetryAtMs(System.currentTimeMillis() + retryAfterMs)
                     cachedBody(cacheKey, STALE_RESPONSE_TTL_MS)?.let {
                         return@use JSONObject(it)
                     }
-                    throw SpotifyRateLimitedException(spotifyRetryAtMs - System.currentTimeMillis())
+                    throw RateLimitedException(retryAt)
                 }
                 val message = when (response.code) {
                     401 -> "Spotify sign-in has expired. Sign out in StreamCloud Settings, then sign in again."

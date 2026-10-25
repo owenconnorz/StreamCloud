@@ -69,6 +69,7 @@ import com.streamcloud.app.data.spotify.SpotifyArtist
 import com.streamcloud.app.data.spotify.SpotifyEpisode
 import com.streamcloud.app.data.spotify.SpotifyPlaylist
 import com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
+import com.streamcloud.app.data.spotify.SpotifyPlaylistRepository.RateLimitedException
 import com.streamcloud.app.data.spotify.SpotifyPodcast
 import com.streamcloud.app.data.spotify.SpotifySearchResults
 import com.streamcloud.app.data.spotify.SpotifyTrack
@@ -89,6 +90,17 @@ private enum class SpotifySearchFilter(val label: String) {
     Playlists("Playlists"),
     Podcasts("Podcasts"),
     Episodes("Episodes"),
+}
+
+private fun formatSpotifyWait(remainingMs: Long): String {
+    val totalMinutes = ((remainingMs.coerceAtLeast(0L) + 59_999L) / 60_000L).coerceAtLeast(1L)
+    val hours = totalMinutes / 60L
+    val minutes = totalMinutes % 60L
+    return when {
+        hours > 0L && minutes > 0L -> "${hours}h ${minutes}m"
+        hours > 0L -> "${hours}h"
+        else -> "${minutes}m"
+    }
 }
 
 private fun YtTrack.asSpotifySearchSong() = YtmSong(
@@ -113,21 +125,45 @@ fun SpotifySearchScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val spotifyCookie by services.settings.spotifyCookie.collectAsState(initial = "")
     var query by remember { mutableStateOf("") }
+    var submittedQuery by remember { mutableStateOf("") }
+    var searchGeneration by remember { mutableStateOf(0) }
     var results by remember { mutableStateOf<SpotifySearchResults?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var rateLimitUntilMs by remember { mutableStateOf(0L) }
+    var currentTimeMs by remember { mutableStateOf(System.currentTimeMillis()) }
     var filter by remember { mutableStateOf(SpotifySearchFilter.All) }
     var playingTrackId by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(query, spotifyCookie) {
+    fun submitSearch() {
         val cleanQuery = query.trim()
+        if (
+            loading ||
+            cleanQuery.length < 2 ||
+            rateLimitUntilMs > System.currentTimeMillis()
+        ) return
+        keyboardController?.hide()
+        submittedQuery = cleanQuery
+        searchGeneration += 1
+        results = null
+        error = null
+        rateLimitUntilMs = 0L
+    }
+
+    LaunchedEffect(submittedQuery, spotifyCookie, searchGeneration) {
+        val cleanQuery = submittedQuery.trim()
         if (cleanQuery.length < 2) {
             results = null
             error = null
             loading = false
             return@LaunchedEffect
         }
-        delay(350)
+        if (spotifyCookie.isBlank()) {
+            results = null
+            error = "Sign in to Spotify in Settings to search its catalogue."
+            loading = false
+            return@LaunchedEffect
+        }
         loading = true
         error = null
         try {
@@ -136,12 +172,23 @@ fun SpotifySearchScreen(
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (failure: RateLimitedException) {
+            results = null
+            rateLimitUntilMs = failure.retryAtMs
         } catch (failure: Exception) {
             results = null
             error = failure.message ?: "Spotify search could not be loaded."
         } finally {
             loading = false
         }
+    }
+
+    LaunchedEffect(rateLimitUntilMs) {
+        while (rateLimitUntilMs > 0L && System.currentTimeMillis() < rateLimitUntilMs) {
+            currentTimeMs = System.currentTimeMillis()
+            delay(1_000L)
+        }
+        currentTimeMs = System.currentTimeMillis()
     }
 
     fun playTrack(track: SpotifyTrack) {
@@ -206,21 +253,41 @@ fun SpotifySearchScreen(
         ) {
             OutlinedTextField(
                 value = query,
-                onValueChange = { query = it },
+                onValueChange = {
+                    query = it
+                    results = null
+                    error = null
+                },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 placeholder = { Text("What do you want to listen to?") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                leadingIcon = {
+                    IconButton(
+                        onClick = ::submitSearch,
+                        enabled = !loading &&
+                            query.trim().length >= 2 &&
+                            rateLimitUntilMs <= System.currentTimeMillis(),
+                    ) {
+                        Icon(Icons.Default.Search, contentDescription = "Search Spotify")
+                    }
+                },
                 trailingIcon = {
-                    if (query.isNotEmpty()) {
-                        IconButton(onClick = { query = "" }) {
+                    if (query.isNotEmpty() && !loading) {
+                        IconButton(onClick = {
+                            query = ""
+                            submittedQuery = ""
+                            results = null
+                            error = null
+                            rateLimitUntilMs = 0L
+                        }) {
                             Icon(Icons.Default.Close, contentDescription = "Clear search")
                         }
                     }
                 },
+                enabled = !loading,
                 singleLine = true,
                 shape = RoundedCornerShape(28.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
+                keyboardActions = KeyboardActions(onSearch = ::submitSearch),
             )
 
             Row(
@@ -248,20 +315,30 @@ fun SpotifySearchScreen(
                 query.trim().length < 2 -> SpotifySearchMessage(
                     "Search Spotify for songs, artists, albums, playlists and podcasts.",
                 )
-                loading && results == null -> Box(
+                rateLimitUntilMs > 0L && currentTimeMs < rateLimitUntilMs -> SpotifySearchMessage(
+                    "Spotify has temporarily limited requests. Try again in " +
+                        "${formatSpotifyWait(rateLimitUntilMs - currentTimeMs)}.",
+                )
+                query.trim() != submittedQuery -> SpotifySearchMessage(
+                    "Tap the search icon or Search on the keyboard to load results.",
+                )
+                loading -> Box(
                     Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center,
                 ) { CircularProgressIndicator() }
+                rateLimitUntilMs > 0L -> Column(
+                    Modifier.fillMaxWidth().padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("Spotify's cooldown has ended.")
+                    TextButton(onClick = ::submitSearch) { Text("Try again") }
+                }
                 error != null -> Column(
                     Modifier.fillMaxWidth().padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(error.orEmpty(), color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = {
-                        val retry = query
-                        query = ""
-                        query = retry
-                    }) { Text("Try again") }
+                    TextButton(onClick = ::submitSearch) { Text("Try again") }
                 }
                 results != null -> SpotifySearchResultsList(
                     results = results!!,
