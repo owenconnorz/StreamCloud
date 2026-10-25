@@ -258,6 +258,16 @@ object SettingsKeys {
 }
 
 class SettingsRepository(private val context: Context) {
+    private val musicProviderKey = stringPreferencesKey("music_home_provider")
+    val musicHomeProvider: Flow<com.streamcloud.app.data.music.MusicProvider> =
+        context.dataStore.data.map {
+            com.streamcloud.app.data.music.MusicProvider.fromId(it[musicProviderKey])
+        }
+
+    suspend fun setMusicHomeProvider(provider: com.streamcloud.app.data.music.MusicProvider) {
+        context.dataStore.edit { it[musicProviderKey] = provider.id }
+    }
+
     val backendUrl: Flow<String> = context.dataStore.data.map {
         it[SettingsKeys.BACKEND_URL] ?: BuildConfig.DEFAULT_BACKEND_URL
     }

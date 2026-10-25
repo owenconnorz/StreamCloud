@@ -279,7 +279,7 @@ private fun djAnnouncementInterval(announcementNumber: Int): Int =
 
 @OptIn(ExperimentalMaterial3Api::class, UnstableApi::class)
 @Composable
-fun MusicScreen(
+fun YouTubeMusicHome(
     onArtistClick: (url: String, thumbnail: String?) -> Unit = { _, _ -> },
     onOpenPlaylist: (id: String, title: String, thumbnail: String?) -> Unit = { _, _, _ -> },
     onProfileClick: () -> Unit = {},
@@ -1511,10 +1511,9 @@ private fun MusicHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .statusBarsPadding()
             .padding(
                 start = if (isTv) 0.dp else 20.dp,
-                top = if (isTv) 68.dp else 8.dp,
+                top = 8.dp,
                 end = if (isTv) 0.dp else 4.dp,
                 bottom = 4.dp,
             ),
