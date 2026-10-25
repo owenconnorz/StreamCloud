@@ -8,17 +8,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import com.streamcloud.app.ui.icons.AppIcons as Icons
-import androidx.compose.material.icons.automirrored.filled.PlaylistAdd as PlaylistAddIcon
-import androidx.compose.material.icons.filled.Album as AlbumIcon
-import androidx.compose.material.icons.filled.Delete as DeleteIcon
-import androidx.compose.material.icons.filled.FavoriteBorder as FavoriteBorderIcon
-import androidx.compose.material.icons.filled.Person as PersonIcon
-import androidx.compose.material.icons.filled.Podcasts as PodcastsIcon
-import androidx.compose.material.icons.filled.QueueMusic as QueueMusicIcon
-import androidx.compose.material.icons.filled.Share as ShareIcon
+import androidx.compose.material.icons.Icons as MaterialIcons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -353,7 +348,7 @@ fun SpotifyPlaylistScreen(
                     }
                 }
                 HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
-                SpotifyTrackMenuAction(ShareIcon, "Share") {
+                SpotifyTrackMenuAction(MaterialIcons.Filled.Share, "Share") {
                     menuTrack = null
                     val share = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
@@ -365,7 +360,7 @@ fun SpotifyPlaylistScreen(
                     }
                     context.startActivity(Intent.createChooser(share, "Share track"))
                 }
-                SpotifyTrackMenuAction(FavoriteBorderIcon, "Add to Liked Songs") {
+                SpotifyTrackMenuAction(MaterialIcons.Filled.FavoriteBorder, "Add to Liked Songs") {
                     menuTrack = null
                     scope.launch {
                         val saved = withContext(Dispatchers.IO) {
@@ -377,19 +372,25 @@ fun SpotifyPlaylistScreen(
                         )
                     }
                 }
-                SpotifyTrackMenuAction(PlaylistAddIcon, "Add to playlist") {
+                SpotifyTrackMenuAction(
+                    MaterialIcons.AutoMirrored.Filled.PlaylistAdd,
+                    "Add to playlist",
+                ) {
                     menuTrack = null
                     playlistChoices = emptyList()
                     addToPlaylistTrack = track
                 }
-                SpotifyTrackMenuAction(QueueMusicIcon, "Play next") {
+                SpotifyTrackMenuAction(MaterialIcons.Filled.QueueMusic, "Play next") {
                     queueTrack(track, playNext = true)
                 }
-                SpotifyTrackMenuAction(PlaylistAddIcon, "Add to queue") {
+                SpotifyTrackMenuAction(
+                    MaterialIcons.AutoMirrored.Filled.PlaylistAdd,
+                    "Add to queue",
+                ) {
                     queueTrack(track)
                 }
                 if (track.album.isNotBlank()) {
-                    SpotifyTrackMenuAction(AlbumIcon, "Go to album") {
+                    SpotifyTrackMenuAction(MaterialIcons.Filled.Album, "Go to album") {
                         menuTrack = null
                         val url = "https://open.spotify.com/search/${Uri.encode(track.album)}"
                         runCatching {
@@ -400,7 +401,7 @@ fun SpotifyPlaylistScreen(
                     }
                 }
                 if (track.artists.isNotBlank()) {
-                    SpotifyTrackMenuAction(PersonIcon, "Go to artists") {
+                    SpotifyTrackMenuAction(MaterialIcons.Filled.Person, "Go to artists") {
                         menuTrack = null
                         val artistId = track.artistIds.firstOrNull()
                         val url = artistId?.let { "https://open.spotify.com/artist/$it" }
@@ -412,11 +413,11 @@ fun SpotifyPlaylistScreen(
                         }
                     }
                 }
-                SpotifyTrackMenuAction(PodcastsIcon, "Go to song radio") {
+                SpotifyTrackMenuAction(MaterialIcons.Filled.Podcasts, "Go to song radio") {
                     queueTrack(track, startRadio = true)
                 }
                 if (albumId == null && artistId == null) {
-                    SpotifyTrackMenuAction(DeleteIcon, "Remove from this playlist") {
+                    SpotifyTrackMenuAction(MaterialIcons.Filled.Delete, "Remove from this playlist") {
                         menuTrack = null
                         val index = tracks.indexOfFirst { it.uri == track.uri }
                         if (index >= 0) removeTarget = index to track
