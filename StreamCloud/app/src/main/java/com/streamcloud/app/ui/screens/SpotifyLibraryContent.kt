@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -431,11 +433,17 @@ internal fun SpotifyLibraryContent(
                         span = { GridItemSpan(maxLineSpan) },
                         key = "spotify-grid-load-more-${selectedTab.name}",
                     ) {
-                        SpotifyLoadMoreButton(
-                            loading = loadingMoreTab == selectedTab,
-                            enabled = loadingMoreTab == null,
+                        TextButton(
                             onClick = ::loadMoreSelectedTab,
-                        )
+                            enabled = loadingMoreTab == null,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        ) {
+                            if (loadingMoreTab == selectedTab) {
+                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text(if (loadingMoreTab == selectedTab) "Loading more…" else "Load more")
+                        }
                     }
                 }
                 loadMoreError?.takeIf { it.first == selectedTab }?.let { (_, message) ->
