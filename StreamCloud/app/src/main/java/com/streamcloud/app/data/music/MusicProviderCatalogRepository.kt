@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.net.URI
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
@@ -21,16 +22,49 @@ data class MusicProviderManifest(
  * Definitions cannot contain code, API URLs, or credential destinations.
  */
 object MusicProviderCatalogRepository {
-    private const val ROOT =
-        "https://raw.githubusercontent.com/owenconnorz/StreamCloud-Music-Providers/main/"
+    private const val GITHUB_HOST = "github.com"
+    private const val RAW_HOST = "raw.githubusercontent.com"
     private val client = OkHttpClient.Builder()
+        .followRedirects(false)
+        .followSslRedirects(false)
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .callTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    suspend fun fetch(): List<MusicProviderManifest> = withContext(Dispatchers.IO) {
-        val catalog = JSONObject(get(ROOT + "catalog.json"))
+    fun normalizeRepositoryUrl(input: String): String {
+        val uri = URI(input.trim())
+        require(uri.scheme.equals("https", ignoreCase = true) && uri.userInfo == null &&
+            uri.query == null && uri.fragment == null && uri.port in listOf(-1, 443)
+        ) { "Use an HTTPS GitHub repository link." }
+        val parts = uri.path.orEmpty().split('/').filter(String::isNotEmpty)
+        val ownerRepo = Regex("[A-Za-z0-9_.-]{1,100}")
+        return when (uri.host?.lowercase()) {
+            GITHUB_HOST -> {
+                require(parts.size == 2 && parts.all(ownerRepo::matches) &&
+                    parts.none { it == "." || it == ".." }
+                ) {
+                    "Paste a GitHub repository link such as https://github.com/owner/repository."
+                }
+                "https://raw.githubusercontent.com/${parts[0]}/${parts[1]}/main/catalog.json"
+            }
+            RAW_HOST -> {
+                require(parts.size == 4 && parts[3] == "catalog.json" &&
+                    parts[0].matches(ownerRepo) && parts[1].matches(ownerRepo) &&
+                    parts[0] !in setOf(".", "..") && parts[1] !in setOf(".", "..") &&
+                    parts[2].matches(Regex("[A-Za-z0-9_.-]{1,120}"))
+                    && parts[2] !in setOf(".", "..")
+                ) { "Paste a raw GitHub catalog.json link." }
+                "https://raw.githubusercontent.com/${parts.joinToString("/")}"
+            }
+            else -> error("Only GitHub repository links are supported.")
+        }
+    }
+
+    suspend fun fetch(repositoryUrl: String): List<MusicProviderManifest> = withContext(Dispatchers.IO) {
+        val catalogUrl = normalizeRepositoryUrl(repositoryUrl)
+        val root = catalogUrl.removeSuffix("catalog.json")
+        val catalog = JSONObject(get(catalogUrl))
         require(catalog.optInt("schemaVersion") == 1) { "Unsupported provider catalogue version." }
         val entries = catalog.optJSONArray("providers")
             ?: error("Provider catalogue is missing its provider list.")
@@ -43,7 +77,7 @@ object MusicProviderCatalogRepository {
             require(path == "providers/$id.json") { "Invalid provider definition path." }
             val expectedHash = entry.getString("sha256")
             require(expectedHash.matches(Regex("[a-f0-9]{64}"))) { "Invalid provider definition hash." }
-            val definition = get(ROOT + path)
+            val definition = get(root + path)
             val actualHash = MessageDigest.getInstance("SHA-256")
                 .digest(definition.toByteArray(Charsets.UTF_8))
                 .joinToString("") { "%02x".format(it) }
@@ -94,11 +128,17 @@ object MusicProviderCatalogRepository {
     }
 
     private fun get(url: String): String {
+        val requestUrl = URI(url)
+        require(requestUrl.scheme == "https" && requestUrl.host == RAW_HOST) {
+            "Provider content must use secure GitHub raw links."
+        }
         val response = client.newCall(
             Request.Builder().url(url).header("Accept", "application/json").build(),
         ).execute()
         response.use {
-            require(it.isSuccessful) { "Provider catalogue request failed (HTTP ${it.code})." }
+            require(it.isSuccessful && URI(it.request.url.toString()).host == RAW_HOST) {
+                "Provider catalogue request failed (HTTP ${it.code})."
+            }
             return it.body?.string()?.takeIf(String::isNotBlank)
                 ?: error("Provider catalogue returned an empty response.")
         }

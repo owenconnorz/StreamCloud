@@ -268,6 +268,7 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { it[musicProviderKey] = provider.id }
     }
     private val installedMusicProvidersKey = stringPreferencesKey("installed_music_providers")
+    private val musicProviderRepositoriesKey = stringPreferencesKey("music_provider_repositories")
     val installedMusicProviders: Flow<Map<String, Int>> = context.dataStore.data.map { prefs ->
         prefs[installedMusicProvidersKey].orEmpty().split(',').mapNotNull { item ->
             val p = item.split(':', limit = 2); val v = p.getOrNull(1)?.toIntOrNull()
@@ -282,6 +283,28 @@ class SettingsRepository(private val context: Context) {
         if (values.isEmpty()) prefs.remove(installedMusicProvidersKey)
         else prefs[installedMusicProvidersKey] = values.toSortedMap().entries.joinToString(",") { "${it.key}:${it.value}" }
         if (version == null && prefs[musicProviderKey] == id) prefs[musicProviderKey] = com.streamcloud.app.data.music.MusicProvider.YouTubeMusic.id
+    }
+
+    val musicProviderRepositories: Flow<List<String>> = context.dataStore.data.map { prefs ->
+        prefs[musicProviderRepositoriesKey].orEmpty().split('\n').filter(String::isNotBlank).distinct()
+    }
+    suspend fun addMusicProviderRepository(url: String) {
+        val normalized = com.streamcloud.app.data.music.MusicProviderCatalogRepository.normalizeRepositoryUrl(url)
+        context.dataStore.edit { prefs ->
+            val existing = prefs[musicProviderRepositoriesKey].orEmpty().split('\n').filter(String::isNotBlank).toMutableList()
+            require(normalized in existing || existing.size < 10) { "You can add up to 10 provider repositories." }
+            if (normalized !in existing) { existing += normalized; prefs[musicProviderRepositoriesKey] = existing.joinToString("\n") }
+        }
+    }
+    suspend fun removeMusicProviderRepository(url: String) {
+        val normalized = com.streamcloud.app.data.music.MusicProviderCatalogRepository.normalizeRepositoryUrl(url)
+        context.dataStore.edit { prefs ->
+            val remaining = prefs[musicProviderRepositoriesKey].orEmpty().split('\n').filter { it.isNotBlank() && it != normalized }
+            if (remaining.isEmpty()) prefs.remove(musicProviderRepositoriesKey) else prefs[musicProviderRepositoriesKey] = remaining.joinToString("\n")
+            if (remaining.isEmpty() && prefs[musicProviderKey] == com.streamcloud.app.data.music.MusicProvider.Spotify.id) {
+                prefs[musicProviderKey] = com.streamcloud.app.data.music.MusicProvider.YouTubeMusic.id
+            }
+        }
     }
 
     val backendUrl: Flow<String> = context.dataStore.data.map {
