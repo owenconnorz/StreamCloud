@@ -373,7 +373,7 @@ fun SpotifyPlaylistScreen(
                     }
                 }
                 SpotifyTrackMenuAction(
-                    MaterialIcons.AutoMirrored.Filled.PlaylistAdd,
+                    MaterialIcons.Filled.PlaylistAdd,
                     "Add to playlist",
                 ) {
                     menuTrack = null
@@ -384,7 +384,7 @@ fun SpotifyPlaylistScreen(
                     queueTrack(track, playNext = true)
                 }
                 SpotifyTrackMenuAction(
-                    MaterialIcons.AutoMirrored.Filled.PlaylistAdd,
+                    MaterialIcons.Filled.PlaylistAdd,
                     "Add to queue",
                 ) {
                     queueTrack(track)
