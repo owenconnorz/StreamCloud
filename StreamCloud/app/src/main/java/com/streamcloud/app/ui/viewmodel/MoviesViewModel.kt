@@ -510,7 +510,7 @@ class MoviesViewModel(
                     ),
                 )
 
-                if (!force && isDiscoverConfigFresh(config))
+                if (!force && isDiscoverConfigFresh(config)) {
                     applyCollectionRows(config.ids.mapNotNull(rowsById::get), loading = false)
                     _state.update { it.copy(error = null) }
                     return@launch
