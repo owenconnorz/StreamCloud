@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -102,9 +103,12 @@ internal fun SpotifyLibraryContent(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val settings = remember(context) {
+        com.streamcloud.app.data.ServiceLocator.get(context).settings
+    }
     val scope = rememberCoroutineScope()
     var selectedTab by rememberSaveable { mutableStateOf(SpotifyLibraryTab.Playlists) }
-    var gridView by rememberSaveable { mutableStateOf(false) }
+    val gridView by settings.spotifyLibraryGridView.collectAsState(initial = false)
     var retryGeneration by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -277,7 +281,9 @@ internal fun SpotifyLibraryContent(
                 }
             }
             IconButton(
-                onClick = { gridView = !gridView },
+                onClick = {
+                    scope.launch { settings.setSpotifyLibraryGridView(!gridView) }
+                },
                 modifier = Modifier.padding(end = 12.dp)
                     .size(44.dp)
                     .clip(RoundedCornerShape(12.dp))

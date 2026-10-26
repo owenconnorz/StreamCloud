@@ -37,3 +37,9 @@ Use an independent StreamCloud music-provider system, not Echo plugin compatibil
 **Why:** The user chose an independent StreamCloud adapter after discussing the license consequences.
 
 **How to apply:** Keep the app's adapter independent and ask before adopting Spotube's library or source code.
+
+**Persistent music UI preferences:** Music sources should be reorderable with thumb-friendly up/down controls, and the Spotify Library's grid/list choice should survive app restarts.
+
+**Why:** The user requested persistent ordering for music sources and a Spotify Library view mode that does not reset to list after restarting.
+
+**How to apply:** Persist provider order by stable provider ID and persist the Spotify Library layout choice in app settings; do not keep either preference only in Compose state.

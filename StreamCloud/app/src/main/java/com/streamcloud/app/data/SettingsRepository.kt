@@ -14,6 +14,7 @@ import com.streamcloud.app.data.nuvio.NuvioAccountScopeStore
 import com.streamcloud.app.data.nuvio.NuvioStorageScope
 import com.streamcloud.app.data.plugins.PinnedCsSection
 import com.streamcloud.app.data.plugins.csHomeSectionsJson
+import com.streamcloud.app.data.music.MusicProvider
 import com.streamcloud.app.data.ytmusic.YtmSong
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -36,6 +37,14 @@ import java.net.URLEncoder
 private val Context.dataStore by preferencesDataStore("streamcloud_settings")
 
 private const val MAX_MUSIC_SPEED_DIAL_ITEMS = 27
+
+private fun decodeMusicProviderOrder(raw: String?): List<MusicProvider> {
+    val saved = raw.orEmpty()
+        .split(',')
+        .mapNotNull { id -> MusicProvider.entries.firstOrNull { it.id == id } }
+        .distinct()
+    return saved + MusicProvider.entries.filterNot { it in saved }
+}
 
 data class YtMusicAccountInfo(
     val id: String,
@@ -259,10 +268,35 @@ object SettingsKeys {
 
 class SettingsRepository(private val context: Context) {
     private val musicProviderKey = stringPreferencesKey("music_home_provider")
+    private val musicProviderOrderKey = stringPreferencesKey("music_home_provider_order")
+    private val spotifyLibraryGridViewKey = booleanPreferencesKey("spotify_library_grid_view")
     val musicHomeProvider: Flow<com.streamcloud.app.data.music.MusicProvider> =
         context.dataStore.data.map {
             com.streamcloud.app.data.music.MusicProvider.fromId(it[musicProviderKey])
         }
+
+    val musicProviderOrder: Flow<List<MusicProvider>> = context.dataStore.data.map { prefs ->
+        decodeMusicProviderOrder(prefs[musicProviderOrderKey])
+    }
+
+    suspend fun setMusicProviderOrder(order: List<MusicProvider>) {
+        val normalized = order.distinct()
+        require(
+            normalized.size == MusicProvider.entries.size &&
+                normalized.toSet() == MusicProvider.entries.toSet(),
+        ) { "Music source order must include each built-in source exactly once." }
+        context.dataStore.edit { prefs ->
+            prefs[musicProviderOrderKey] = normalized.joinToString(",") { it.id }
+        }
+    }
+
+    val spotifyLibraryGridView: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[spotifyLibraryGridViewKey] ?: false
+    }
+
+    suspend fun setSpotifyLibraryGridView(enabled: Boolean) {
+        context.dataStore.edit { prefs -> prefs[spotifyLibraryGridViewKey] = enabled }
+    }
 
     suspend fun setMusicHomeProvider(provider: com.streamcloud.app.data.music.MusicProvider) {
         context.dataStore.edit { it[musicProviderKey] = provider.id }

@@ -11,6 +11,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -66,6 +68,8 @@ fun MusicScreen(
     // Wait for the persisted choice instead of briefly opening the online provider.
     val selected by services.settings.musicHomeProvider
         .collectAsState(initial = null)
+    val providerOrder by services.settings.musicProviderOrder
+        .collectAsState(initial = MusicProvider.entries)
     val installed by services.settings.installedMusicProviders.collectAsState(initial = emptyMap())
     val repositories by services.settings.musicProviderRepositories.collectAsState(initial = emptyList())
     val spotifyCookie by services.settings.spotifyCookie.collectAsState(initial = "")
@@ -83,6 +87,35 @@ fun MusicScreen(
         (repositories.isEmpty() || installed["spotify"] == null ||
             catalogues.values.flatten().none { it.id == "spotify" })
     ) MusicProvider.YouTubeMusic else selected
+    val spotifyProviderAvailable = installed["spotify"] != null &&
+        repositories.isNotEmpty() &&
+        catalogues.values.flatten().any { it.id == "spotify" }
+    val providerOptions = providerOrder.filter {
+        it != MusicProvider.Spotify || spotifyProviderAvailable
+    }
+    fun moveVisibleProvider(index: Int, direction: Int) {
+        val targetIndex = index + direction
+        if (targetIndex !in providerOptions.indices) return
+
+        val reorderedVisible = providerOptions.toMutableList().apply {
+            add(targetIndex, removeAt(index))
+        }
+        val visibleProviders = providerOptions.toSet()
+        var visibleIndex = 0
+        val reorderedAll = providerOrder.map { provider ->
+            if (provider in visibleProviders) reorderedVisible[visibleIndex++] else provider
+        }
+        scope.launch {
+            try {
+                services.settings.setMusicProviderOrder(reorderedAll)
+                error = null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                error = "Could not save the music source order."
+            }
+        }
+    }
     LaunchedEffect(repositories) {
         // User-added links may refresh automatically on later visits; a clean install has
         // no repositories, so it never contacts a plugin catalogue by default.
@@ -199,14 +232,14 @@ fun MusicScreen(
                     modifier = Modifier.padding(start = 4.dp, bottom = 14.dp),
                 )
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MusicProvider.entries.forEach { provider ->
-                        if (provider == MusicProvider.Spotify &&
-                            (installed["spotify"] == null || repositories.isEmpty() ||
-                                catalogues.values.flatten().none { it.id == "spotify" })
-                        ) return@forEach
+                    providerOptions.forEachIndexed { index, provider ->
                         MusicProviderOptionRow(
                             provider = provider,
                             selected = provider == activeProvider,
+                            canMoveUp = index > 0,
+                            canMoveDown = index < providerOptions.lastIndex,
+                            onMoveUp = { moveVisibleProvider(index, -1) },
+                            onMoveDown = { moveVisibleProvider(index, 1) },
                             onClick = {
                                 scope.launch {
                                     try {
@@ -484,6 +517,10 @@ private fun MusicProviderLogo(provider: MusicProvider, modifier: Modifier = Modi
 private fun MusicProviderOptionRow(
     provider: MusicProvider,
     selected: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(16.dp)
@@ -519,6 +556,26 @@ private fun MusicProviderOptionRow(
                     Icons.Default.Check,
                     contentDescription = "Selected",
                     tint = colors.primary,
+                )
+            }
+            IconButton(
+                onClick = onMoveUp,
+                enabled = canMoveUp,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Icon(
+                    Icons.Default.KeyboardArrowUp,
+                    contentDescription = "Move ${provider.title} up",
+                )
+            }
+            IconButton(
+                onClick = onMoveDown,
+                enabled = canMoveDown,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Icon(
+                    Icons.Default.KeyboardArrowDown,
+                    contentDescription = "Move ${provider.title} down",
                 )
             }
         }
