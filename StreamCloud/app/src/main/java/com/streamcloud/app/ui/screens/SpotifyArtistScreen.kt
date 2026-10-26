@@ -451,7 +451,7 @@ private fun SpotifyArtistSectionTitle(title: String) {
 @Composable
 private fun SpotifyArtistHorizontalSection(
     title: String,
-    content: @Composable LazyListScope.() -> Unit,
+    content: LazyListScope.() -> Unit,
 ) {
     Column {
         SpotifyArtistSectionTitle(title)
