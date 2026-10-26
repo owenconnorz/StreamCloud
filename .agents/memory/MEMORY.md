@@ -27,3 +27,4 @@
 - [Adult tab navigation visibility](adult-tab-navigation-visibility.md) — Show app navigation only on Pornhub and Eporner home screens, not Pornhub Shorts, Reddit, or RedGifs.
 - [Fire TV idle recommendations](fire-tv-idle-recommendations.md) — Use an in-app idle screen; StreamCloud cannot overlay Amazon Gallery after Fire OS takes control.
 - [App palette scope](app-palette-scope.md) — Apply reference palettes to Movies home, Library, and Settings; keep Music and detail-page theming unchanged.
+- [Spotify private library actions](spotify-private-library-actions.md) — A Blend invite is not a Blend playlist; undocumented rootlist writes need confirmed Spotify revisions.

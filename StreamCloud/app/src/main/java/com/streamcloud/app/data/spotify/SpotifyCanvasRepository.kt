@@ -333,6 +333,70 @@ object SpotifyCanvasRepository {
         return pathfinderQuery(token, spDc, "searchDesktop", variables, CATALOG_SEARCH_SHA)
     }
 
+    /**
+     * Calls a Spotify Web Player service outside Pathfinder. These endpoints are undocumented
+     * and intentionally kept behind this single request boundary so failures remain explicit.
+     */
+    fun webPlayerRequest(
+        token: String,
+        spDc: String,
+        method: String,
+        path: String,
+        body: String? = null,
+    ): PathfinderResponse {
+        require(path.startsWith("/") && !path.startsWith("//")) { "Invalid Spotify Web Player path." }
+        val clientToken = ensureClientToken()
+            ?: throw IllegalStateException("Spotify could not get a web-player client token.")
+        val builder = Request.Builder()
+            .url("https://spclient.wg.spotify.com$path")
+            .header("Authorization", "Bearer $token")
+            .header("Client-Token", clientToken)
+            .header("User-Agent", UA_WEB)
+            .header("Accept", "application/json")
+            .header("App-Platform", "WebPlayer")
+            .header("Spotify-App-Version", APP_VER)
+            .header("Origin", "https://open.spotify.com")
+            .header("Referer", "https://open.spotify.com/")
+
+        val sessionCookies = spotifyWebPlayerCookieHeader(spDc)
+        if (sessionCookies.isNotBlank()) builder.header("Cookie", sessionCookies)
+
+        val normalizedMethod = method.uppercase()
+        val requestBody = if (normalizedMethod == "GET" || normalizedMethod == "HEAD") {
+            null
+        } else {
+            (body ?: "").toRequestBody("application/json".toMediaType())
+        }
+        val request = builder.method(normalizedMethod, requestBody).build()
+        return http.newCall(request).execute().use { response ->
+            PathfinderResponse(
+                statusCode = response.code,
+                body = response.body?.string().orEmpty(),
+                retryAfter = response.header("Retry-After"),
+            )
+        }
+    }
+
+    private fun spotifyWebPlayerCookieHeader(spDc: String): String {
+        val supplied = spDc.split(';')
+            .map(String::trim)
+            .mapNotNull { part ->
+                val separator = part.indexOf('=')
+                if (separator <= 0) null
+                else part.substring(0, separator).trim() to part.substring(separator + 1).trim()
+            }
+            .filter { (name, value) -> name in setOf("sp_dc", "sp_t", "sp_key") && value.isNotBlank() }
+            .toMap()
+            .toMutableMap()
+        if ("sp_dc" !in supplied && spDc.isNotBlank()) supplied["sp_dc"] = spDc.trim()
+        listOf("sp_t", "sp_key").forEach { name ->
+            if (supplied[name].isNullOrBlank()) {
+                getStoredSessionCookie(name)?.takeIf(String::isNotBlank)?.let { supplied[name] = it }
+            }
+        }
+        return supplied.entries.joinToString("; ") { (name, value) -> "$name=$value" }
+    }
+
     fun artistOverview(token: String, spDc: String, artistId: String): PathfinderResponse {
         val variables = JSONObject()
             .put("uri", "spotify:artist:$artistId")

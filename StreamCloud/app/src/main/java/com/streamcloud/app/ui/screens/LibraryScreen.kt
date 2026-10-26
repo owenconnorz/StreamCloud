@@ -247,6 +247,11 @@ fun LibraryScreen(
     var tab by remember { mutableStateOf(LibTab.Playlists) }
     var openTile by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    var showSpotifyCreateMenu by remember { mutableStateOf(false) }
+    var spotifyCreateAction by remember { mutableStateOf<SpotifyLibraryCreateAction?>(null) }
+    var spotifyCreateBusy by remember { mutableStateOf(false) }
+    var spotifyCreateError by remember { mutableStateOf<String?>(null) }
+    var spotifyLibraryRefreshGeneration by remember { mutableIntStateOf(0) }
     var sectionMode by remember(isTv) {
         mutableStateOf(if (isTv) "Movies" else "Music")
     }
@@ -278,6 +283,123 @@ fun LibraryScreen(
 
     val isSpotifyMusicLibrary =
         sectionMode == "Music" && activeMusicProvider == MusicProvider.Spotify
+    if (isSpotifyMusicLibrary && showSpotifyCreateMenu) {
+        SpotifyLibraryCreateActionSheet(
+            onDismiss = { showSpotifyCreateMenu = false },
+            onChoose = { action ->
+                showSpotifyCreateMenu = false
+                spotifyCreateError = null
+                if (action == SpotifyLibraryCreateAction.Blend) {
+                    if (spotifyCookie.isBlank()) {
+                        Toast.makeText(
+                            context,
+                            "Sign in to Spotify in Settings to create a Blend.",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    } else {
+                        scope.launch {
+                            spotifyCreateBusy = true
+                            try {
+                                val invite = withContext(Dispatchers.IO) {
+                                    com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
+                                        .createBlendInvitation(spotifyCookie)
+                                }
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_SUBJECT, "Join my Spotify Blend")
+                                    putExtra(
+                                        Intent.EXTRA_TEXT,
+                                        "Join my Spotify Blend: $invite",
+                                    )
+                                }
+                                context.startActivity(
+                                    Intent.createChooser(shareIntent, "Share Blend invitation"),
+                                )
+                                Toast.makeText(
+                                    context,
+                                    "Share the invitation with someone. The Blend appears after they join.",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (exception: Exception) {
+                                Toast.makeText(
+                                    context,
+                                    exception.message ?: "Spotify could not create a Blend invitation.",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            } finally {
+                                spotifyCreateBusy = false
+                            }
+                        }
+                    }
+                } else {
+                    spotifyCreateAction = action
+                }
+            },
+        )
+    }
+    if (isSpotifyMusicLibrary) {
+        spotifyCreateAction?.let { action ->
+            SpotifyLibraryCreateNameDialog(
+            action = action,
+            isSaving = spotifyCreateBusy,
+            error = spotifyCreateError,
+            onDismiss = {
+                if (!spotifyCreateBusy) {
+                    spotifyCreateAction = null
+                    spotifyCreateError = null
+                }
+            },
+            onCreate = { name ->
+                if (!spotifyCreateBusy) {
+                    scope.launch {
+                        spotifyCreateBusy = true
+                        spotifyCreateError = null
+                        try {
+                            withContext(Dispatchers.IO) {
+                                when (action) {
+                                    SpotifyLibraryCreateAction.Playlist ->
+                                        com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
+                                            .createPlaylist(spotifyCookie, name)
+                                    SpotifyLibraryCreateAction.CollaborativePlaylist ->
+                                        com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
+                                            .createPlaylist(
+                                                spotifyCookie,
+                                                name,
+                                                collaborative = true,
+                                            )
+                                    SpotifyLibraryCreateAction.Folder ->
+                                        com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
+                                            .createPlaylistFolder(spotifyCookie, name)
+                                    SpotifyLibraryCreateAction.Blend ->
+                                        throw IllegalArgumentException("Blend does not use a name.")
+                                }
+                            }
+                            spotifyCreateAction = null
+                            spotifyLibraryRefreshGeneration++
+                            val createdLabel = when (action) {
+                                SpotifyLibraryCreateAction.Playlist -> "Spotify playlist created."
+                                SpotifyLibraryCreateAction.CollaborativePlaylist ->
+                                    "Collaborative Spotify playlist created."
+                                SpotifyLibraryCreateAction.Folder -> "Spotify folder created."
+                                SpotifyLibraryCreateAction.Blend -> "Blend created."
+                            }
+                            Toast.makeText(context, createdLabel, Toast.LENGTH_SHORT).show()
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (exception: Exception) {
+                            spotifyCreateError =
+                                exception.message ?: "Spotify could not complete this action."
+                        } finally {
+                            spotifyCreateBusy = false
+                        }
+                    }
+                }
+            },
+            )
+        }
+    }
     val libraryBackgroundTarget = if (isSpotifyMusicLibrary) {
         SpotifyBlack
     } else {
@@ -309,6 +431,35 @@ fun LibraryScreen(
                 )
             } else {
                 Spacer(Modifier.weight(1f))
+            }
+            if (isSpotifyMusicLibrary) {
+                Box(
+                    Modifier
+                        .padding(end = 4.dp)
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .tvFocusBorder(CircleShape)
+                        .background(SpotifyGreen)
+                        .clickable(enabled = !spotifyCreateBusy) {
+                            showSpotifyCreateMenu = true
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (spotifyCreateBusy) {
+                        CircularProgressIndicator(
+                            Modifier.size(20.dp),
+                            color = Color.Black,
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = "Create Spotify playlist",
+                            tint = Color.Black,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
             }
             Row(
                 modifier = Modifier.tvFocusGroup(),
@@ -515,6 +666,7 @@ fun LibraryScreen(
                     SpotifyLibraryContent(
                         spotifyCookie = spotifyCookie,
                         onOpenCollection = onOpenSpotifyPlaylist,
+                        refreshGeneration = spotifyLibraryRefreshGeneration,
                         modifier = Modifier.weight(1f).background(SpotifyBlack),
                     )
                 }

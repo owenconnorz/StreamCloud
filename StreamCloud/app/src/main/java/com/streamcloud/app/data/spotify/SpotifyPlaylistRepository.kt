@@ -12,6 +12,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
+import java.security.SecureRandom
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -23,6 +24,7 @@ object SpotifyPlaylistRepository {
     private const val RATE_LIMIT_PREFS = "spotify_api_rate_limits"
     private const val RATE_LIMIT_UNTIL_KEY = "retry_until_ms"
     private const val PATHFINDER_RATE_LIMIT_UNTIL_KEY = "catalog_retry_until_ms"
+    private const val WEBPLAYER_RATE_LIMIT_UNTIL_KEY = "webplayer_retry_until_ms"
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -34,6 +36,7 @@ object SpotifyPlaylistRepository {
     private val responseCache = ConcurrentHashMap<String, CachedResponse>()
     @Volatile private var spotifyRetryAtMs = 0L
     @Volatile private var pathfinderRetryAtMs = 0L
+    @Volatile private var webPlayerRetryAtMs = 0L
     @Volatile private var rateLimitPreferences: SharedPreferences? = null
 
     private const val RESPONSE_CACHE_TTL_MS = 15L * 60L * 1000L
@@ -60,6 +63,10 @@ object SpotifyPlaylistRepository {
         pathfinderRetryAtMs = maxOf(
             pathfinderRetryAtMs,
             preferences.getLong(PATHFINDER_RATE_LIMIT_UNTIL_KEY, 0L),
+        )
+        webPlayerRetryAtMs = maxOf(
+            webPlayerRetryAtMs,
+            preferences.getLong(WEBPLAYER_RATE_LIMIT_UNTIL_KEY, 0L),
         )
     }
 
@@ -108,6 +115,30 @@ object SpotifyPlaylistRepository {
         val retryAt = maxOf(currentPathfinderRetryAtMs(), candidateRetryAtMs)
         pathfinderRetryAtMs = retryAt
         rateLimitPreferences?.edit()?.putLong(PATHFINDER_RATE_LIMIT_UNTIL_KEY, retryAt)?.apply()
+        return retryAt
+    }
+
+    @Synchronized
+    private fun currentWebPlayerRetryAtMs(): Long {
+        val preferences = rateLimitPreferences
+        val retryAt = maxOf(
+            webPlayerRetryAtMs,
+            preferences?.getLong(WEBPLAYER_RATE_LIMIT_UNTIL_KEY, 0L) ?: 0L,
+        )
+        if (retryAt <= System.currentTimeMillis()) {
+            webPlayerRetryAtMs = 0L
+            preferences?.edit()?.remove(WEBPLAYER_RATE_LIMIT_UNTIL_KEY)?.apply()
+            return 0L
+        }
+        webPlayerRetryAtMs = retryAt
+        return retryAt
+    }
+
+    @Synchronized
+    private fun extendWebPlayerRetryAtMs(candidateRetryAtMs: Long): Long {
+        val retryAt = maxOf(currentWebPlayerRetryAtMs(), candidateRetryAtMs)
+        webPlayerRetryAtMs = retryAt
+        rateLimitPreferences?.edit()?.putLong(WEBPLAYER_RATE_LIMIT_UNTIL_KEY, retryAt)?.apply()
         return retryAt
     }
 
@@ -198,6 +229,96 @@ object SpotifyPlaylistRepository {
             else -> "Spotify couldn't $action (HTTP $code)."
         }
         return if (detail == null) message else "$message $detail"
+    }
+
+    private fun postSpotifyJson(token: String, url: String, payload: JSONObject): JSONObject {
+        val retryAt = currentRetryAtMs()
+        if (retryAt > System.currentTimeMillis()) throw RateLimitedException(retryAt)
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", authHeader(token))
+            .header("Accept", "application/json")
+            .header("Content-Type", "application/json")
+            .post(payload.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        return http.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (response.code == 429) {
+                val retryAfterMs = response.header("Retry-After")
+                    ?.trim()
+                    ?.toLongOrNull()
+                    ?.let { TimeUnit.SECONDS.toMillis(it.coerceAtLeast(1L)) }
+                    ?: DEFAULT_RETRY_AFTER_MS
+                throw RateLimitedException(
+                    extendRetryAtMs(System.currentTimeMillis() + retryAfterMs),
+                )
+            }
+            if (!response.isSuccessful) {
+                throw IllegalStateException(
+                    spotifyErrorMessage(response.code, body, "create this playlist"),
+                )
+            }
+            body.takeIf(String::isNotBlank)?.let(::JSONObject) ?: JSONObject()
+        }
+    }
+
+    private fun webPlayerJson(
+        token: String,
+        spDc: String,
+        method: String,
+        path: String,
+        body: String? = null,
+    ): JSONObject {
+        val retryAt = currentWebPlayerRetryAtMs()
+        if (retryAt > System.currentTimeMillis()) throw RateLimitedException(retryAt)
+
+        val response = SpotifyCanvasRepository.webPlayerRequest(
+            token = token,
+            spDc = spDc,
+            method = method,
+            path = path,
+            body = body,
+        )
+        if (response.statusCode == 429) {
+            val retryAfterMs = response.retryAfter
+                ?.trim()
+                ?.toLongOrNull()
+                ?.let { TimeUnit.SECONDS.toMillis(it.coerceAtLeast(1L)) }
+                ?: DEFAULT_RETRY_AFTER_MS
+            throw RateLimitedException(
+                extendWebPlayerRetryAtMs(System.currentTimeMillis() + retryAfterMs),
+            )
+        }
+        if (response.statusCode !in 200..299) {
+            val detail = runCatching {
+                JSONObject(response.body).optString("message")
+                    .takeIf(String::isNotBlank)
+                    ?: JSONObject(response.body).optString("error")
+                        .takeIf(String::isNotBlank)
+            }.getOrNull()
+            val message = when (response.statusCode) {
+                401 -> "Spotify sign-in has expired. Sign out in Settings, then sign in again."
+                403 -> "Spotify denied this Web Player action for the current account."
+                else -> "Spotify couldn't complete this Web Player action (HTTP ${response.statusCode})."
+            }
+            throw IllegalStateException(if (detail == null) message else "$message $detail")
+        }
+        val json = response.body.takeIf(String::isNotBlank)?.let(::JSONObject) ?: JSONObject()
+        val errors = json.optJSONArray("errors")
+        if (errors != null && errors.length() > 0) {
+            val detail = errors.optJSONObject(0)?.optString("message")
+                ?.takeIf(String::isNotBlank)
+                ?: "Spotify returned an error."
+            throw IllegalStateException(detail)
+        }
+        return json
+    }
+
+    private fun invalidatePlaylistListResponses(token: String) {
+        val prefix = "${tokenCacheScope(token)}|$BASE/me/playlists"
+        responseCache.keys
+            .filter { it.startsWith(prefix) }
+            .forEach(responseCache::remove)
     }
 
     private fun executeMutation(request: Request, action: String): Boolean {
@@ -552,6 +673,117 @@ object SpotifyPlaylistRepository {
             if (offset >= total || items.length() == 0) break
         }
         result
+    }
+
+    suspend fun createPlaylist(
+        spDc: String,
+        name: String,
+        collaborative: Boolean = false,
+    ): String = withContext(Dispatchers.IO) {
+        val normalizedName = name.trim()
+        require(normalizedName.isNotEmpty()) { "Enter a playlist name." }
+        require(normalizedName.length <= 100) { "Spotify playlist names must be 100 characters or fewer." }
+
+        val token = accessToken(spDc)
+        val userId = getJson(token, "$BASE/me").optString("id")
+            .takeIf(String::isNotBlank)
+            ?: throw IllegalStateException("Spotify did not return the signed-in account ID.")
+        val payload = JSONObject()
+            .put("name", normalizedName)
+            .put("public", false)
+            .put("collaborative", collaborative)
+        val created = postSpotifyJson(
+            token,
+            "$BASE/users/${URLEncoder.encode(userId, "UTF-8")}/playlists",
+            payload,
+        )
+        val id = created.optString("id").takeIf(String::isNotBlank)
+            ?: throw IllegalStateException("Spotify did not confirm that the playlist was created.")
+        invalidatePlaylistListResponses(token)
+        SpotifyWebPlayerRepository.invalidateAccountCache(spDc)
+        id
+    }
+
+    suspend fun createPlaylistFolder(spDc: String, name: String): String =
+        withContext(Dispatchers.IO) {
+            val normalizedName = name.trim()
+            require(normalizedName.isNotEmpty()) { "Enter a folder name." }
+            require(normalizedName.length <= 100) { "Spotify folder names must be 100 characters or fewer." }
+
+            val token = accessToken(spDc)
+            val userId = getJson(token, "$BASE/me").optString("id")
+                .takeIf(String::isNotBlank)
+                ?: throw IllegalStateException("Spotify did not return the signed-in account ID.")
+            val encodedUser = URLEncoder.encode(userId, "UTF-8")
+            val rootlistPath =
+                "/playlist/v2/user/$encodedUser/rootlist" +
+                    "?decorate=revision,length,attributes,timestamp,owner,capabilities,status_code" +
+                    "&bustCache=${System.currentTimeMillis()}"
+            val rootlist = webPlayerJson(token, spDc, "GET", rootlistPath)
+            if (rootlist.optString("revision").isBlank()) {
+                throw IllegalStateException("Spotify did not return the current library revision.")
+            }
+
+            val id = newSpotifyFolderId()
+            val encodedName = URLEncoder.encode(normalizedName, "UTF-8").replace("+", "%20")
+            val startUri = "spotify:start-group:$id:$encodedName"
+            val endUri = "spotify:end-group:$id"
+            val add = JSONObject()
+                .put("addFirst", true)
+                .put(
+                    "items",
+                    JSONArray()
+                        .put(JSONObject().put("uri", startUri))
+                        .put(JSONObject().put("uri", endUri)),
+                )
+            val operation = JSONObject()
+                .put("kind", "ADD")
+                .put("add", add)
+            val delta = JSONObject()
+                .put("ops", JSONArray().put(operation))
+                .put(
+                    "info",
+                    JSONObject().put("source", JSONObject().put("client", "WEBPLAYER")),
+                )
+            val payload = JSONObject().put("deltas", JSONArray().put(delta))
+            val changeResult = webPlayerJson(
+                token,
+                spDc,
+                "POST",
+                "/playlist/v2/user/$encodedUser/rootlist/changes",
+                payload.toString(),
+            )
+            val confirmed = changeResult.optString("revision").isNotBlank() ||
+                (changeResult.optJSONArray("resultingRevisions")?.length() ?: 0) > 0 ||
+                changeResult.optJSONObject("syncResult") != null
+            if (!confirmed) {
+                throw IllegalStateException(
+                    "Spotify did not confirm that the folder was added to your library.",
+                )
+            }
+            invalidatePlaylistListResponses(token)
+            SpotifyWebPlayerRepository.invalidateAccountCache(spDc)
+            id
+        }
+
+    suspend fun createBlendInvitation(spDc: String): String = withContext(Dispatchers.IO) {
+        val token = accessToken(spDc)
+        val invite = webPlayerJson(
+            token = token,
+            spDc = spDc,
+            method = "POST",
+            path = "/blend-invitation/v1/generate",
+        ).optString("invite")
+        if (!invite.startsWith("https://open.spotify.com/blend/")) {
+            throw IllegalStateException("Spotify did not return a valid Blend invitation.")
+        }
+        invite
+    }
+
+    private fun newSpotifyFolderId(): String {
+        val bytes = ByteArray(8)
+        SecureRandom().nextBytes(bytes)
+        return bytes.joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
     }
 
     suspend fun getSavedAlbums(spDc: String): List<SpotifyAlbum> = withContext(Dispatchers.IO) {

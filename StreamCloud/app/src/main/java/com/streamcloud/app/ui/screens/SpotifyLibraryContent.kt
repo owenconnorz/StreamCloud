@@ -98,6 +98,7 @@ private fun YtTrack.asSpotifyMatchSong() = YtmSong(
 internal fun SpotifyLibraryContent(
     spotifyCookie: String,
     onOpenCollection: (id: String, title: String) -> Unit,
+    refreshGeneration: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -117,7 +118,8 @@ internal fun SpotifyLibraryContent(
     var loadMoreError by remember { mutableStateOf<Pair<SpotifyLibraryTab, String>?>(null) }
     var playingTrack by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(spotifyCookie) {
+    LaunchedEffect(spotifyCookie, refreshGeneration) {
+        if (refreshGeneration > 0) selectedTab = SpotifyLibraryTab.Playlists
         loadedTabs = emptySet()
         nextOffsets = emptyMap()
         loadMoreError = null
@@ -128,7 +130,7 @@ internal fun SpotifyLibraryContent(
         error = null
     }
 
-    LaunchedEffect(spotifyCookie, selectedTab, retryGeneration) {
+    LaunchedEffect(spotifyCookie, selectedTab, retryGeneration, refreshGeneration) {
         if (spotifyCookie.isBlank()) {
             error = "Sign in to Spotify in Settings to view your account library."
             loading = false
@@ -144,7 +146,7 @@ internal fun SpotifyLibraryContent(
                     val page = withContext(Dispatchers.IO) {
                         SpotifyWebPlayerRepository.getPlaylistsPage(
                             spotifyCookie,
-                            forceRefresh = retryGeneration > 0,
+                            forceRefresh = retryGeneration > 0 || refreshGeneration > 0,
                         )
                     }
                     playlists = page.items
@@ -154,7 +156,7 @@ internal fun SpotifyLibraryContent(
                     val page = withContext(Dispatchers.IO) {
                         SpotifyWebPlayerRepository.getAlbumsPage(
                             spotifyCookie,
-                            forceRefresh = retryGeneration > 0,
+                            forceRefresh = retryGeneration > 0 || refreshGeneration > 0,
                         )
                     }
                     albums = page.items
@@ -164,7 +166,7 @@ internal fun SpotifyLibraryContent(
                     val page = withContext(Dispatchers.IO) {
                         SpotifyWebPlayerRepository.getArtistsPage(
                             spotifyCookie,
-                            forceRefresh = retryGeneration > 0,
+                            forceRefresh = retryGeneration > 0 || refreshGeneration > 0,
                         )
                     }
                     artists = page.items
@@ -174,7 +176,7 @@ internal fun SpotifyLibraryContent(
                     val page = withContext(Dispatchers.IO) {
                         SpotifyWebPlayerRepository.getSavedTracksPage(
                             spotifyCookie,
-                            forceRefresh = retryGeneration > 0,
+                            forceRefresh = retryGeneration > 0 || refreshGeneration > 0,
                         )
                     }
                     tracks = page.items
