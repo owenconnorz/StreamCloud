@@ -55,6 +55,7 @@ object SpotifyCanvasRepository {
     private const val ARTIST_OVERVIEW_SHA = "7f86ff63e38c24973a2842b672abe44c910c1973978dc8a4a0cb648edef34527"
     private const val ALBUM_DETAIL_SHA = "b9bfabef66ed756e5e13f68a942deb60bd4125ec1f1be8cc42769dc0259b4b10"
     private const val LIBRARY_MUTATION_SHA = "a3c1ff58e6a36fec5fe1e3a193dc95d9071d96b9ba53c5ba9c1494fb1ee73915"
+    private const val PLAYLIST_ADD_MUTATION_SHA = "47b2a1234b17748d332dd0431534f22450e9ecbb3d5ddcdacbd83368636a0990"
     private const val CATALOG_SEARCH_ENDPOINT = "https://api-partner.spotify.com/pathfinder/v2/query"
 
     // Client body matches SimpMusic SpotifyClientBody exactly
@@ -387,6 +388,32 @@ object SpotifyCanvasRepository {
             if (saved) "addToLibrary" else "removeFromLibrary",
             variables,
             LIBRARY_MUTATION_SHA,
+        )
+    }
+
+    fun addTrackToPlaylist(
+        token: String,
+        spDc: String,
+        playlistId: String,
+        trackUri: String,
+    ): PathfinderResponse {
+        require(playlistId.matches(Regex("[A-Za-z0-9]+"))) { "Invalid Spotify playlist ID." }
+        require(trackUri.startsWith("spotify:track:")) { "Invalid Spotify track URI." }
+        val variables = JSONObject()
+            .put("playlistItemUris", org.json.JSONArray().put(trackUri))
+            .put("playlistUri", "spotify:playlist:$playlistId")
+            .put(
+                "newPosition",
+                JSONObject()
+                    .put("moveType", "BOTTOM_OF_PLAYLIST")
+                    .put("fromUid", JSONObject.NULL),
+            )
+        return pathfinderQuery(
+            token,
+            spDc,
+            "addToPlaylist",
+            variables,
+            PLAYLIST_ADD_MUTATION_SHA,
         )
     }
 

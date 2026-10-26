@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Search
@@ -41,6 +42,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -136,6 +139,8 @@ fun SpotifySearchScreen(
     var currentTimeMs by remember { mutableStateOf(System.currentTimeMillis()) }
     var filter by remember { mutableStateOf(SpotifySearchFilter.All) }
     var playingTrackId by remember { mutableStateOf<String?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    var actionTarget by remember { mutableStateOf<SpotifySearchMenuTarget?>(null) }
 
     fun submitSearch() {
         val cleanQuery = query.trim()
@@ -241,6 +246,7 @@ fun SpotifySearchScreen(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
@@ -360,10 +366,23 @@ fun SpotifySearchScreen(
                     onOpenArtist = onOpenArtist,
                     onOpenAlbum = onOpenAlbum,
                     onOpenSpotifyUrl = ::openSpotifyUrl,
+                    onOpenMenu = { target -> actionTarget = target },
                 )
             }
         }
     }
+
+    SpotifySearchActionSheets(
+        target = actionTarget,
+        onDismissTarget = { actionTarget = null },
+        spotifyCookie = spotifyCookie,
+        onPlayTrack = ::playTrack,
+        onOpenPlaylist = onOpenPlaylist,
+        onOpenArtist = onOpenArtist,
+        onOpenAlbum = onOpenAlbum,
+        onOpenSpotifyUrl = ::openSpotifyUrl,
+        snackbarHostState = snackbarHostState,
+    )
 }
 
 @Composable
@@ -390,6 +409,7 @@ private fun SpotifySearchResultsList(
     onOpenArtist: (SpotifyArtist) -> Unit,
     onOpenAlbum: (SpotifyAlbum) -> Unit,
     onOpenSpotifyUrl: (String) -> Unit,
+    onOpenMenu: (SpotifySearchMenuTarget) -> Unit,
 ) {
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -401,7 +421,12 @@ private fun SpotifySearchResultsList(
                 if (results.tracks.isNotEmpty()) {
                     item { SpotifySearchSectionTitle("Songs") }
                     items(results.tracks.take(6), key = { "track-${it.id}" }) { track ->
-                        SpotifyTrackSearchRow(track, playingTrackId == track.id) { onPlayTrack(track) }
+                        SpotifyTrackSearchRow(
+                            track,
+                            loading = playingTrackId == track.id,
+                            onClick = { onPlayTrack(track) },
+                            onMenu = { onOpenMenu(SpotifySearchMenuTarget.Track(track)) },
+                        )
                     }
                 }
                 if (results.artists.isNotEmpty()) {
@@ -409,9 +434,12 @@ private fun SpotifySearchResultsList(
                     item {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                             items(results.artists.take(10), key = { "artist-${it.id}" }) { artist ->
-                                SpotifySearchCircleCard(artist.name, artist.imageUrl) {
-                                    onOpenArtist(artist)
-                                }
+                                SpotifySearchCircleCard(
+                                    title = artist.name,
+                                    imageUrl = artist.imageUrl,
+                                    onClick = { onOpenArtist(artist) },
+                                    onMenu = { onOpenMenu(SpotifySearchMenuTarget.Artist(artist)) },
+                                )
                             }
                         }
                     }
@@ -425,6 +453,7 @@ private fun SpotifySearchResultsList(
                             subtitle = listOf(album.artists, album.releaseDate.take(4))
                                 .filter(String::isNotBlank).joinToString(" · "),
                             kind = "Album",
+                            onMenu = { onOpenMenu(SpotifySearchMenuTarget.Album(album)) },
                         ) { onOpenAlbum(album) }
                     }
                 }
@@ -436,6 +465,7 @@ private fun SpotifySearchResultsList(
                             title = playlist.name,
                             subtitle = playlist.ownerName.ifBlank { "Spotify playlist" },
                             kind = "Playlist",
+                            onMenu = { onOpenMenu(SpotifySearchMenuTarget.Playlist(playlist)) },
                         ) { onOpenPlaylist(playlist.id, playlist.name) }
                     }
                 }
@@ -447,6 +477,7 @@ private fun SpotifySearchResultsList(
                             title = podcast.name,
                             subtitle = podcast.publisher,
                             kind = "Podcast",
+                            onMenu = { onOpenMenu(SpotifySearchMenuTarget.Podcast(podcast)) },
                         ) { onOpenSpotifyUrl("https://open.spotify.com/show/${podcast.id}") }
                     }
                 }
@@ -458,6 +489,7 @@ private fun SpotifySearchResultsList(
                             title = episode.name,
                             subtitle = episode.podcast,
                             kind = "Episode",
+                            onMenu = { onOpenMenu(SpotifySearchMenuTarget.Episode(episode)) },
                         ) { onOpenSpotifyUrl("https://open.spotify.com/episode/${episode.id}") }
                     }
                 }
@@ -471,7 +503,12 @@ private fun SpotifySearchResultsList(
             SpotifySearchFilter.Tracks -> {
                 if (results.tracks.isEmpty()) item { SpotifySearchMessage("No songs found.") }
                 items(results.tracks, key = { "track-${it.id}" }) { track ->
-                    SpotifyTrackSearchRow(track, playingTrackId == track.id) { onPlayTrack(track) }
+                    SpotifyTrackSearchRow(
+                        track,
+                        loading = playingTrackId == track.id,
+                        onClick = { onPlayTrack(track) },
+                        onMenu = { onOpenMenu(SpotifySearchMenuTarget.Track(track)) },
+                    )
                 }
             }
             SpotifySearchFilter.Artists -> {
@@ -483,39 +520,48 @@ private fun SpotifySearchResultsList(
                         subtitle = "Artist",
                         kind = "Artist",
                         circleImage = true,
+                        onMenu = { onOpenMenu(SpotifySearchMenuTarget.Artist(artist)) },
                     ) { onOpenArtist(artist) }
                 }
             }
             SpotifySearchFilter.Albums -> {
                 if (results.albums.isEmpty()) item { SpotifySearchMessage("No albums found.") }
                 items(results.albums, key = { "album-${it.id}" }) { album ->
-                    SpotifyAlbumSearchRow(album) {
-                        onOpenAlbum(album)
-                    }
+                    SpotifyAlbumSearchRow(
+                        album,
+                        onClick = { onOpenAlbum(album) },
+                        onMenu = { onOpenMenu(SpotifySearchMenuTarget.Album(album)) },
+                    )
                 }
             }
             SpotifySearchFilter.Playlists -> {
                 if (results.playlists.isEmpty()) item { SpotifySearchMessage("No playlists found.") }
                 items(results.playlists, key = { "playlist-${it.id}" }) { playlist ->
-                    SpotifyPlaylistSearchRow(playlist) {
-                        onOpenPlaylist(playlist.id, playlist.name)
-                    }
+                    SpotifyPlaylistSearchRow(
+                        playlist,
+                        onClick = { onOpenPlaylist(playlist.id, playlist.name) },
+                        onMenu = { onOpenMenu(SpotifySearchMenuTarget.Playlist(playlist)) },
+                    )
                 }
             }
             SpotifySearchFilter.Podcasts -> {
                 if (results.podcasts.isEmpty()) item { SpotifySearchMessage("No podcasts found.") }
                 items(results.podcasts, key = { "podcast-${it.id}" }) { podcast ->
-                    SpotifyPodcastSearchRow(podcast) {
-                        onOpenSpotifyUrl("https://open.spotify.com/show/${podcast.id}")
-                    }
+                    SpotifyPodcastSearchRow(
+                        podcast,
+                        onClick = { onOpenSpotifyUrl("https://open.spotify.com/show/${podcast.id}") },
+                        onMenu = { onOpenMenu(SpotifySearchMenuTarget.Podcast(podcast)) },
+                    )
                 }
             }
             SpotifySearchFilter.Episodes -> {
                 if (results.episodes.isEmpty()) item { SpotifySearchMessage("No episodes found.") }
                 items(results.episodes, key = { "episode-${it.id}" }) { episode ->
-                    SpotifyEpisodeSearchRow(episode) {
-                        onOpenSpotifyUrl("https://open.spotify.com/episode/${episode.id}")
-                    }
+                    SpotifyEpisodeSearchRow(
+                        episode,
+                        onClick = { onOpenSpotifyUrl("https://open.spotify.com/episode/${episode.id}") },
+                        onMenu = { onOpenMenu(SpotifySearchMenuTarget.Episode(episode)) },
+                    )
                 }
             }
         }
@@ -537,6 +583,7 @@ private fun SpotifyTrackSearchRow(
     track: SpotifyTrack,
     loading: Boolean,
     onClick: () -> Unit,
+    onMenu: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 7.dp),
@@ -555,11 +602,22 @@ private fun SpotifyTrackSearchRow(
         }
         if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
         else Icon(Icons.Default.PlayArrow, contentDescription = "Play ${track.title}", tint = MaterialTheme.colorScheme.primary)
+        IconButton(onClick = onMenu) {
+            Icon(
+                Icons.Default.MoreVert,
+                contentDescription = "More actions for ${track.title}",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
 @Composable
-private fun SpotifyAlbumSearchRow(album: SpotifyAlbum, onClick: () -> Unit) =
+private fun SpotifyAlbumSearchRow(
+    album: SpotifyAlbum,
+    onClick: () -> Unit,
+    onMenu: () -> Unit,
+) =
     SpotifySearchEntityRow(
         imageUrl = album.imageUrl,
         title = album.name,
@@ -567,36 +625,52 @@ private fun SpotifyAlbumSearchRow(album: SpotifyAlbum, onClick: () -> Unit) =
             .filter(String::isNotBlank).joinToString(" · "),
         kind = "Album",
         onClick = onClick,
+        onMenu = onMenu,
     )
 
 @Composable
-private fun SpotifyPlaylistSearchRow(playlist: SpotifyPlaylist, onClick: () -> Unit) =
+private fun SpotifyPlaylistSearchRow(
+    playlist: SpotifyPlaylist,
+    onClick: () -> Unit,
+    onMenu: () -> Unit,
+) =
     SpotifySearchEntityRow(
         imageUrl = playlist.imageUrl,
         title = playlist.name,
         subtitle = playlist.ownerName.ifBlank { "${playlist.trackCount ?: 0} songs" },
         kind = "Playlist",
         onClick = onClick,
+        onMenu = onMenu,
     )
 
 @Composable
-private fun SpotifyPodcastSearchRow(podcast: SpotifyPodcast, onClick: () -> Unit) =
+private fun SpotifyPodcastSearchRow(
+    podcast: SpotifyPodcast,
+    onClick: () -> Unit,
+    onMenu: () -> Unit,
+) =
     SpotifySearchEntityRow(
         imageUrl = podcast.imageUrl,
         title = podcast.name,
         subtitle = podcast.publisher,
         kind = "Podcast",
         onClick = onClick,
+        onMenu = onMenu,
     )
 
 @Composable
-private fun SpotifyEpisodeSearchRow(episode: SpotifyEpisode, onClick: () -> Unit) =
+private fun SpotifyEpisodeSearchRow(
+    episode: SpotifyEpisode,
+    onClick: () -> Unit,
+    onMenu: () -> Unit,
+) =
     SpotifySearchEntityRow(
         imageUrl = episode.imageUrl,
         title = episode.name,
         subtitle = episode.podcast,
         kind = "Episode",
         onClick = onClick,
+        onMenu = onMenu,
     )
 
 @Composable
@@ -606,6 +680,7 @@ private fun SpotifySearchEntityRow(
     subtitle: String,
     kind: String,
     circleImage: Boolean = false,
+    onMenu: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     Row(
@@ -623,6 +698,15 @@ private fun SpotifySearchEntityRow(
                 style = MaterialTheme.typography.bodySmall,
             )
         }
+        if (onMenu != null) {
+            IconButton(onClick = onMenu) {
+                Icon(
+                    Icons.Default.MoreVert,
+                    contentDescription = "More actions for $title",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 
@@ -631,19 +715,32 @@ private fun SpotifySearchCircleCard(
     title: String,
     imageUrl: String?,
     onClick: () -> Unit,
+    onMenu: () -> Unit,
 ) {
     Column(
         Modifier.width(112.dp).clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         SpotifySearchArtwork(imageUrl, circle = true, modifier = Modifier.size(104.dp))
-        Text(
-            title,
-            Modifier.padding(top = 6.dp),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        Row(
+            Modifier.fillMaxWidth().padding(top = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                title,
+                Modifier.weight(1f).clickable(onClick = onClick),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            IconButton(onClick = onMenu, modifier = Modifier.size(34.dp)) {
+                Icon(
+                    Icons.Default.MoreVert,
+                    contentDescription = "More actions for $title",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 

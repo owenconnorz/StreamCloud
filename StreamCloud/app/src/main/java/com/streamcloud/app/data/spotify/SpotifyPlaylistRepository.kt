@@ -768,15 +768,22 @@ object SpotifyPlaylistRepository {
             require(playlistId.matches(Regex("[A-Za-z0-9]+"))) { "Invalid Spotify playlist ID." }
             require(trackUri.startsWith("spotify:track:")) { "Invalid Spotify track URI." }
             val token = accessToken(spDc)
-            val body = JSONObject().put("uris", JSONArray().put(trackUri))
-                .toString().toRequestBody("application/json".toMediaType())
-            val request = Request.Builder()
-                .url("$BASE/playlists/$playlistId/items")
-                .header("Authorization", authHeader(token))
-                .header("Accept", "application/json")
-                .post(body)
-                .build()
-            executeMutation(request, "add this track to the playlist")
+            val response = pathfinderJson(cacheKey = null) {
+                SpotifyCanvasRepository.addTrackToPlaylist(
+                    token = token,
+                    spDc = spDc,
+                    playlistId = playlistId,
+                    trackUri = trackUri,
+                )
+            }
+            if ((response.optJSONArray("errors")?.length() ?: 0) > 0) {
+                throw IllegalStateException(
+                    graphQlError(response, "Spotify couldn't add this track to the playlist."),
+                )
+            }
+            if (response.optJSONObject("data")?.optJSONObject("addItemsToPlaylist") == null) {
+                throw IllegalStateException("Spotify did not confirm that the track was added.")
+            }
             invalidatePlaylistTrackResponses(token, playlistId)
             SpotifyWebPlayerRepository.invalidateAccountCache(spDc)
             true
