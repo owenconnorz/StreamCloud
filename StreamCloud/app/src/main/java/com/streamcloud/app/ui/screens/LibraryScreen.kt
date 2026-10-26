@@ -251,6 +251,7 @@ fun LibraryScreen(
     var spotifyCreateAction by remember { mutableStateOf<SpotifyLibraryCreateAction?>(null) }
     var spotifyCreateBusy by remember { mutableStateOf(false) }
     var spotifyCreateError by remember { mutableStateOf<String?>(null) }
+    var spotifyCreateCooldownSeconds by remember { mutableLongStateOf(0L) }
     var spotifyLibraryRefreshGeneration by remember { mutableIntStateOf(0) }
     var sectionMode by remember(isTv) {
         mutableStateOf(if (isTv) "Movies" else "Music")
@@ -283,12 +284,54 @@ fun LibraryScreen(
 
     val isSpotifyMusicLibrary =
         sectionMode == "Music" && activeMusicProvider == MusicProvider.Spotify
+    LaunchedEffect(spotifyCreateAction, spotifyCreateError, isSpotifyMusicLibrary) {
+        val action = spotifyCreateAction
+        val usesPlaylistCreation =
+            action == SpotifyLibraryCreateAction.Playlist ||
+                action == SpotifyLibraryCreateAction.CollaborativePlaylist
+        if (!isSpotifyMusicLibrary || !usesPlaylistCreation) {
+            spotifyCreateCooldownSeconds = 0L
+            return@LaunchedEffect
+        }
+
+        while (true) {
+            val retryAtMs = com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
+                .playlistCreateCooldownUntilMs(
+                    collaborative = action == SpotifyLibraryCreateAction.CollaborativePlaylist,
+                )
+            val secondsRemaining = ((retryAtMs - System.currentTimeMillis() + 999L) / 1000L)
+                .coerceAtLeast(0L)
+            spotifyCreateCooldownSeconds = secondsRemaining
+            if (
+                secondsRemaining == 0L &&
+                spotifyCreateError?.contains("rate-limiting requests", ignoreCase = true) == true
+            ) {
+                spotifyCreateError = null
+            }
+            delay(1_000L)
+        }
+    }
     if (isSpotifyMusicLibrary && showSpotifyCreateMenu) {
         SpotifyLibraryCreateActionSheet(
             onDismiss = { showSpotifyCreateMenu = false },
             onChoose = { action ->
                 showSpotifyCreateMenu = false
                 spotifyCreateError = null
+                if (
+                    action == SpotifyLibraryCreateAction.Playlist ||
+                    action == SpotifyLibraryCreateAction.CollaborativePlaylist
+                ) {
+                    val retryAtMs = com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
+                        .playlistCreateCooldownUntilMs(
+                            collaborative = action ==
+                                SpotifyLibraryCreateAction.CollaborativePlaylist,
+                        )
+                    spotifyCreateCooldownSeconds =
+                        ((retryAtMs - System.currentTimeMillis() + 999L) / 1000L)
+                            .coerceAtLeast(0L)
+                } else {
+                    spotifyCreateCooldownSeconds = 0L
+                }
                 if (action == SpotifyLibraryCreateAction.Blend) {
                     if (spotifyCookie.isBlank()) {
                         Toast.makeText(
@@ -345,6 +388,7 @@ fun LibraryScreen(
             action = action,
             isSaving = spotifyCreateBusy,
             error = spotifyCreateError,
+                cooldownRemainingSeconds = spotifyCreateCooldownSeconds,
             onDismiss = {
                 if (!spotifyCreateBusy) {
                     spotifyCreateAction = null
@@ -352,7 +396,7 @@ fun LibraryScreen(
                 }
             },
             onCreate = { name ->
-                if (!spotifyCreateBusy) {
+                if (!spotifyCreateBusy && spotifyCreateCooldownSeconds == 0L) {
                     scope.launch {
                         spotifyCreateBusy = true
                         spotifyCreateError = null

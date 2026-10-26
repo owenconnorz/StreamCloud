@@ -25,6 +25,7 @@ object SpotifyPlaylistRepository {
     private const val RATE_LIMIT_UNTIL_KEY = "retry_until_ms"
     private const val PATHFINDER_RATE_LIMIT_UNTIL_KEY = "catalog_retry_until_ms"
     private const val WEBPLAYER_RATE_LIMIT_UNTIL_KEY = "webplayer_retry_until_ms"
+    private const val PENDING_WEB_PLAYLIST_KEY_PREFIX = "pending_web_playlist_"
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -32,8 +33,15 @@ object SpotifyPlaylistRepository {
         .build()
 
     private data class CachedResponse(val body: String, val storedAtMs: Long)
+    private data class PendingWebPlaylistSetup(
+        val playlistId: String,
+        val name: String,
+        val username: String,
+        val addedToLibrary: Boolean,
+    )
 
     private val responseCache = ConcurrentHashMap<String, CachedResponse>()
+    private val pendingWebPlaylistSetups = ConcurrentHashMap<String, PendingWebPlaylistSetup>()
     @Volatile private var spotifyRetryAtMs = 0L
     @Volatile private var pathfinderRetryAtMs = 0L
     @Volatile private var webPlayerRetryAtMs = 0L
@@ -84,6 +92,16 @@ object SpotifyPlaylistRepository {
         }
         spotifyRetryAtMs = retryAt
         return retryAt
+    }
+
+    /**
+     * Playlist creation depends on different endpoint families:
+     * standard playlists use Web Player + Pathfinder, collaborative playlists use REST.
+     */
+    fun playlistCreateCooldownUntilMs(collaborative: Boolean): Long = if (collaborative) {
+        currentRetryAtMs()
+    } else {
+        maxOf(currentWebPlayerRetryAtMs(), currentPathfinderRetryAtMs())
     }
 
     @Synchronized
@@ -154,6 +172,59 @@ object SpotifyPlaylistRepository {
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(token.toByteArray(Charsets.UTF_8))
         return digest.joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+    }
+
+    private fun pendingWebPlaylistKey(spDc: String): String {
+        val accountCookie = spDc.split(";")
+            .map(String::trim)
+            .firstOrNull { it.startsWith("sp_dc=") }
+            ?.removePrefix("sp_dc=")
+            ?.takeIf(String::isNotBlank)
+            ?: spDc.trim()
+        return PENDING_WEB_PLAYLIST_KEY_PREFIX + tokenCacheScope(accountCookie)
+    }
+
+    private fun pendingWebPlaylistSetup(spDc: String): PendingWebPlaylistSetup? {
+        val key = pendingWebPlaylistKey(spDc)
+        pendingWebPlaylistSetups[key]?.let { return it }
+        val raw = rateLimitPreferences?.getString(key, null) ?: return null
+        val pending = runCatching {
+            JSONObject(raw).let { json ->
+                PendingWebPlaylistSetup(
+                    playlistId = json.getString("playlistId"),
+                    name = json.getString("name"),
+                    username = json.getString("username"),
+                    addedToLibrary = json.optBoolean("addedToLibrary", false),
+                )
+            }
+        }.getOrNull()
+        if (pending == null) {
+            rateLimitPreferences?.edit()?.remove(key)?.apply()
+            return null
+        }
+        pendingWebPlaylistSetups[key] = pending
+        return pending
+    }
+
+    private fun storePendingWebPlaylistSetup(
+        spDc: String,
+        pending: PendingWebPlaylistSetup,
+    ) {
+        val key = pendingWebPlaylistKey(spDc)
+        pendingWebPlaylistSetups[key] = pending
+        val serialized = JSONObject()
+            .put("playlistId", pending.playlistId)
+            .put("name", pending.name)
+            .put("username", pending.username)
+            .put("addedToLibrary", pending.addedToLibrary)
+            .toString()
+        rateLimitPreferences?.edit()?.putString(key, serialized)?.apply()
+    }
+
+    private fun clearPendingWebPlaylistSetup(spDc: String) {
+        val key = pendingWebPlaylistKey(spDc)
+        pendingWebPlaylistSetups.remove(key)
+        rateLimitPreferences?.edit()?.remove(key)?.apply()
     }
 
     private fun cachedBody(key: String, maxAgeMs: Long): String? {
@@ -685,13 +756,25 @@ object SpotifyPlaylistRepository {
         require(normalizedName.length <= 100) { "Spotify playlist names must be 100 characters or fewer." }
 
         val token = accessToken(spDc)
+        if (!collaborative) {
+            createRegularPlaylistWithWebPlayer(spDc, token, normalizedName)
+        } else {
+            createCollaborativePlaylistWithSpotifyApi(spDc, token, normalizedName)
+        }
+    }
+
+    private fun createCollaborativePlaylistWithSpotifyApi(
+        spDc: String,
+        token: String,
+        name: String,
+    ): String {
         val userId = getJson(token, "$BASE/me").optString("id")
             .takeIf(String::isNotBlank)
             ?: throw IllegalStateException("Spotify did not return the signed-in account ID.")
         val payload = JSONObject()
-            .put("name", normalizedName)
+            .put("name", name)
             .put("public", false)
-            .put("collaborative", collaborative)
+            .put("collaborative", true)
         val created = postSpotifyJson(
             token,
             "$BASE/users/${URLEncoder.encode(userId, "UTF-8")}/playlists",
@@ -702,6 +785,173 @@ object SpotifyPlaylistRepository {
         invalidatePlaylistListResponses(token)
         SpotifyWebPlayerRepository.invalidateAccountCache(spDc)
         id
+    }
+
+    private suspend fun createRegularPlaylistWithWebPlayer(
+        spDc: String,
+        token: String,
+        name: String,
+    ): String {
+        val pending = pendingWebPlaylistSetup(spDc)
+        if (pending != null) {
+            if (pending.name != name) {
+                throw IllegalStateException(
+                    "Spotify already created \"${pending.name}\", but library sync is incomplete. " +
+                        "Enter that name and tap Create again; StreamCloud will finish the existing playlist.",
+                )
+            }
+            return finishPendingWebPlaylistSetup(spDc, token, pending)
+        }
+
+        val retryAt = playlistCreateCooldownUntilMs(collaborative = false)
+        if (retryAt > System.currentTimeMillis()) throw RateLimitedException(retryAt)
+
+        val profile = pathfinderJson(cacheKey = null) {
+            SpotifyCanvasRepository.profileAttributes(token, spDc)
+        }
+        if ((profile.optJSONArray("errors")?.length() ?: 0) > 0) {
+            throw IllegalStateException(
+                graphQlError(profile, "Spotify could not confirm the signed-in profile."),
+            )
+        }
+        val username = profile.optJSONObject("data")
+            ?.optJSONObject("me")
+            ?.optJSONObject("profile")
+            ?.optString("username")
+            ?.takeIf(String::isNotBlank)
+            ?: throw IllegalStateException("Spotify did not return the signed-in profile name.")
+
+        val secondRetryAt = playlistCreateCooldownUntilMs(collaborative = false)
+        if (secondRetryAt > System.currentTimeMillis()) throw RateLimitedException(secondRetryAt)
+
+        val attributes = JSONObject().put("name", name)
+        val payload = JSONObject().put(
+            "ops",
+            JSONArray().put(
+                JSONObject()
+                    .put("kind", "UPDATE_LIST_ATTRIBUTES")
+                    .put(
+                        "updateListAttributes",
+                        JSONObject().put(
+                            "newAttributes",
+                            JSONObject().put("values", attributes),
+                        ),
+                    ),
+            ),
+        )
+        val created = webPlayerJson(
+            token = token,
+            spDc = spDc,
+            method = "POST",
+            path = "/playlist/v2/playlist?format=json",
+            body = payload.toString(),
+        )
+        val playlistUri = created.optString("uri")
+            .takeIf { it.matches(Regex("^spotify:playlist:[A-Za-z0-9]+$")) }
+            ?: throw IllegalStateException(
+                "Spotify did not confirm the new playlist URI. No follow-up was attempted.",
+            )
+        val playlistId = playlistUri.removePrefix("spotify:playlist:")
+        val pendingSetup = PendingWebPlaylistSetup(
+            playlistId = playlistId,
+            name = name,
+            username = username,
+            addedToLibrary = false,
+        )
+        storePendingWebPlaylistSetup(spDc, pendingSetup)
+        if (created.optString("revision").isBlank()) {
+            throw IllegalStateException(
+                "Spotify created \"$name\", but did not return its playlist revision. " +
+                    "Tap Create again with the same name to finish syncing it without creating a duplicate.",
+            )
+        }
+        finishPendingWebPlaylistSetup(spDc, token, pendingSetup)
+    }
+
+    private suspend fun finishPendingWebPlaylistSetup(
+        spDc: String,
+        token: String,
+        initial: PendingWebPlaylistSetup,
+    ): String {
+        var pending = initial
+        try {
+            if (!pending.addedToLibrary) {
+                val follow = pathfinderJson(cacheKey = null) {
+                    SpotifyCanvasRepository.addPlaylistToLibrary(
+                        token = token,
+                        spDc = spDc,
+                        playlistUri = "spotify:playlist:${pending.playlistId}",
+                    )
+                }
+                if ((follow.optJSONArray("errors")?.length() ?: 0) > 0) {
+                    throw IllegalStateException(
+                        graphQlError(follow, "Spotify could not add the playlist to your library."),
+                    )
+                }
+                if (
+                    follow.optJSONObject("data")
+                        ?.optJSONObject("addItemsToRootlist") == null
+                ) {
+                    throw IllegalStateException(
+                        "Spotify did not confirm that the playlist was added to your library.",
+                    )
+                }
+                pending = pending.copy(addedToLibrary = true)
+                storePendingWebPlaylistSetup(spDc, pending)
+            }
+
+            val encodedUsername = URLEncoder.encode(pending.username, "UTF-8")
+            val playlistUri = "spotify:playlist:${pending.playlistId}"
+            val operation = JSONObject()
+                .put("kind", "UPDATE_ITEM_ATTRIBUTES")
+                .put(
+                    "updateItemAttributes",
+                    JSONObject()
+                        .put(
+                            "newAttributes",
+                            JSONObject().put(
+                                "values",
+                                JSONObject().put("public", false),
+                            ),
+                        )
+                        .put("item", JSONObject().put("uri", playlistUri)),
+                )
+            val delta = JSONObject()
+                .put("ops", JSONArray().put(operation))
+                .put(
+                    "info",
+                    JSONObject().put("source", JSONObject().put("client", "WEBPLAYER")),
+                )
+            val permission = webPlayerJson(
+                token = token,
+                spDc = spDc,
+                method = "POST",
+                path = "/playlist/v2/user/$encodedUsername/rootlist/changes?format=json",
+                body = JSONObject().put("deltas", JSONArray().put(delta)).toString(),
+            )
+            val permissionConfirmed = permission.optString("revision").isNotBlank() ||
+                (permission.optJSONArray("resultingRevisions")?.length() ?: 0) > 0 ||
+                permission.optJSONObject("syncResult") != null
+            if (!permissionConfirmed) {
+                throw IllegalStateException(
+                    "Spotify did not confirm that the playlist was saved as private.",
+                )
+            }
+
+            clearPendingWebPlaylistSetup(spDc)
+            invalidatePlaylistListResponses(token)
+            SpotifyWebPlayerRepository.invalidateAccountCache(spDc)
+            return pending.playlistId
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            throw IllegalStateException(
+                "Spotify created \"${pending.name}\", but StreamCloud couldn't finish syncing it. " +
+                    "After the cooldown, tap Create again with the same name; it will finish this playlist " +
+                    "instead of creating a duplicate. ${failure.message.orEmpty()}",
+                failure,
+            )
+        }
     }
 
     suspend fun createPlaylistFolder(spDc: String, name: String): String =

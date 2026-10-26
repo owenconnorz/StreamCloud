@@ -146,6 +146,7 @@ internal fun SpotifyLibraryCreateNameDialog(
     action: SpotifyLibraryCreateAction,
     isSaving: Boolean,
     error: String?,
+    cooldownRemainingSeconds: Long = 0L,
     onDismiss: () -> Unit,
     onCreate: (String) -> Unit,
 ) {
@@ -162,6 +163,11 @@ internal fun SpotifyLibraryCreateNameDialog(
         SpotifyLibraryCreateAction.CollaborativePlaylist -> "Name your collaborative playlist"
         SpotifyLibraryCreateAction.Folder -> "Give your folder a name"
         else -> "Give your playlist a name"
+    }
+    val visibleError = if (cooldownRemainingSeconds > 0L) {
+        "Spotify is rate-limiting requests. Try again in ${formatSpotifyCooldown(cooldownRemainingSeconds)}."
+    } else {
+        error
     }
 
     AlertDialog(
@@ -190,15 +196,15 @@ internal fun SpotifyLibraryCreateNameDialog(
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                if (error != null) {
-                    Text(error, color = Color(0xFFFF7777))
+                if (visibleError != null) {
+                    Text(visibleError, color = Color(0xFFFF7777))
                 }
             }
         },
         confirmButton = {
             Button(
                 onClick = { onCreate(name.trim()) },
-                enabled = name.isNotBlank() && !isSaving,
+                enabled = name.isNotBlank() && !isSaving && cooldownRemainingSeconds == 0L,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = SpotifyCreateGreen,
                     contentColor = Color.Black,
@@ -224,6 +230,17 @@ internal fun SpotifyLibraryCreateNameDialog(
             }
         },
     )
+}
+
+private fun formatSpotifyCooldown(seconds: Long): String {
+    val hours = seconds / 3_600L
+    val minutes = (seconds % 3_600L) / 60L
+    val remainingSeconds = seconds % 60L
+    return when {
+        hours > 0L -> "${hours}h ${minutes}m"
+        minutes > 0L -> "${minutes}m ${remainingSeconds}s"
+        else -> "${remainingSeconds}s"
+    }
 }
 
 private val SpotifyCreateGreen = Color(0xFF1ED760)
