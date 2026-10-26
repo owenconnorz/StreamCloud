@@ -784,7 +784,7 @@ object SpotifyPlaylistRepository {
             ?: throw IllegalStateException("Spotify did not confirm that the playlist was created.")
         invalidatePlaylistListResponses(token)
         SpotifyWebPlayerRepository.invalidateAccountCache(spDc)
-        id
+        return id
     }
 
     private suspend fun createRegularPlaylistWithWebPlayer(
@@ -865,7 +865,7 @@ object SpotifyPlaylistRepository {
                     "Tap Create again with the same name to finish syncing it without creating a duplicate.",
             )
         }
-        finishPendingWebPlaylistSetup(spDc, token, pendingSetup)
+        return finishPendingWebPlaylistSetup(spDc, token, pendingSetup)
     }
 
     private suspend fun finishPendingWebPlaylistSetup(
