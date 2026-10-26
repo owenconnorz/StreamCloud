@@ -44,6 +44,16 @@ object SpotifyWebPlayerRepository {
     private val responseCache = ConcurrentHashMap<String, CacheEntry>()
     private val retryAtByAccount = ConcurrentHashMap<String, Long>()
 
+    fun invalidateAccountCache(cookie: String) {
+        val accountIdentity = spotifyCookies(cookie)["sp_dc"]
+            ?.takeIf(String::isNotBlank)
+            ?: return
+        val prefix = "${digest(accountIdentity)}|"
+        responseCache.keys
+            .filter { it.startsWith(prefix) }
+            .forEach(responseCache::remove)
+    }
+
     private data class SpotifySession(val token: String, val cookies: Map<String, String>)
 
     suspend fun getHomeFeed(cookie: String, forceRefresh: Boolean = false): SpotifyHomeFeed =

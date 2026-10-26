@@ -27,6 +27,7 @@ object YtPlayback {
     const val EXTRA_VIDEO_ID = "videoId"
     const val EXTRA_WATCH_URL = "watchUrl"
     const val EXTRA_IS_MUSIC_VIDEO = "isMusicVideo"
+    const val EXTRA_SPOTIFY_TRACK_ID = "spotifyTrackId"
     const val EXTRA_PLAYBACK_ATTEMPT_ID = "playbackAttemptId"
 
     private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -49,6 +50,8 @@ object YtPlayback {
                         putString(EXTRA_VIDEO_ID, song.videoId)
                         putString(EXTRA_WATCH_URL, url)
                         putBoolean(EXTRA_IS_MUSIC_VIDEO, song.isVideo)
+                        song.spotifyTrackId?.takeIf(String::isNotBlank)
+                            ?.let { putString(EXTRA_SPOTIFY_TRACK_ID, it) }
                         playbackAttemptId?.let { putLong(EXTRA_PLAYBACK_ATTEMPT_ID, it) }
                     })
                     .build(),

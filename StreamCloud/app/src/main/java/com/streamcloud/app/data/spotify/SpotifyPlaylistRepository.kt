@@ -140,10 +140,86 @@ object SpotifyPlaylistRepository {
     }
 
     private fun invalidatePlaylistTrackResponses(token: String, playlistId: String) {
-        val prefix = "${tokenCacheScope(token)}|$BASE/playlists/$playlistId/tracks?"
+        val prefix = "${tokenCacheScope(token)}|$BASE/playlists/$playlistId/items?"
         responseCache.keys
             .filter { it.startsWith(prefix) }
             .forEach(responseCache::remove)
+    }
+
+    private fun invalidateSavedTrackResponses(token: String) {
+        val prefix = "${tokenCacheScope(token)}|$BASE/me/tracks"
+        responseCache.keys
+            .filter { it.startsWith(prefix) }
+            .forEach(responseCache::remove)
+    }
+
+    private fun getJsonArray(token: String, url: String): JSONArray {
+        val retryAtMs = currentRetryAtMs()
+        if (retryAtMs > System.currentTimeMillis()) {
+            throw RateLimitedException(retryAtMs)
+        }
+
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", authHeader(token))
+            .header("Accept", "application/json")
+            .get()
+            .build()
+        return http.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (response.code == 429) {
+                val retryAfterMs = response.header("Retry-After")
+                    ?.trim()
+                    ?.toLongOrNull()
+                    ?.let { TimeUnit.SECONDS.toMillis(it.coerceAtLeast(1L)) }
+                    ?: DEFAULT_RETRY_AFTER_MS
+                val retryAt = extendRetryAtMs(System.currentTimeMillis() + retryAfterMs)
+                throw RateLimitedException(retryAt)
+            }
+            if (!response.isSuccessful) {
+                throw IllegalStateException(
+                    spotifyErrorMessage(response.code, body, "check Spotify Liked Songs"),
+                )
+            }
+            if (body.isBlank()) throw IllegalStateException("Spotify returned an empty response.")
+            JSONArray(body)
+        }
+    }
+
+    private fun spotifyErrorMessage(code: Int, body: String, action: String): String {
+        val detail = runCatching {
+            JSONObject(body).optJSONObject("error")?.optString("message")
+                ?.takeIf(String::isNotBlank)
+        }.getOrNull()
+        val message = when (code) {
+            401 -> "Spotify sign-in has expired. Sign out in Settings, then sign in again."
+            403 -> "Spotify denied this change for the current account or playlist."
+            404 -> "The Spotify item or playlist could not be found."
+            else -> "Spotify couldn't $action (HTTP $code)."
+        }
+        return if (detail == null) message else "$message $detail"
+    }
+
+    private fun executeMutation(request: Request, action: String): Boolean {
+        val retryAt = currentRetryAtMs()
+        if (retryAt > System.currentTimeMillis()) throw RateLimitedException(retryAt)
+        return http.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (response.code == 429) {
+                val retryAfterMs = response.header("Retry-After")
+                    ?.trim()
+                    ?.toLongOrNull()
+                    ?.let { TimeUnit.SECONDS.toMillis(it.coerceAtLeast(1L)) }
+                    ?: DEFAULT_RETRY_AFTER_MS
+                throw RateLimitedException(
+                    extendRetryAtMs(System.currentTimeMillis() + retryAfterMs),
+                )
+            }
+            if (!response.isSuccessful) {
+                throw IllegalStateException(spotifyErrorMessage(response.code, body, action))
+            }
+            true
+        }
     }
 
     private fun getJson(token: String, url: String): JSONObject {
@@ -645,7 +721,7 @@ object SpotifyPlaylistRepository {
         var offset = 0
         while (true) {
             val fields = "total,items(track(id,uri,name,duration_ms,artists(name),album(name,images)))"
-            val url = "$BASE/playlists/$playlistId/tracks?limit=100&offset=$offset&fields=${URLEncoder.encode(fields, "UTF-8")}"
+            val url = "$BASE/playlists/$playlistId/items?limit=100&offset=$offset&fields=${URLEncoder.encode(fields, "UTF-8")}"
             val obj = getJson(tok, url)
             val items = obj.optJSONArray("items") ?: break
             for (i in 0 until items.length()) {
@@ -661,105 +737,77 @@ object SpotifyPlaylistRepository {
 
     // ── Mutations ─────────────────────────────────────────────────────────────
 
-    suspend fun removeTrack(spDc: String, playlistId: String, trackUri: String): Boolean = withContext(Dispatchers.IO) {
-        val tok = SpotifyCanvasRepository.getPersonalToken(spDc) ?: return@withContext false
-        runCatching {
-            val body = JSONObject().put("tracks", JSONArray().put(JSONObject().put("uri", trackUri)))
-                .toString().toRequestBody("application/json".toMediaType())
-            http.newCall(
-                Request.Builder()
-                    .url("$BASE/playlists/$playlistId/tracks")
-                    .header("Authorization", authHeader(tok))
-                    .delete(body).build(),
-            ).execute().use { response ->
-                val success = response.isSuccessful
-                if (success) invalidatePlaylistTrackResponses(tok, playlistId)
-                success
-            }
-        }.getOrElse { Log.e(TAG, "removeTrack: ${it.message}"); false }
+    suspend fun removeTrack(
+        spDc: String,
+        playlistId: String,
+        trackUri: String,
+        position: Int? = null,
+    ): Boolean = withContext(Dispatchers.IO) {
+        require(playlistId.matches(Regex("[A-Za-z0-9]+"))) { "Invalid Spotify playlist ID." }
+        require(trackUri.startsWith("spotify:track:")) { "Invalid Spotify track URI." }
+        val token = accessToken(spDc)
+        val track = JSONObject().put("uri", trackUri).apply {
+            position?.let { put("positions", JSONArray().put(it)) }
+        }
+        val body = JSONObject().put("tracks", JSONArray().put(track))
+            .toString().toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url("$BASE/playlists/$playlistId/items")
+            .header("Authorization", authHeader(token))
+            .header("Accept", "application/json")
+            .delete(body)
+            .build()
+        executeMutation(request, "remove this track from the playlist")
+        invalidatePlaylistTrackResponses(token, playlistId)
+        SpotifyWebPlayerRepository.invalidateAccountCache(spDc)
+        true
     }
 
-    suspend fun addTrack(spDc: String, playlistId: String, trackUri: String): Boolean = withContext(Dispatchers.IO) {
-        val tok = SpotifyCanvasRepository.getPersonalToken(spDc) ?: return@withContext false
-        runCatching {
+    suspend fun addTrack(spDc: String, playlistId: String, trackUri: String): Boolean =
+        withContext(Dispatchers.IO) {
+            require(playlistId.matches(Regex("[A-Za-z0-9]+"))) { "Invalid Spotify playlist ID." }
+            require(trackUri.startsWith("spotify:track:")) { "Invalid Spotify track URI." }
+            val token = accessToken(spDc)
             val body = JSONObject().put("uris", JSONArray().put(trackUri))
                 .toString().toRequestBody("application/json".toMediaType())
-            http.newCall(
-                Request.Builder()
-                    .url("$BASE/playlists/$playlistId/tracks")
-                    .header("Authorization", authHeader(tok))
-                    .header("Accept", "application/json")
-                    .post(body).build(),
-            ).execute().use { response ->
-                val success = response.isSuccessful
-                if (success) invalidatePlaylistTrackResponses(tok, playlistId)
-                success
-            }
-        }.getOrElse { Log.e(TAG, "addTrack: ${it.message}"); false }
+            val request = Request.Builder()
+                .url("$BASE/playlists/$playlistId/items")
+                .header("Authorization", authHeader(token))
+                .header("Accept", "application/json")
+                .post(body)
+                .build()
+            executeMutation(request, "add this track to the playlist")
+            invalidatePlaylistTrackResponses(token, playlistId)
+            SpotifyWebPlayerRepository.invalidateAccountCache(spDc)
+            true
+        }
+
+    suspend fun isTrackSaved(spDc: String, trackId: String): Boolean = withContext(Dispatchers.IO) {
+        require(trackId.matches(Regex("[A-Za-z0-9]+"))) { "Invalid Spotify track ID." }
+        val token = accessToken(spDc)
+        val encodedId = URLEncoder.encode(trackId, "UTF-8")
+        getJsonArray(token, "$BASE/me/tracks/contains?ids=$encodedId").optBoolean(0, false)
     }
 
-    suspend fun saveTrack(spDc: String, trackId: String): Boolean = withContext(Dispatchers.IO) {
-        if (!trackId.matches(Regex("[A-Za-z0-9]+"))) return@withContext false
-        val tok = SpotifyCanvasRepository.getPersonalToken(spDc) ?: return@withContext false
-        runCatching {
-            val body = JSONObject().put("ids", JSONArray().put(trackId))
-                .toString().toRequestBody("application/json".toMediaType())
-            http.newCall(
-                Request.Builder()
-                    .url("$BASE/me/tracks")
-                    .header("Authorization", authHeader(tok))
-                    .header("Accept", "application/json")
-                    .put(body)
-                    .build(),
-            ).execute().use { response ->
-                if (!response.isSuccessful) {
-                    Log.w(TAG, "saveTrack: Spotify returned HTTP ${response.code}")
-                }
-                response.isSuccessful
-            }
-        }.getOrElse { Log.e(TAG, "saveTrack: ${it.message}"); false }
+    suspend fun saveTrack(
+        spDc: String,
+        trackId: String,
+        saved: Boolean = true,
+    ): Boolean = withContext(Dispatchers.IO) {
+        require(trackId.matches(Regex("[A-Za-z0-9]+"))) { "Invalid Spotify track ID." }
+        val token = accessToken(spDc)
+        pathfinderJson(cacheKey = null) {
+            SpotifyCanvasRepository.setTrackSaved(token, spDc, trackId, saved)
+        }
+        invalidateSavedTrackResponses(token)
+        SpotifyWebPlayerRepository.invalidateAccountCache(spDc)
+        true
     }
 
     // ── Search (for the "Add songs" sheet) ────────────────────────────────────
 
-    suspend fun searchTracks(spDc: String, query: String): List<SpotifyTrack> = withContext(Dispatchers.IO) {
-        val tok = SpotifyCanvasRepository.getPersonalToken(spDc) ?: return@withContext emptyList()
-        runCatching {
-            val q = URLEncoder.encode(query, "UTF-8")
-            val req = Request.Builder()
-                .url("$BASE/search?q=$q&type=track&limit=20")
-                .header("Authorization", authHeader(tok))
-                .header("Accept", "application/json")
-                .get().build()
-            http.newCall(req).execute().use { r ->
-                if (!r.isSuccessful) return@runCatching emptyList()
-                val items = JSONObject(r.body!!.string())
-                    .optJSONObject("tracks")?.optJSONArray("items")
-                    ?: return@runCatching emptyList<SpotifyTrack>()
-                buildList {
-                    for (i in 0 until items.length()) {
-                        val t = items.optJSONObject(i) ?: continue
-                        val id = t.optString("id").takeIf { it.isNotBlank() } ?: continue
-                        val artistsArr = t.optJSONArray("artists")
-                        val artists = buildString {
-                            if (artistsArr != null) for (j in 0 until artistsArr.length()) {
-                                if (j > 0) append(", ")
-                                append(artistsArr.optJSONObject(j)?.optString("name", "") ?: "")
-                            }
-                        }
-                        val album = t.optJSONObject("album")
-                        val imageUrl = album?.optJSONArray("images")?.optJSONObject(0)?.optString("url")?.takeIf { it.isNotBlank() }
-                        add(SpotifyTrack(
-                            id = id, uri = t.optString("uri"),
-                            title = t.optString("name", ""), artists = artists,
-                            album = album?.optString("name", "") ?: "",
-                            imageUrl = imageUrl, durationMs = t.optLong("duration_ms", 0L),
-                        ))
-                    }
-                }
-            }
-        }.getOrElse { Log.e(TAG, "searchTracks: ${it.message}"); emptyList() }
-    }
+    suspend fun searchTracks(spDc: String, query: String): List<SpotifyTrack> =
+        searchCatalog(spDc, query).tracks
 
     private suspend fun pathfinderJson(
         cacheKey: String?,

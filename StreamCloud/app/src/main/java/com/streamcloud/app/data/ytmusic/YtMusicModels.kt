@@ -39,6 +39,8 @@ data class YtmSong(
      * the intended playlist entry.
      */
     val playlistSetVideoId: String? = null,
+    /** Spotify source identity for account actions while the matched YouTube Music audio plays. */
+    val spotifyTrackId: String? = null,
 )
 
 /**

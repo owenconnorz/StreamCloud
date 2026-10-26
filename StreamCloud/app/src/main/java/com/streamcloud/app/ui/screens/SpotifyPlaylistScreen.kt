@@ -47,7 +47,7 @@ import kotlinx.coroutines.withContext
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-private fun YtTrack.asYtmSong() = YtmSong(
+private fun YtTrack.asYtmSong(spotifyTrackId: String? = null) = YtmSong(
     videoId        = url.substringAfter("v=").substringBefore("&").ifBlank { url.substringAfterLast("/") },
     title          = title,
     artist         = uploader,
@@ -55,6 +55,7 @@ private fun YtTrack.asYtmSong() = YtmSong(
     thumbnail      = thumbnail,
     durationSeconds = durationSec,
     isVideo        = isVideo,
+    spotifyTrackId = spotifyTrackId,
 )
 
 private fun Long.toMinSec(): String {
@@ -97,8 +98,11 @@ fun SpotifyPlaylistScreen(
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<SpotifyTrack>>(emptyList()) }
     var searchLoading by remember { mutableStateOf(false) }
+    var searchError by remember { mutableStateOf<String?>(null) }
     var removeTarget by remember { mutableStateOf<Pair<Int, SpotifyTrack>?>(null) }
     var menuTrack by remember { mutableStateOf<SpotifyTrack?>(null) }
+    var menuTrackLiked by remember { mutableStateOf<Boolean?>(null) }
+    var menuTrackLikeLoading by remember { mutableStateOf(false) }
     var addToPlaylistTrack by remember { mutableStateOf<SpotifyTrack?>(null) }
     var playlistChoices by remember { mutableStateOf<List<SpotifyPlaylist>>(emptyList()) }
     var playlistChoicesLoading by remember { mutableStateOf(false) }
@@ -193,7 +197,7 @@ fun SpotifyPlaylistScreen(
                     snackbarHostState.showSnackbar("\"${track.title}\" was not found on YouTube Music.")
                     return@launch
                 }
-                val song = match.asYtmSong()
+                val song = match.asYtmSong(track.id)
                 when {
                     startRadio -> {
                         YtPlayback.startRadioFromCurrent(
@@ -247,13 +251,50 @@ fun SpotifyPlaylistScreen(
 
     LaunchedEffect(spDc, playlistId) { syncTracks() }
 
-    // Debounced Spotify search for the "Add songs" sheet
-    LaunchedEffect(searchQuery) {
-        if (searchQuery.length < 2) { searchResults = emptyList(); return@LaunchedEffect }
-        delay(400)
+    // Debounced, account-authenticated Spotify catalogue search for the "Add songs" sheet.
+    LaunchedEffect(searchQuery, spDc) {
+        val cleanQuery = searchQuery.trim()
+        if (cleanQuery.length < 2) {
+            searchResults = emptyList()
+            searchError = null
+            searchLoading = false
+            return@LaunchedEffect
+        }
+        delay(400L)
         searchLoading = true
-        searchResults = SpotifyPlaylistRepository.searchTracks(spDc, searchQuery)
-        searchLoading = false
+        searchError = null
+        try {
+            val found = withContext(Dispatchers.IO) {
+                SpotifyPlaylistRepository.searchTracks(spDc, cleanQuery)
+            }
+            if (searchQuery.trim() == cleanQuery) searchResults = found
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            if (searchQuery.trim() == cleanQuery) {
+                searchResults = emptyList()
+                searchError = failure.message ?: "Spotify search could not be loaded."
+            }
+        } finally {
+            if (searchQuery.trim() == cleanQuery) searchLoading = false
+        }
+    }
+
+    LaunchedEffect(menuTrack?.id, spDc) {
+        val track = menuTrack ?: return@LaunchedEffect
+        menuTrackLiked = null
+        menuTrackLikeLoading = true
+        try {
+            menuTrackLiked = withContext(Dispatchers.IO) {
+                SpotifyPlaylistRepository.isTrackSaved(spDc, track.id)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            menuTrackLiked = null
+        } finally {
+            if (menuTrack?.id == track.id) menuTrackLikeLoading = false
+        }
     }
 
     LaunchedEffect(addToPlaylistTrack?.id, spDc) {
@@ -286,14 +327,25 @@ fun SpotifyPlaylistScreen(
                     val target = removeTarget
                     removeTarget = null
                     if (target != null) scope.launch {
-                        val ok = withContext(Dispatchers.IO) {
-                            SpotifyPlaylistRepository.removeTrack(spDc, collectionId, target.second.uri)
-                        }
-                        if (ok) {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                SpotifyPlaylistRepository.removeTrack(
+                                    spDc,
+                                    collectionId,
+                                    target.second.uri,
+                                    position = target.first,
+                                )
+                            }
                             tracks = tracks.toMutableList().also { it.removeAt(target.first) }
+                            totalTrackCount = (totalTrackCount - 1).coerceAtLeast(0)
+                            syncTracks(forceRefresh = true)
                             snackbarHostState.showSnackbar("Removed from playlist")
-                        } else {
-                            snackbarHostState.showSnackbar("Couldn't remove track")
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            snackbarHostState.showSnackbar(
+                                failure.message ?: "Spotify couldn't remove this track.",
+                            )
                         }
                     }
                 }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
@@ -360,16 +412,41 @@ fun SpotifyPlaylistScreen(
                     }
                     context.startActivity(Intent.createChooser(share, "Share track"))
                 }
-                SpotifyTrackMenuAction(MaterialIcons.Filled.FavoriteBorder, "Add to Liked Songs") {
-                    menuTrack = null
-                    scope.launch {
-                        val saved = withContext(Dispatchers.IO) {
-                            SpotifyPlaylistRepository.saveTrack(spDc, track.id)
+                SpotifyTrackMenuAction(
+                    MaterialIcons.Filled.FavoriteBorder,
+                    when {
+                        menuTrackLikeLoading -> "Checking Liked Songs…"
+                        menuTrackLiked == true -> "Remove from Liked Songs"
+                        else -> "Add to Liked Songs"
+                    },
+                ) {
+                    if (menuTrackLikeLoading || menuTrackLiked == null) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                "Couldn't check Spotify Liked Songs. Close the menu and try again.",
+                            )
                         }
-                        snackbarHostState.showSnackbar(
-                            if (saved) "Added to Spotify Liked Songs"
-                            else "Spotify couldn't save this track. Check your sign-in and try again.",
-                        )
+                    } else {
+                        val shouldSave = menuTrackLiked != true
+                        menuTrack = null
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    SpotifyPlaylistRepository.saveTrack(spDc, track.id, saved = shouldSave)
+                                }
+                                menuTrackLiked = shouldSave
+                                snackbarHostState.showSnackbar(
+                                    if (shouldSave) "Added to Spotify Liked Songs"
+                                    else "Removed from Spotify Liked Songs",
+                                )
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (failure: Exception) {
+                                snackbarHostState.showSnackbar(
+                                    failure.message ?: "Spotify couldn't update Liked Songs.",
+                                )
+                            }
+                        }
                     }
                 }
                 SpotifyTrackMenuAction(
@@ -503,21 +580,24 @@ fun SpotifyPlaylistScreen(
                                 Modifier.fillMaxWidth()
                                     .clickable {
                                         scope.launch {
-                                            val added = withContext(Dispatchers.IO) {
-                                                SpotifyPlaylistRepository.addTrack(
-                                                    spDc,
-                                                    playlist.id,
-                                                    track.uri,
-                                                )
-                                            }
-                                            if (added) {
+                                            try {
+                                                withContext(Dispatchers.IO) {
+                                                    SpotifyPlaylistRepository.addTrack(
+                                                        spDc,
+                                                        playlist.id,
+                                                        track.uri,
+                                                    )
+                                                }
                                                 addToPlaylistTrack = null
                                                 snackbarHostState.showSnackbar(
                                                     "Added to ${playlist.name}",
                                                 )
-                                            } else {
+                                            } catch (cancelled: CancellationException) {
+                                                throw cancelled
+                                            } catch (failure: Exception) {
                                                 snackbarHostState.showSnackbar(
-                                                    "Couldn't add this track to ${playlist.name}.",
+                                                    failure.message
+                                                        ?: "Couldn't add this track to ${playlist.name}.",
                                                 )
                                             }
                                         }
@@ -542,7 +622,7 @@ fun SpotifyPlaylistScreen(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
-                                        "${playlist.trackCount ?: 0} songs",
+                                        playlist.trackCount?.let { "$it songs" } ?: "Spotify playlist",
                                         color = Color.White.copy(alpha = 0.65f),
                                         style = MaterialTheme.typography.bodySmall,
                                     )
@@ -622,6 +702,19 @@ fun SpotifyPlaylistScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
+                if (searchError != null) {
+                    Text(
+                        searchError.orEmpty(),
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                } else if (searchQuery.trim().length >= 2 && !searchLoading && searchResults.isEmpty()) {
+                    Text(
+                        "No matching Spotify tracks.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp)) {
                     itemsIndexed(searchResults, key = { _, t -> t.uri }) { _, track ->
                         Row(
@@ -629,14 +722,19 @@ fun SpotifyPlaylistScreen(
                                 .fillMaxWidth()
                                 .clickable {
                                     scope.launch {
-                                        val ok = withContext(Dispatchers.IO) {
-                                            SpotifyPlaylistRepository.addTrack(spDc, collectionId, track.uri)
-                                        }
-                                        if (ok) {
+                                        try {
+                                            withContext(Dispatchers.IO) {
+                                                SpotifyPlaylistRepository.addTrack(spDc, collectionId, track.uri)
+                                            }
                                             snackbarHostState.showSnackbar("\"${track.title}\" added")
-                                 scope.launch { loading = true; syncTracks(forceRefresh = true) }
-                                        } else {
-                                            snackbarHostState.showSnackbar("Couldn't add track")
+                                            showAddSheet = false
+                                            syncTracks(forceRefresh = true)
+                                        } catch (cancelled: CancellationException) {
+                                            throw cancelled
+                                        } catch (failure: Exception) {
+                                            snackbarHostState.showSnackbar(
+                                                failure.message ?: "Spotify couldn't add this track.",
+                                            )
                                         }
                                     }
                                 }
@@ -804,7 +902,7 @@ fun SpotifyPlaylistScreen(
                                     val results = YtMusicSearchRepository.songs("${track.title} ${track.artists}")
                                     val first = results.firstOrNull()
                                     if (first != null) {
-                                        YtPlayback.playSong(context, first.asYtmSong())
+                                        YtPlayback.playSong(context, first.asYtmSong(track.id))
                                     } else {
                                         snackbarHostState.showSnackbar("\"${track.title}\" not found on YouTube Music")
                                     }

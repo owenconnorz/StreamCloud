@@ -2055,7 +2055,7 @@ fun StreamCloudApp() {
                     ) {
                         com.streamcloud.app.ui.player.GlobalMiniPlayer(
                             playerSurfaceState = playerSurfaceState,
-                            forceSpotifyStyle = isSpotifyScreen,
+                            forceSpotifyStyle = false,
                             onExpand = {
                                 com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
                             },
@@ -2122,7 +2122,7 @@ fun StreamCloudApp() {
                         if (showMiniPlayer) {
                             com.streamcloud.app.ui.player.GlobalMiniPlayer(
                                 playerSurfaceState = playerSurfaceState,
-                                forceSpotifyStyle = isSpotifyScreen,
+                                forceSpotifyStyle = false,
                                 onExpand = {
                                     com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
                                 },

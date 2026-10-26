@@ -1365,6 +1365,51 @@ class MusicPlaybackService : MediaLibraryService() {
         val url = item.mediaId.takeIf { it.isNotBlank() }
             ?: return likeCommandResult(SessionResult.RESULT_ERROR_BAD_VALUE, "This track cannot be liked.")
         val metadata = item.mediaMetadata
+        val spotifyTrackId = metadata.extras
+            ?.getString(YtPlayback.EXTRA_SPOTIFY_TRACK_ID)
+            ?.takeIf(String::isNotBlank)
+        if (spotifyTrackId != null) {
+            val spotifyCookie = sl.settings.spotifyCookie.first()
+            if (spotifyCookie.isBlank()) {
+                return likeCommandResult(
+                    SessionResult.RESULT_ERROR_UNKNOWN,
+                    "Sign in to Spotify to change Liked Songs.",
+                )
+            }
+            val currentlySaved = try {
+                com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
+                    .isTrackSaved(spotifyCookie, spotifyTrackId)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                return likeCommandResult(
+                    SessionResult.RESULT_ERROR_UNKNOWN,
+                    failure.message ?: "Spotify couldn't check Liked Songs.",
+                )
+            }
+            val shouldSave = !currentlySaved
+            try {
+                com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
+                    .saveTrack(spotifyCookie, spotifyTrackId, saved = shouldSave)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                return likeCommandResult(
+                    SessionResult.RESULT_ERROR_UNKNOWN,
+                    failure.message ?: "Spotify couldn't update Liked Songs.",
+                )
+            }
+            withContext(Dispatchers.IO) {
+                LibraryDb.get(this@MusicPlaybackService).tracks().setLikedAt(
+                    url,
+                    if (shouldSave) System.currentTimeMillis() else null,
+                )
+            }
+            return likeCommandResult(
+                SessionResult.RESULT_SUCCESS,
+                if (shouldSave) "Added to Spotify Liked Songs." else "Removed from Spotify Liked Songs.",
+            )
+        }
         val videoId = metadata.extras?.getString(YtPlayback.EXTRA_VIDEO_ID)
             ?.takeIf { it.isNotBlank() }
             ?: youtubeVideoId(url)

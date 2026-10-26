@@ -1,5 +1,6 @@
 package com.streamcloud.app.ui.player
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -55,9 +56,11 @@ import com.streamcloud.app.audio.PlaybackBus
 import com.streamcloud.app.cast.MusicRemoteCast
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
 import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
 import com.streamcloud.app.ui.theme.AlbumArtThemeBus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -79,6 +82,7 @@ fun GlobalMiniPlayer(
     val scope = rememberCoroutineScope()
     val sl = remember(context) { ServiceLocator.get(context) }
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
+    val spotifyCookie by sl.settings.spotifyCookie.collectAsState(initial = "")
     val dynamicMiniThemeSetting by sl.settings.dynamicMiniPlayerTheme.collectAsState(initial = true)
     val dynamicMiniTheme = dynamicMiniThemeSetting && !forceSpotifyStyle
 
@@ -87,6 +91,8 @@ fun GlobalMiniPlayer(
     var artist by remember { mutableStateOf<String?>(null) }
     var album by remember { mutableStateOf<String?>(null) }
     var artworkUri by remember { mutableStateOf<String?>(null) }
+    var spotifyTrackId by remember { mutableStateOf<String?>(null) }
+    var likeActionBusy by remember { mutableStateOf(false) }
 
     fun applyMediaItem(item: androidx.media3.common.MediaItem?) {
         val metadata = item?.mediaMetadata ?: return
@@ -94,6 +100,9 @@ fun GlobalMiniPlayer(
         artist = metadata.artist?.toString()
         album = metadata.albumTitle?.toString()
         artworkUri = metadata.artworkUri?.toString()
+        spotifyTrackId = metadata.extras
+            ?.getString(com.streamcloud.app.data.ytmusic.YtPlayback.EXTRA_SPOTIFY_TRACK_ID)
+            ?.takeIf(String::isNotBlank)
     }
 
     val isPlaying by PlaybackBus.isPlaying.collectAsState()
@@ -237,11 +246,26 @@ fun GlobalMiniPlayer(
         }
     }
 
-    LaunchedEffect(nowMediaId) {
+    LaunchedEffect(nowMediaId, spotifyTrackId, spotifyCookie) {
         val mediaId = nowMediaId ?: return@LaunchedEffect
-        withContext(Dispatchers.IO) {
+        if (!spotifyTrackId.isNullOrBlank() && spotifyCookie.isNotBlank()) {
+            try {
+                isLiked = SpotifyPlaylistRepository.isTrackSaved(
+                    spotifyCookie,
+                    spotifyTrackId.orEmpty(),
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                isLiked = withContext(Dispatchers.IO) {
+                    LibraryDb.get(context).tracks().byUrl(mediaId)?.likedAt != null
+                }
+            }
+        } else {
+            isLiked = withContext(Dispatchers.IO) {
             val track = LibraryDb.get(context).tracks().byUrl(mediaId)
-            isLiked = track?.likedAt != null
+                track?.likedAt != null
+            }
         }
     }
 
@@ -553,18 +577,60 @@ fun GlobalMiniPlayer(
                             else -> themedControlBackground
                         },
                     )
-                    .clickable {
+                    .clickable(enabled = !likeActionBusy) {
                         val mediaId = nowMediaId ?: return@clickable
                         val nowLiked = isLiked
                         scope.launch {
-                            withContext(Dispatchers.IO) {
-                                val dao = LibraryDb.get(context).tracks()
-                                dao.setLikedAt(mediaId, if (nowLiked) null else System.currentTimeMillis())
-                                isLiked = !nowLiked
-                                val videoId = mediaId.substringAfter("v=").substringBefore("&")
-                                    .takeIf { it.isNotBlank() } ?: return@withContext
-                                if (nowLiked) YtMusicLibraryRepository.unlikeSong(ytCookie, videoId)
-                                else YtMusicLibraryRepository.likeSong(ytCookie, videoId)
+                            val sourceTrackId = spotifyTrackId
+                            if (!sourceTrackId.isNullOrBlank()) {
+                                if (spotifyCookie.isBlank()) {
+                                    Toast.makeText(
+                                        context,
+                                        "Sign in to Spotify to change Liked Songs.",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                    return@launch
+                                }
+                                likeActionBusy = true
+                                try {
+                                    val currentlySaved = SpotifyPlaylistRepository.isTrackSaved(
+                                        spotifyCookie,
+                                        sourceTrackId,
+                                    )
+                                    val nextLiked = !currentlySaved
+                                    SpotifyPlaylistRepository.saveTrack(
+                                        spotifyCookie,
+                                        sourceTrackId,
+                                        saved = nextLiked,
+                                    )
+                                    withContext(Dispatchers.IO) {
+                                        LibraryDb.get(context).tracks().setLikedAt(
+                                            mediaId,
+                                            if (nextLiked) System.currentTimeMillis() else null,
+                                        )
+                                    }
+                                    isLiked = nextLiked
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (failure: Exception) {
+                                    Toast.makeText(
+                                        context,
+                                        failure.message ?: "Spotify couldn't update Liked Songs.",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                } finally {
+                                    likeActionBusy = false
+                                }
+                            } else {
+                                withContext(Dispatchers.IO) {
+                                    val dao = LibraryDb.get(context).tracks()
+                                    dao.setLikedAt(mediaId, if (nowLiked) null else System.currentTimeMillis())
+                                    isLiked = !nowLiked
+                                    val videoId = mediaId.substringAfter("v=").substringBefore("&")
+                                        .takeIf { it.isNotBlank() } ?: return@withContext
+                                    if (nowLiked) YtMusicLibraryRepository.unlikeSong(ytCookie, videoId)
+                                    else YtMusicLibraryRepository.likeSong(ytCookie, videoId)
+                                }
                             }
                         }
                     },

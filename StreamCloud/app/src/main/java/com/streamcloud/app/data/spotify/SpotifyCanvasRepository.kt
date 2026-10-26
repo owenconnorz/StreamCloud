@@ -372,6 +372,24 @@ object SpotifyCanvasRepository {
         )
     }
 
+    fun setTrackSaved(
+        token: String,
+        spDc: String,
+        trackId: String,
+        saved: Boolean,
+    ): PathfinderResponse {
+        require(trackId.matches(Regex("[A-Za-z0-9]+"))) { "Invalid Spotify track ID." }
+        val variables = org.json.JSONObject()
+            .put("uris", org.json.JSONArray().put("spotify:track:$trackId"))
+        return pathfinderQuery(
+            token,
+            spDc,
+            if (saved) "addToLibrary" else "removeFromLibrary",
+            variables,
+            LIBRARY_MUTATION_SHA,
+        )
+    }
+
     private fun pathfinderQuery(
         token: String,
         spDc: String,

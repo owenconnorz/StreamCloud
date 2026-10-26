@@ -76,7 +76,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private fun YtTrack.asSpotifyHomeSong() = YtmSong(
+private fun YtTrack.asSpotifyHomeSong(spotifyTrackId: String) = YtmSong(
     videoId = url.substringAfter("v=").substringBefore("&")
         .ifBlank { url.substringAfterLast("/") },
     title = title,
@@ -85,6 +85,7 @@ private fun YtTrack.asSpotifyHomeSong() = YtmSong(
     thumbnail = thumbnail,
     durationSeconds = durationSec,
     isVideo = isVideo,
+    spotifyTrackId = spotifyTrackId,
 )
 
 private enum class SpotifyHomeCategory(val label: String) {
@@ -162,7 +163,7 @@ internal fun SpotifyHomeContent(
                         Toast.LENGTH_SHORT,
                     ).show()
                 } else {
-                    YtPlayback.playSong(context, match.asSpotifyHomeSong())
+                    YtPlayback.playSong(context, match.asSpotifyHomeSong(track.id))
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -201,6 +202,7 @@ internal fun SpotifyHomeContent(
     Column(modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 6.dp, bottom = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
