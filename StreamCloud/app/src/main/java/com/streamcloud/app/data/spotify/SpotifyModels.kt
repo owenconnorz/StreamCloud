@@ -123,4 +123,5 @@ data class SpotifyLibraryPage<T>(
     val items: List<T>,
     val totalCount: Int,
     val nextOffset: Int?,
+    val collection: SpotifyPlaylist? = null,
 )

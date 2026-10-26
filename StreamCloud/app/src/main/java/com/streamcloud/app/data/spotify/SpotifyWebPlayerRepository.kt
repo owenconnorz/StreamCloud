@@ -175,6 +175,7 @@ object SpotifyWebPlayerRepository {
             items = items,
             totalCount = total,
             nextOffset = nextOffset(offset, rawItems.length(), total),
+            collection = parsePlaylist(playlist),
         )
     }
 
