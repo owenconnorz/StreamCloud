@@ -48,4 +48,14 @@ class PersistedHomeCollectionCacheTest {
             ),
         )
     }
+
+    @Test
+    fun visibleCachedRowsReleaseTheHomeLoadingGateDuringRefresh() {
+        assertFalse(shouldShowMoviesHomeLoading(hasVisibleRows = true))
+    }
+
+    @Test
+    fun emptyHomeKeepsLoadingUntilAVisibleRowArrives() {
+        assertTrue(shouldShowMoviesHomeLoading(hasVisibleRows = false))
+    }
 }

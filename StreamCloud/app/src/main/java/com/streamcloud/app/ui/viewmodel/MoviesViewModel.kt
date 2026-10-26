@@ -71,6 +71,9 @@ internal fun isPersistedHomeCollectionCacheFresh(
     return savedAtMillis > 0L && ageMillis >= 0L && ageMillis < staleAfterMillis
 }
 
+internal fun shouldShowMoviesHomeLoading(hasVisibleRows: Boolean): Boolean =
+    !hasVisibleRows
+
 data class HeroBannerItem(
     val imageUrl: String,
     val title: String,
@@ -474,7 +477,15 @@ class MoviesViewModel(
 
         activeDiscoverConfig = config
         discoverJob = viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
+            // Keep an already browseable home visible while refreshing its rows.
+            _state.update { state ->
+                state.copy(
+                    loading = shouldShowMoviesHomeLoading(
+                        state.collections.any { it.items.isNotEmpty() },
+                    ),
+                    error = null,
+                )
+            }
             try {
                 homeCollectionCacheReady.await()
                 val collections: List<HomeCollection> =
@@ -488,15 +499,18 @@ class MoviesViewModel(
                     }
                     .toMap()
                     .toMutableMap()
+                val cachedRows = config.ids.mapNotNull(rowsById::get)
                 val failures = mutableListOf<String>()
                 val publishMutex = Mutex()
 
                 applyCollectionRows(
-                    config.ids.mapNotNull(rowsById::get),
-                    loading = true,
+                    cachedRows,
+                    loading = shouldShowMoviesHomeLoading(
+                        cachedRows.any { it.items.isNotEmpty() },
+                    ),
                 )
 
-                if (!force && isDiscoverConfigFresh(config)) {
+                if (!force && isDiscoverConfigFresh(config))
                     applyCollectionRows(config.ids.mapNotNull(rowsById::get), loading = false)
                     _state.update { it.copy(error = null) }
                     return@launch
@@ -549,9 +563,12 @@ class MoviesViewModel(
                                     }
                                 }
                                 result.failure?.let(failures::add)
+                                val visibleRows = config.ids.mapNotNull(rowsById::get)
                                 applyCollectionRows(
-                                    config.ids.mapNotNull(rowsById::get),
-                                    loading = true,
+                                    visibleRows,
+                                    loading = shouldShowMoviesHomeLoading(
+                                        visibleRows.any { it.items.isNotEmpty() },
+                                    ),
                                 )
                             }
                             result
