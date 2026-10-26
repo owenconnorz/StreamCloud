@@ -112,9 +112,9 @@ fun MusicScreen(
         TextButton(
             onClick = { showProviders = true },
             colors = if (activeProvider == MusicProvider.Spotify) {
-                TextButtonDefaults.textButtonColors(contentColor = SpotifyGreen)
+                ButtonDefaults.textButtonColors(contentColor = SpotifyGreen)
             } else {
-                TextButtonDefaults.textButtonColors()
+                ButtonDefaults.textButtonColors()
             },
             modifier = Modifier
                 .padding(start = 16.dp, end = 16.dp, top = if (isTv) 68.dp else 4.dp)
