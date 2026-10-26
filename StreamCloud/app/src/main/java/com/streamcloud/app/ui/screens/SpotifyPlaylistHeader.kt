@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.spotify.SpotifyTrack
 
-internal fun formatPlaylistDuration(durationMs: Long): String {
+internal fun formatSpotifyPlaylistDuration(durationMs: Long): String {
     val totalMinutes = (durationMs / 60_000L).coerceAtLeast(0L)
     val hours = totalMinutes / 60L
     val minutes = totalMinutes % 60L

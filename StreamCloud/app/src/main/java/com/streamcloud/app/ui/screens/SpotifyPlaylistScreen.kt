@@ -972,7 +972,7 @@ fun SpotifyPlaylistScreen(
                         tracks = tracks,
                         totalTrackCount = totalTrackCount,
                         durationLabel = if (nextTrackOffset == null && tracks.isNotEmpty()) {
-                            formatPlaylistDuration(tracks.sumOf { it.durationMs })
+                            formatSpotifyPlaylistDuration(tracks.sumOf { it.durationMs })
                         } else {
                             null
                         },
