@@ -118,6 +118,8 @@ private fun YtTrack.asSpotifySearchSong() = YtmSong(
 fun SpotifySearchScreen(
     onBack: () -> Unit,
     onOpenPlaylist: (id: String, title: String) -> Unit,
+    onOpenArtist: (SpotifyArtist) -> Unit,
+    onOpenAlbum: (SpotifyAlbum) -> Unit,
 ) {
     val context = LocalContext.current
     val services = remember(context) { ServiceLocator.get(context) }
@@ -346,6 +348,8 @@ fun SpotifySearchScreen(
                     playingTrackId = playingTrackId,
                     onPlayTrack = ::playTrack,
                     onOpenPlaylist = onOpenPlaylist,
+                    onOpenArtist = onOpenArtist,
+                    onOpenAlbum = onOpenAlbum,
                     onOpenSpotifyUrl = ::openSpotifyUrl,
                 )
             }
@@ -374,6 +378,8 @@ private fun SpotifySearchResultsList(
     playingTrackId: String?,
     onPlayTrack: (SpotifyTrack) -> Unit,
     onOpenPlaylist: (String, String) -> Unit,
+    onOpenArtist: (SpotifyArtist) -> Unit,
+    onOpenAlbum: (SpotifyAlbum) -> Unit,
     onOpenSpotifyUrl: (String) -> Unit,
 ) {
     LazyColumn(
@@ -395,7 +401,7 @@ private fun SpotifySearchResultsList(
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                             items(results.artists.take(10), key = { "artist-${it.id}" }) { artist ->
                                 SpotifySearchCircleCard(artist.name, artist.imageUrl) {
-                                    onOpenSpotifyUrl("https://open.spotify.com/artist/${artist.id}")
+                                    onOpenArtist(artist)
                                 }
                             }
                         }
@@ -410,7 +416,7 @@ private fun SpotifySearchResultsList(
                             subtitle = listOf(album.artists, album.releaseDate.take(4))
                                 .filter(String::isNotBlank).joinToString(" · "),
                             kind = "Album",
-                        ) { onOpenSpotifyUrl("https://open.spotify.com/album/${album.id}") }
+                        ) { onOpenAlbum(album) }
                     }
                 }
                 if (results.playlists.isNotEmpty()) {
@@ -468,14 +474,14 @@ private fun SpotifySearchResultsList(
                         subtitle = "Artist",
                         kind = "Artist",
                         circleImage = true,
-                    ) { onOpenSpotifyUrl("https://open.spotify.com/artist/${artist.id}") }
+                    ) { onOpenArtist(artist) }
                 }
             }
             SpotifySearchFilter.Albums -> {
                 if (results.albums.isEmpty()) item { SpotifySearchMessage("No albums found.") }
                 items(results.albums, key = { "album-${it.id}" }) { album ->
                     SpotifyAlbumSearchRow(album) {
-                        onOpenSpotifyUrl("https://open.spotify.com/album/${album.id}")
+                        onOpenAlbum(album)
                     }
                 }
             }

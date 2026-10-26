@@ -52,6 +52,9 @@ object SpotifyCanvasRepository {
     private const val BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
     private const val SEARCH_SHA = "bc1ca2fcd0ba1013a0fc88e6cc4f190af501851e3dafd3e1ef85840297694428"
     private const val CATALOG_SEARCH_SHA = "d9f785900f0710b31c07818d617f4f7600c1e21217e80f5b043d1e78d74e6026"
+    private const val ARTIST_OVERVIEW_SHA = "7f86ff63e38c24973a2842b672abe44c910c1973978dc8a4a0cb648edef34527"
+    private const val ALBUM_DETAIL_SHA = "b9bfabef66ed756e5e13f68a942deb60bd4125ec1f1be8cc42769dc0259b4b10"
+    private const val LIBRARY_MUTATION_SHA = "a3c1ff58e6a36fec5fe1e3a193dc95d9071d96b9ba53c5ba9c1494fb1ee73915"
     private const val CATALOG_SEARCH_ENDPOINT = "https://api-partner.spotify.com/pathfinder/v2/query"
 
     // Client body matches SimpMusic SpotifyClientBody exactly
@@ -304,7 +307,7 @@ object SpotifyCanvasRepository {
      *  Must be called from a background thread / IO dispatcher. */
     fun getPersonalToken(spDc: String): String? = ensureToken(spDc)
 
-    data class CatalogSearchResponse(
+    data class PathfinderResponse(
         val statusCode: Int,
         val body: String,
         val retryAfter: String?,
@@ -312,14 +315,10 @@ object SpotifyCanvasRepository {
 
     /**
      * Spotify's web-player catalogue search request, authenticated with the signed-in user's
-     * access token and the web player's client token. Keep this separate from REST calls so
-     * callers can apply the same Spotify-wide Retry-After policy to either endpoint.
+     * access token and the web player's client token. Pathfinder search and metadata requests
+     * share the cooldown returned by this API family, separately from Spotify REST requests.
      */
-    fun searchCatalog(token: String, spDc: String, query: String): CatalogSearchResponse {
-        val clientToken = ensureClientToken()
-            ?: throw IllegalStateException("Spotify search could not get a client token.")
-        seedPartnerCookies(spDc)
-
+    fun searchCatalog(token: String, spDc: String, query: String): PathfinderResponse {
         val variables = JSONObject()
             .put("searchTerm", query)
             .put("offset", 0)
@@ -330,20 +329,71 @@ object SpotifyCanvasRepository {
             .put("includePreReleases", true)
             .put("includeLocalConcertsField", false)
             .put("includeAuthors", false)
-        val extensions = JSONObject()
-            .put(
-                "persistedQuery",
-                JSONObject()
-                    .put("version", 1)
-                    .put("sha256Hash", CATALOG_SEARCH_SHA),
-            )
+        return pathfinderQuery(token, spDc, "searchDesktop", variables, CATALOG_SEARCH_SHA)
+    }
+
+    fun artistOverview(token: String, spDc: String, artistId: String): PathfinderResponse {
+        val variables = JSONObject()
+            .put("uri", "spotify:artist:$artistId")
+            .put("locale", "")
+            .put("preReleaseV2", false)
+        return pathfinderQuery(token, spDc, "queryArtistOverview", variables, ARTIST_OVERVIEW_SHA)
+    }
+
+    fun albumDetails(
+        token: String,
+        spDc: String,
+        albumId: String,
+        offset: Int = 0,
+        limit: Int = 50,
+    ): PathfinderResponse {
+        val variables = JSONObject()
+            .put("uri", "spotify:album:$albumId")
+            .put("locale", "")
+            .put("offset", offset)
+            .put("limit", limit)
+        return pathfinderQuery(token, spDc, "getAlbum", variables, ALBUM_DETAIL_SHA)
+    }
+
+    fun setArtistFollowed(
+        token: String,
+        spDc: String,
+        artistId: String,
+        followed: Boolean,
+    ): PathfinderResponse {
+        val uris = org.json.JSONArray().put("spotify:artist:$artistId")
+        val variables = JSONObject().put("uris", uris)
+        return pathfinderQuery(
+            token,
+            spDc,
+            if (followed) "addToLibrary" else "removeFromLibrary",
+            variables,
+            LIBRARY_MUTATION_SHA,
+        )
+    }
+
+    private fun pathfinderQuery(
+        token: String,
+        spDc: String,
+        operation: String,
+        variables: JSONObject,
+        queryHash: String,
+    ): PathfinderResponse {
+        val clientToken = ensureClientToken()
+            ?: throw IllegalStateException("Spotify could not get a web-player client token.")
+        seedPartnerCookies(spDc)
+        val extensions = JSONObject().put(
+            "persistedQuery",
+            JSONObject()
+                .put("version", 1)
+                .put("sha256Hash", queryHash),
+        )
         val requestBody = JSONObject()
-            .put("operationName", "searchDesktop")
+            .put("operationName", operation)
             .put("variables", variables)
             .put("extensions", extensions)
             .toString()
             .toRequestBody("application/json".toMediaType())
-
         val request = Request.Builder()
             .url(CATALOG_SEARCH_ENDPOINT)
             .header("Authorization", "Bearer $token")
@@ -356,9 +406,8 @@ object SpotifyCanvasRepository {
             .header("Referer", "https://open.spotify.com/")
             .post(requestBody)
             .build()
-
         return http.newCall(request).execute().use { response ->
-            CatalogSearchResponse(
+            PathfinderResponse(
                 statusCode = response.code,
                 body = response.body?.string().orEmpty(),
                 retryAfter = response.header("Retry-After"),

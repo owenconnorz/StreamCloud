@@ -35,6 +35,40 @@ data class SpotifyTrack(
     val imageUrl: String? = null,
     val durationMs: Long = 0L,
     val artistIds: List<String> = emptyList(),
+    val playCount: Long = 0L,
+)
+
+data class SpotifyArtistOverview(
+    val artist: SpotifyArtist,
+    val headerImageUrl: String? = null,
+    val biography: String = "",
+    val verified: Boolean = false,
+    val monthlyListeners: Long = 0L,
+    val worldRank: Int? = null,
+    val aboutImageUrl: String? = null,
+    val topTracks: List<SpotifyTrack> = emptyList(),
+    val popularReleases: List<SpotifyAlbum> = emptyList(),
+    val featuringPlaylists: List<SpotifyPlaylist> = emptyList(),
+    val artistPlaylists: List<SpotifyPlaylist> = emptyList(),
+    val relatedArtists: List<SpotifyArtist> = emptyList(),
+    val clips: List<SpotifyMusicVideo> = emptyList(),
+    val saved: Boolean = false,
+)
+
+data class SpotifyAlbumDetails(
+    val album: SpotifyAlbum,
+    val albumType: String = "ALBUM",
+    val label: String = "",
+    val artists: List<SpotifyArtist> = emptyList(),
+    val tracks: List<SpotifyTrack> = emptyList(),
+    val moreByArtist: List<SpotifyAlbum> = emptyList(),
+)
+
+data class SpotifyMusicVideo(
+    val id: String,
+    val title: String,
+    val imageUrl: String? = null,
+    val durationMs: Long = 0L,
 )
 
 data class SpotifyHomeCard(

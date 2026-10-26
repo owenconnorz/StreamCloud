@@ -22,7 +22,7 @@ object SpotifyPlaylistRepository {
     private const val BASE = "https://api.spotify.com/v1"
     private const val RATE_LIMIT_PREFS = "spotify_api_rate_limits"
     private const val RATE_LIMIT_UNTIL_KEY = "retry_until_ms"
-    private const val CATALOG_RATE_LIMIT_UNTIL_KEY = "catalog_retry_until_ms"
+    private const val PATHFINDER_RATE_LIMIT_UNTIL_KEY = "catalog_retry_until_ms"
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -33,7 +33,7 @@ object SpotifyPlaylistRepository {
 
     private val responseCache = ConcurrentHashMap<String, CachedResponse>()
     @Volatile private var spotifyRetryAtMs = 0L
-    @Volatile private var catalogRetryAtMs = 0L
+    @Volatile private var pathfinderRetryAtMs = 0L
     @Volatile private var rateLimitPreferences: SharedPreferences? = null
 
     private const val RESPONSE_CACHE_TTL_MS = 15L * 60L * 1000L
@@ -57,9 +57,9 @@ object SpotifyPlaylistRepository {
             spotifyRetryAtMs,
             preferences.getLong(RATE_LIMIT_UNTIL_KEY, 0L),
         )
-        catalogRetryAtMs = maxOf(
-            catalogRetryAtMs,
-            preferences.getLong(CATALOG_RATE_LIMIT_UNTIL_KEY, 0L),
+        pathfinderRetryAtMs = maxOf(
+            pathfinderRetryAtMs,
+            preferences.getLong(PATHFINDER_RATE_LIMIT_UNTIL_KEY, 0L),
         )
     }
 
@@ -88,26 +88,26 @@ object SpotifyPlaylistRepository {
     }
 
     @Synchronized
-    private fun currentCatalogRetryAtMs(): Long {
+    private fun currentPathfinderRetryAtMs(): Long {
         val preferences = rateLimitPreferences
         val retryAt = maxOf(
-            catalogRetryAtMs,
-            preferences?.getLong(CATALOG_RATE_LIMIT_UNTIL_KEY, 0L) ?: 0L,
+            pathfinderRetryAtMs,
+            preferences?.getLong(PATHFINDER_RATE_LIMIT_UNTIL_KEY, 0L) ?: 0L,
         )
         if (retryAt <= System.currentTimeMillis()) {
-            catalogRetryAtMs = 0L
-            preferences?.edit()?.remove(CATALOG_RATE_LIMIT_UNTIL_KEY)?.apply()
+            pathfinderRetryAtMs = 0L
+            preferences?.edit()?.remove(PATHFINDER_RATE_LIMIT_UNTIL_KEY)?.apply()
             return 0L
         }
-        catalogRetryAtMs = retryAt
+        pathfinderRetryAtMs = retryAt
         return retryAt
     }
 
     @Synchronized
-    private fun extendCatalogRetryAtMs(candidateRetryAtMs: Long): Long {
-        val retryAt = maxOf(currentCatalogRetryAtMs(), candidateRetryAtMs)
-        catalogRetryAtMs = retryAt
-        rateLimitPreferences?.edit()?.putLong(CATALOG_RATE_LIMIT_UNTIL_KEY, retryAt)?.apply()
+    private fun extendPathfinderRetryAtMs(candidateRetryAtMs: Long): Long {
+        val retryAt = maxOf(currentPathfinderRetryAtMs(), candidateRetryAtMs)
+        pathfinderRetryAtMs = retryAt
+        rateLimitPreferences?.edit()?.putLong(PATHFINDER_RATE_LIMIT_UNTIL_KEY, retryAt)?.apply()
         return retryAt
     }
 
@@ -324,7 +324,7 @@ object SpotifyPlaylistRepository {
     }
 
     private fun parseGraphQlTrack(item: JSONObject): SpotifyTrack? {
-        val track = graphQlItemData(item)
+        val track = item.optJSONObject("track") ?: graphQlItemData(item)
         val uri = track.optString("uri")
         val id = spotifyId(track) ?: return null
         val album = track.optJSONObject("albumOfTrack")
@@ -338,6 +338,7 @@ object SpotifyPlaylistRepository {
             imageUrl = firstSourceUrl(album?.optJSONObject("coverArt")),
             durationMs = track.optJSONObject("duration")
                 ?.optLong("totalMilliseconds", 0L) ?: 0L,
+            playCount = track.optString("playcount").toLongOrNull() ?: 0L,
         )
     }
 
@@ -760,6 +761,204 @@ object SpotifyPlaylistRepository {
         }.getOrElse { Log.e(TAG, "searchTracks: ${it.message}"); emptyList() }
     }
 
+    private suspend fun pathfinderJson(
+        cacheKey: String?,
+        request: () -> SpotifyCanvasRepository.PathfinderResponse,
+    ): JSONObject {
+        if (cacheKey != null) {
+            cachedBody(cacheKey, RESPONSE_CACHE_TTL_MS)?.let { return JSONObject(it) }
+        }
+        val retryAtMs = currentPathfinderRetryAtMs()
+        if (retryAtMs > System.currentTimeMillis()) {
+            if (cacheKey != null) {
+                cachedBody(cacheKey, STALE_RESPONSE_TTL_MS)?.let { return JSONObject(it) }
+            }
+            throw RateLimitedException(retryAtMs)
+        }
+
+        val response = request()
+        if (response.statusCode == 429) {
+            val retryAfterMs = response.retryAfter
+                ?.trim()
+                ?.toLongOrNull()
+                ?.let { TimeUnit.SECONDS.toMillis(it.coerceAtLeast(1L)) }
+                ?: DEFAULT_RETRY_AFTER_MS
+            val retryAt = extendPathfinderRetryAtMs(System.currentTimeMillis() + retryAfterMs)
+            if (cacheKey != null) {
+                cachedBody(cacheKey, STALE_RESPONSE_TTL_MS)?.let { return JSONObject(it) }
+            }
+            throw RateLimitedException(retryAt)
+        }
+        if (response.statusCode !in 200..299) {
+            val message = when (response.statusCode) {
+                401 -> "Spotify sign-in has expired. Sign out in StreamCloud Settings, then sign in again."
+                403 -> "Spotify denied access to this Spotify page (HTTP 403). Reconnect the account and try again."
+                else -> "Spotify request failed (HTTP ${response.statusCode})."
+            }
+            throw IllegalStateException(message)
+        }
+
+        val body = response.body
+            .takeIf(String::isNotBlank)
+            ?: throw IllegalStateException("Spotify returned an empty response.")
+        val json = JSONObject(body)
+        if (cacheKey != null) storeBody(cacheKey, body)
+        return json
+    }
+
+    private fun graphQlError(response: JSONObject, fallback: String): String =
+        response.optJSONArray("errors")
+            ?.optJSONObject(0)
+            ?.optString("message")
+            ?.takeIf(String::isNotBlank)
+            ?: fallback
+
+    private fun parseArray(items: JSONArray?, parse: (JSONObject) -> SpotifyPlaylist?): List<SpotifyPlaylist> {
+        if (items == null) return emptyList()
+        return buildList {
+            for (index in 0 until items.length()) {
+                items.optJSONObject(index)?.let(parse)?.let(::add)
+            }
+        }
+    }
+
+    private fun parseArtistsArray(items: JSONArray?): List<SpotifyArtist> {
+        if (items == null) return emptyList()
+        return buildList {
+            for (index in 0 until items.length()) {
+                items.optJSONObject(index)?.let(::parseGraphQlArtist)?.let(::add)
+            }
+        }
+    }
+
+    private fun parseAlbumsArray(items: JSONArray?): List<SpotifyAlbum> {
+        if (items == null) return emptyList()
+        return buildList {
+            for (index in 0 until items.length()) {
+                items.optJSONObject(index)?.let(::parseGraphQlAlbum)?.let(::add)
+            }
+        }
+    }
+
+    private fun parseArtistOverview(response: JSONObject): SpotifyArtistOverview {
+        val artist = response.optJSONObject("data")?.optJSONObject("artistUnion")
+            ?: throw IllegalStateException(graphQlError(response, "Spotify artist could not be loaded."))
+        val parsedArtist = parseGraphQlArtist(artist)
+            ?: throw IllegalStateException("Spotify did not return this artist.")
+        val profile = artist.optJSONObject("profile")
+        val stats = artist.optJSONObject("stats")
+        val discography = artist.optJSONObject("discography")
+        val related = artist.optJSONObject("relatedContent")
+        val playlists = profile?.optJSONObject("playlistsV2")?.optJSONArray("items")
+        val featuring = related?.optJSONObject("featuringV2")?.optJSONArray("items")
+        val relatedArtists = related?.optJSONObject("relatedArtists")?.optJSONArray("items")
+        val topTracks = discography?.optJSONObject("topTracks")?.optJSONArray("items")
+            ?.let { items ->
+                buildList {
+                    for (index in 0 until items.length()) {
+                        val track = items.optJSONObject(index)?.optJSONObject("track") ?: continue
+                        parseGraphQlTrack(track)?.let(::add)
+                    }
+                }
+            }.orEmpty()
+        val clips = listOf(
+            artist.optJSONObject("relatedMusicVideos")?.optJSONArray("items"),
+            artist.optJSONObject("unmappedMusicVideos")?.optJSONArray("items"),
+        ).flatMap(::parseMusicVideos).distinctBy { it.id }
+        val header = artist.optJSONObject("headerImage")?.optJSONObject("data")
+        val galleryImage = firstImageItemSourceUrl(
+            artist.optJSONObject("visuals")?.optJSONObject("gallery"),
+            "items",
+        )
+        return SpotifyArtistOverview(
+            artist = parsedArtist.copy(
+                followers = stats?.optLong("followers", parsedArtist.followers) ?: parsedArtist.followers,
+            ),
+            headerImageUrl = firstSourceUrl(header),
+            biography = profile?.optJSONObject("biography")?.optString("text").orEmpty(),
+            verified = artist.optJSONObject("onPlatformReputationTrait")
+                ?.optJSONObject("verification")?.optBoolean("isVerified") == true,
+            monthlyListeners = stats?.optLong("monthlyListeners", 0L) ?: 0L,
+            worldRank = stats?.optInt("worldRank")?.takeIf { it > 0 },
+            aboutImageUrl = galleryImage ?: parsedArtist.imageUrl,
+            topTracks = topTracks,
+            popularReleases = parseAlbumsArray(
+                discography?.optJSONObject("popularReleasesAlbums")?.optJSONArray("items"),
+            ),
+            featuringPlaylists = parseArray(featuring, ::parseGraphQlPlaylist),
+            artistPlaylists = parseArray(playlists, ::parseGraphQlPlaylist),
+            relatedArtists = parseArtistsArray(relatedArtists),
+            clips = clips,
+            saved = artist.optBoolean("saved", false),
+        )
+    }
+
+    private fun parseMusicVideos(items: JSONArray?): List<SpotifyMusicVideo> {
+        if (items == null) return emptyList()
+        return buildList {
+            for (index in 0 until items.length()) {
+                val wrapper = items.optJSONObject(index) ?: continue
+                val video = wrapper.optJSONObject("data")
+                    ?: wrapper.optJSONObject("item")?.optJSONObject("data")
+                    ?: wrapper
+                val id = spotifyId(video) ?: continue
+                val title = video.optString("name")
+                    .ifBlank { video.optString("title") }
+                    .ifBlank { "Spotify clip" }
+                val image = firstSourceUrl(video.optJSONObject("coverArt"))
+                    ?: firstSourceUrl(video.optJSONObject("thumbnail"))
+                    ?: firstImageItemSourceUrl(video, "images")
+                add(
+                    SpotifyMusicVideo(
+                        id = id,
+                        title = title,
+                        imageUrl = image,
+                        durationMs = video.optJSONObject("duration")
+                            ?.optLong("totalMilliseconds", 0L) ?: 0L,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun parseAlbumDetails(response: JSONObject): SpotifyAlbumDetails {
+        val albumData = response.optJSONObject("data")?.optJSONObject("albumUnion")
+            ?: throw IllegalStateException(graphQlError(response, "Spotify album could not be loaded."))
+        val album = parseGraphQlAlbum(albumData)
+            ?: throw IllegalStateException("Spotify did not return this album.")
+        val trackItems = albumData.optJSONObject("tracksV2")?.optJSONArray("items")
+        val tracks = if (trackItems == null) emptyList() else buildList {
+            for (index in 0 until trackItems.length()) {
+                val wrapper = trackItems.optJSONObject(index) ?: continue
+                val track = parseGraphQlTrack(wrapper) ?: continue
+                add(track.copy(album = album.name, imageUrl = album.imageUrl))
+            }
+        }
+        val artists = parseArtistsArray(albumData.optJSONObject("artists")?.optJSONArray("items"))
+        val moreByArtist = buildList {
+            val owners = albumData.optJSONObject("moreAlbumsByArtist")?.optJSONArray("items")
+                ?: JSONArray()
+            for (index in 0 until owners.length()) {
+                val owner = owners.optJSONObject(index) ?: continue
+                val discography = owner.optJSONObject("discography")
+                    ?: owner.optJSONObject("data")?.optJSONObject("discography")
+                    ?: continue
+                val releases = parseAlbumsArray(
+                    discography.optJSONObject("popularReleasesAlbums")?.optJSONArray("items"),
+                )
+                addAll(releases)
+            }
+        }.filterNot { it.id == album.id }.distinctBy { it.id }
+        return SpotifyAlbumDetails(
+            album = album,
+            albumType = albumData.optString("type", "ALBUM"),
+            label = albumData.optString("label"),
+            artists = artists,
+            tracks = tracks,
+            moreByArtist = moreByArtist,
+        )
+    }
+
     suspend fun searchCatalog(spDc: String, query: String): SpotifySearchResults =
         withContext(Dispatchers.IO) {
             val cleanQuery = query.trim()
@@ -767,55 +966,49 @@ object SpotifyPlaylistRepository {
             val token = accessToken(spDc)
             val cacheKey =
                 "${tokenCacheScope(token)}|pathfinder-v2/searchDesktop/${URLEncoder.encode(cleanQuery, "UTF-8")}"
-            cachedBody(cacheKey, RESPONSE_CACHE_TTL_MS)?.let {
-                return@withContext parseGraphQlSearch(JSONObject(it))
+            val response = pathfinderJson(cacheKey) {
+                SpotifyCanvasRepository.searchCatalog(token, spDc, cleanQuery)
             }
+            val hasSearchData = response.optJSONObject("data")?.optJSONObject("searchV2") != null
+            if (!hasSearchData) {
+                throw IllegalStateException(graphQlError(response, "Spotify catalogue search failed."))
+            }
+            parseGraphQlSearch(response)
+        }
 
-            // The web-player catalogue endpoint has its own server-provided Retry-After.
-            // Don't let a REST/library 429 prevent this separate search route from running.
-            val retryAtMs = currentCatalogRetryAtMs()
-            if (retryAtMs > System.currentTimeMillis()) {
-                cachedBody(cacheKey, STALE_RESPONSE_TTL_MS)?.let {
-                    return@withContext parseGraphQlSearch(JSONObject(it))
-                }
-                throw RateLimitedException(retryAtMs)
+    suspend fun getArtistOverview(spDc: String, artistId: String): SpotifyArtistOverview =
+        withContext(Dispatchers.IO) {
+            require(artistId.matches(Regex("[A-Za-z0-9]+"))) { "Invalid Spotify artist ID." }
+            val token = accessToken(spDc)
+            val cacheKey = "${tokenCacheScope(token)}|pathfinder-v2/queryArtistOverview/$artistId"
+            val response = pathfinderJson(cacheKey) {
+                SpotifyCanvasRepository.artistOverview(token, spDc, artistId)
             }
+            parseArtistOverview(response)
+        }
 
-            val response = SpotifyCanvasRepository.searchCatalog(token, spDc, cleanQuery)
-            if (response.statusCode == 429) {
-                val retryAfterMs = response.retryAfter
-                    ?.trim()
-                    ?.toLongOrNull()
-                    ?.let { TimeUnit.SECONDS.toMillis(it.coerceAtLeast(1L)) }
-                    ?: DEFAULT_RETRY_AFTER_MS
-                val retryAt = extendCatalogRetryAtMs(System.currentTimeMillis() + retryAfterMs)
-                cachedBody(cacheKey, STALE_RESPONSE_TTL_MS)?.let {
-                    return@withContext parseGraphQlSearch(JSONObject(it))
-                }
-                throw RateLimitedException(retryAt)
+    suspend fun getAlbumDetails(spDc: String, albumId: String): SpotifyAlbumDetails =
+        withContext(Dispatchers.IO) {
+            require(albumId.matches(Regex("[A-Za-z0-9]+"))) { "Invalid Spotify album ID." }
+            val token = accessToken(spDc)
+            val cacheKey = "${tokenCacheScope(token)}|pathfinder-v2/getAlbum/$albumId"
+            val response = pathfinderJson(cacheKey) {
+                SpotifyCanvasRepository.albumDetails(token, spDc, albumId)
             }
-            if (response.statusCode !in 200..299) {
-                val message = when (response.statusCode) {
-                    401 -> "Spotify sign-in has expired. Sign out in StreamCloud Settings, then sign in again."
-                    403 -> "Spotify denied access to this catalogue search (HTTP 403). Reconnect the account and try again."
-                    else -> "Spotify search failed (HTTP ${response.statusCode})."
-                }
-                throw IllegalStateException(message)
-            }
+            parseAlbumDetails(response)
+        }
 
-            val body = response.body
-                .takeIf(String::isNotBlank)
-                ?: throw IllegalStateException("Spotify returned an empty search response.")
-            val json = JSONObject(body)
-            val errors = json.optJSONArray("errors")
-            val hasSearchData = json.optJSONObject("data")?.optJSONObject("searchV2") != null
-            if (errors != null && errors.length() > 0 && !hasSearchData) {
-                val message = errors.optJSONObject(0)?.optString("message")
-                    ?.takeIf(String::isNotBlank)
-                    ?: "Spotify catalogue search failed."
-                throw IllegalStateException(message)
+    suspend fun setArtistFollowed(spDc: String, artistId: String, followed: Boolean) =
+        withContext(Dispatchers.IO) {
+            require(artistId.matches(Regex("[A-Za-z0-9]+"))) { "Invalid Spotify artist ID." }
+            val token = accessToken(spDc)
+            val response = pathfinderJson(cacheKey = null) {
+                SpotifyCanvasRepository.setArtistFollowed(token, spDc, artistId, followed)
             }
-            storeBody(cacheKey, body)
-            parseGraphQlSearch(json)
+            val data = response.optJSONObject("data")
+            val mutationName = if (followed) "addLibraryItems" else "removeLibraryItems"
+            if (data?.optJSONObject(mutationName) == null) {
+                throw IllegalStateException(graphQlError(response, "Spotify could not update this artist."))
+            }
         }
 }
