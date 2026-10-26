@@ -89,6 +89,7 @@ import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.ui.components.MovieArtwork
+import com.streamcloud.app.ui.components.tvHighResolutionTmdbArtworkUrl
 import com.streamcloud.app.ui.components.TmdbTrailerPreview
 import com.streamcloud.app.ui.components.WatchedPosterBadge
 import com.streamcloud.app.ui.viewmodel.CsPluginRow
@@ -1612,7 +1613,7 @@ private fun HeroBannerSlide(
             .then(if (!isTv) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
         AsyncImage(
-            model = item.imageUrl,
+            model = if (isTv) tvHighResolutionTmdbArtworkUrl(item.imageUrl) else item.imageUrl,
             contentDescription = item.title,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
@@ -1804,7 +1805,7 @@ private fun HeroBannerTitle(
 ) {
     if (!logoUrl.isNullOrBlank()) {
         AsyncImage(
-            model = logoUrl,
+            model = if (isTv) tvHighResolutionTmdbArtworkUrl(logoUrl) else logoUrl,
             contentDescription = "$title logo",
             contentScale = ContentScale.Fit,
             modifier = Modifier
@@ -2083,7 +2084,7 @@ private fun ContinueWatchingCard(
 
     Box(cardModifier) {
         AsyncImage(
-            model = landscapeImageUrl,
+            model = if (isTv) tvHighResolutionTmdbArtworkUrl(landscapeImageUrl) else landscapeImageUrl,
             contentDescription = entry.title,
             contentScale = ContentScale.Crop,
             modifier = Modifier
@@ -2330,12 +2331,13 @@ private fun CsHomePosterCard(
                 .clip(posterShape)
                 .background(MaterialTheme.colorScheme.surface),
         ) {
+            val artworkUrl = if (isTv && useLandscape) {
+                tmdbMovie?.backdropUrl?.takeIf { it.isNotBlank() } ?: item.posterUrl
+            } else {
+                item.posterUrl
+            }
             AsyncImage(
-                model = if (isTv && useLandscape) {
-                    tmdbMovie?.backdropUrl?.takeIf { it.isNotBlank() } ?: item.posterUrl
-                } else {
-                    item.posterUrl
-                },
+                model = if (isTv) tvHighResolutionTmdbArtworkUrl(artworkUrl) else artworkUrl,
                 contentDescription = item.name,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -2459,8 +2461,9 @@ private fun MidPoster(
                     },
                 ),
         ) {
+            val artworkUrl = if (isExpanded) m.backdropUrl ?: imageUrl else imageUrl
             AsyncImage(
-                model = if (isExpanded) m.backdropUrl ?: imageUrl else imageUrl,
+                model = if (isTv) tvHighResolutionTmdbArtworkUrl(artworkUrl) else artworkUrl,
                 contentDescription = m.displayTitle,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -2681,6 +2684,7 @@ private fun PosterGrid(
     onClick: (TmdbMovie) -> Unit,
     onLongPress: (TmdbMovie) -> Unit = {},
 ) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val chunkSize = if (posterStyle == "landscape") 2 else 3
     Column(
         modifier = Modifier
@@ -2713,7 +2717,7 @@ private fun PosterGrid(
                     ) {
                         Box(Modifier.fillMaxWidth().aspectRatio(ratio)) {
                             AsyncImage(
-                                model = imageUrl,
+                                model = if (isTv) tvHighResolutionTmdbArtworkUrl(imageUrl) else imageUrl,
                                 contentDescription = m.displayTitle,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
@@ -2758,13 +2762,14 @@ private fun CwOptionsSheet(
     onStartFromBeginning: () -> Unit,
     onRemove: () -> Unit,
 ) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Column(Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
         Row(
             Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             AsyncImage(
-                model = entry.posterUrl,
+                model = if (isTv) tvHighResolutionTmdbArtworkUrl(entry.posterUrl) else entry.posterUrl,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -2895,13 +2900,14 @@ private fun PosterOptionsSheet(
     onAddToLibrary: () -> Unit,
     onMarkAsWatched: () -> Unit,
 ) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Column(Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
         Row(
             Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             AsyncImage(
-                model = item.posterUrl,
+                model = if (isTv) tvHighResolutionTmdbArtworkUrl(item.posterUrl) else item.posterUrl,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier

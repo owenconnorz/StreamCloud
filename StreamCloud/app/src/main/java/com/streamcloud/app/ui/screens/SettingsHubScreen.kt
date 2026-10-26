@@ -634,7 +634,7 @@ fun SettingsHubScreen(
                         SettingToggle(
                             icon = Icons.Default.LiveTv, tint = ColourPlayer,
                             title = "Match display refresh rate",
-                            subtitle = "Switch the TV to a supported mode close to the video frame rate",
+                            subtitle = "Match video to a supported refresh-rate multiple, up to 5×",
                             checked = matchDisplayFrameRate,
                             onChange = {
                                 matchDisplayFrameRate = it
@@ -1099,7 +1099,7 @@ fun SettingsHubScreen(
                     SettingToggle(
                         icon = Icons.Default.Speed, tint = MaterialTheme.colorScheme.primary,
                         title = "Enable high refresh rate",
-                        subtitle = "Force the display to run at its highest supported rate (e.g. 120 Hz)",
+                        subtitle = "Request the highest supported refresh rate at the current resolution",
                         checked = highRefreshRate,
                         onChange = { highRefreshRate = it; scope.launch { sl.settings.setHighRefreshRate(it) } },
                     )

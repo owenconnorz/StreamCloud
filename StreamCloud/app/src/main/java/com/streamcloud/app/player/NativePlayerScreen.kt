@@ -99,6 +99,8 @@ import com.streamcloud.app.torrent.TorrentService
 import com.streamcloud.app.torrent.TorrentState
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.theme.findHighestSupportedTvDisplayModeId
+import com.streamcloud.app.ui.theme.findMatchingTvDisplayModeId
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import kotlinx.coroutines.Dispatchers
@@ -239,6 +241,7 @@ fun NativePlayerScreen(
     val decoderFallbackEnabled by sl.settings.decoderFallbackEnabled.collectAsState(initial = true)
     val tunneledPlaybackEnabled by sl.settings.tunneledPlaybackEnabled.collectAsState(initial = false)
     val matchDisplayFrameRate by sl.settings.matchDisplayFrameRateEnabled.collectAsState(initial = false)
+    val highRefreshRate by sl.settings.highRefreshRate.collectAsState(initial = true)
     val gestureVolumeOn     by sl.settings.gestureVolumeEnabled.collectAsState(initial = true)
     val gestureBrightnessOn by sl.settings.gestureBrightnessEnabled.collectAsState(initial = true)
     val resumePlaybackOn    by sl.settings.resumePlayback.collectAsState(initial = true)
@@ -429,7 +432,7 @@ fun NativePlayerScreen(
         val session = MediaSession.Builder(context.applicationContext, currentEx).setId("sc_video_player").build()
         onDispose { session.release() }
     }
-    DisposableEffect(player.value, matchDisplayFrameRate) {
+    DisposableEffect(player.value, matchDisplayFrameRate, highRefreshRate) {
         val currentEx = player.value
         val activity = context as? Activity
         if (
@@ -455,7 +458,15 @@ fun NativePlayerScreen(
                             .map { group.getTrackFormat(it).frameRate }
                     }
                     .firstOrNull { it.isFinite() && it > 0f }
-                val preferredModeId = frameRate?.let { findDisplayModeForFrameRate(activity, it) }
+                val preferredModeId = if (matchDisplayFrameRate && frameRate != null) {
+                    findMatchingTvDisplayModeId(activity, frameRate)
+                } else {
+                    null
+                } ?: if (highRefreshRate) {
+                    findHighestSupportedTvDisplayModeId(activity)
+                } else {
+                    null
+                }
                 setPreferredMode(preferredModeId ?: originalModeId)
             }
         }
@@ -1560,19 +1571,6 @@ fun NativePlayerScreen(
             )
         }
     }
-}
-
-private fun findDisplayModeForFrameRate(activity: Activity, frameRate: Float): Int? {
-    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M) return null
-    val display = activity.windowManager.defaultDisplay
-    val candidates = display.supportedModes
-        .mapNotNull { mode ->
-            val rate = mode.refreshRate
-            val matchedRate = listOf(frameRate, frameRate * 2f, frameRate * 3f, frameRate * 4f)
-                .firstOrNull { kotlin.math.abs(rate - it) <= 0.75f }
-            matchedRate?.let { mode to kotlin.math.abs(rate - it) }
-        }
-    return candidates.minByOrNull { it.second }?.first?.modeId
 }
 
 @Composable

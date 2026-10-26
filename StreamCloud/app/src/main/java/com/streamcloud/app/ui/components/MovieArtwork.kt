@@ -25,6 +25,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
 
 /**
  * Loads non-adult movie/video artwork and tries [fallbackUrl] once if the
@@ -46,6 +48,10 @@ fun MovieArtwork(
     }
     var urlIndex by remember(urls) { mutableStateOf(0) }
     val currentUrl = urls.getOrNull(urlIndex)
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val resolvedUrl = remember(currentUrl, isTv) {
+        if (isTv) tvHighResolutionTmdbArtworkUrl(currentUrl) else currentUrl
+    }
 
     if (currentUrl == null) {
         MovieArtworkUnavailable(
@@ -56,7 +62,7 @@ fun MovieArtwork(
     }
 
     SubcomposeAsyncImage(
-        model = currentUrl,
+        model = resolvedUrl,
         contentDescription = contentDescription,
         contentScale = contentScale,
         modifier = modifier,
@@ -97,6 +103,22 @@ internal fun movieArtworkUrls(primaryUrl: String?, fallbackUrl: String?): List<S
         primaryUrl?.trim()?.takeIf(String::isNotEmpty),
         fallbackUrl?.trim()?.takeIf(String::isNotEmpty),
     ).distinct()
+
+private val tmdbArtworkSizePattern = Regex("/t/p/(w\\d+|original)/")
+
+internal fun tvHighResolutionTmdbArtworkUrl(url: String?): String? {
+    if (url.isNullOrBlank()) return url
+    return tmdbArtworkSizePattern.replace(url) { match ->
+        val currentSize = match.groupValues[1]
+        val preferredSize = when (currentSize) {
+            "w1280" -> "original"
+            "w342", "w500" -> "w780"
+            "w185", "w200" -> "w500"
+            else -> currentSize
+        }
+        "/t/p/$preferredSize/"
+    }
+}
 
 @Composable
 private fun MovieArtworkUnavailable(
