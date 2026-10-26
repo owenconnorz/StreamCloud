@@ -705,6 +705,30 @@ fun StreamCloudApp() {
                          NavHost(
                  navController = nav,
                  startDestination = startRoute,
+                  enterTransition = {
+                      slideInHorizontally(
+                          initialOffsetX = { width -> width / 24 },
+                          animationSpec = tween(durationMillis = 190),
+                      ) + fadeIn(animationSpec = tween(durationMillis = 160))
+                  },
+                  exitTransition = {
+                      slideOutHorizontally(
+                          targetOffsetX = { width -> -width / 40 },
+                          animationSpec = tween(durationMillis = 190),
+                      ) + fadeOut(animationSpec = tween(durationMillis = 130))
+                  },
+                  popEnterTransition = {
+                      slideInHorizontally(
+                          initialOffsetX = { width -> -width / 40 },
+                          animationSpec = tween(durationMillis = 190),
+                      ) + fadeIn(animationSpec = tween(durationMillis = 160))
+                  },
+                  popExitTransition = {
+                      slideOutHorizontally(
+                          targetOffsetX = { width -> width / 24 },
+                          animationSpec = tween(durationMillis = 190),
+                      ) + fadeOut(animationSpec = tween(durationMillis = 130))
+                  },
              ) {
                 composable(Tab.Movies.route) {
                     MoviesScreen(
