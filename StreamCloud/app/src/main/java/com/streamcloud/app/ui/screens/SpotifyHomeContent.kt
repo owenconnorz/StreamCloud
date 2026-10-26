@@ -54,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -95,6 +96,8 @@ private enum class SpotifyHomeCategory(val label: String) {
 
 private fun String.spotifyDisplayText(): String? =
     trim().takeUnless { it.isEmpty() || it.equals("null", ignoreCase = true) }
+
+private val SpotifyHomeCardSize = 184.dp
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -207,11 +210,25 @@ internal fun SpotifyHomeContent(
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onBackground,
             )
-            IconButton(onClick = onSearchClick) {
-                Icon(Icons.Default.Search, contentDescription = "Search Spotify")
+            IconButton(
+                onClick = onSearchClick,
+                modifier = Modifier.size(42.dp).clip(CircleShape).background(SpotifyGreen),
+            ) {
+                Icon(
+                    Icons.Default.Search,
+                    contentDescription = "Search Spotify",
+                    tint = Color.Black,
+                )
             }
-            IconButton(onClick = ::openHistory) {
-                Icon(Icons.Default.History, contentDescription = "Recently played on Spotify")
+            IconButton(
+                onClick = ::openHistory,
+                modifier = Modifier.size(42.dp).clip(CircleShape).background(SpotifyGreen),
+            ) {
+                Icon(
+                    Icons.Default.History,
+                    contentDescription = "Recently played on Spotify",
+                    tint = Color.Black,
+                )
             }
         }
         Row(
@@ -282,7 +299,7 @@ internal fun SpotifyHomeContent(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, bottom = 120.dp),
+                contentPadding = PaddingValues(start = 18.dp, end = 0.dp, bottom = 120.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 val home = feed
@@ -411,7 +428,7 @@ private fun SpotifyWebPlayerShelf(
                 val isTrack = card.track != null
                 val canOpen = isTrack || card.collectionId != null
                 Column(
-                    Modifier.width(148.dp)
+                    Modifier.width(SpotifyHomeCardSize)
                         .clickable(enabled = canOpen) {
                             val track = card.track
                             if (track != null) onPlay(track)
@@ -419,7 +436,7 @@ private fun SpotifyWebPlayerShelf(
                         },
                 ) {
                     Box(
-                        Modifier.size(148.dp)
+                        Modifier.size(SpotifyHomeCardSize)
                             .clip(
                                 if (card.collectionId?.startsWith("artist:") == true) {
                                     CircleShape
@@ -497,10 +514,10 @@ private fun SpotifyArtistShelf(
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             items(artists, key = { it.id }) { artist ->
                 Column(
-                    Modifier.width(148.dp).clickable { onOpenArtist(artist.id, artist.name) },
+                    Modifier.width(SpotifyHomeCardSize).clickable { onOpenArtist(artist.id, artist.name) },
                 ) {
                     Box(
-                        Modifier.size(148.dp)
+                        Modifier.size(SpotifyHomeCardSize)
                             .clip(RoundedCornerShape(12.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentAlignment = Alignment.Center,
@@ -567,11 +584,11 @@ private fun SpotifyTrackShelf(
         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             items(tracks, key = { "recommended-${it.id}" }) { track ->
                 Column(
-                    Modifier.width(148.dp)
+                    Modifier.width(SpotifyHomeCardSize)
                         .clickable(enabled = playingTrackId == null) { onPlay(track) },
                 ) {
                     Box(
-                        Modifier.size(148.dp)
+                        Modifier.size(SpotifyHomeCardSize)
                             .clip(RoundedCornerShape(12.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentAlignment = Alignment.Center,

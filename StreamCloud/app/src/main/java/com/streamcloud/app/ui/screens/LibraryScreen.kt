@@ -276,12 +276,19 @@ fun LibraryScreen(
         )
     }
 
-    val libraryBackgroundTarget = MaterialTheme.colorScheme.background
-    val libraryBackground by animateColorAsState(
+    val isSpotifyMusicLibrary =
+        sectionMode == "Music" && activeMusicProvider == MusicProvider.Spotify
+    val libraryBackgroundTarget = if (isSpotifyMusicLibrary) {
+        SpotifyBlack
+    } else {
+        MaterialTheme.colorScheme.background
+    }
+    val animatedLibraryBackground by animateColorAsState(
         libraryBackgroundTarget,
         animationSpec = tween(700),
         label = "libraryBackground",
     )
+    val libraryBackground = if (isSpotifyMusicLibrary) SpotifyBlack else animatedLibraryBackground
     val vibrantRaw by AlbumArtThemeBus.vibrant.collectAsState()
     val animVibrant by animateColorAsState(vibrantRaw, animationSpec = tween(700), label = "libVibrant")
     Column(Modifier.fillMaxSize().background(libraryBackground)) {
@@ -327,7 +334,8 @@ fun LibraryScreen(
                             )
                             .tvFocusBorder(CircleShape)
                             .background(
-                                if (selected) MaterialTheme.colorScheme.primary
+                                if (selected && isSpotifyMusicLibrary) SpotifyGreen
+                                else if (selected) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.surfaceVariant
                             )
                             .clickable { sectionMode = label },
@@ -335,7 +343,8 @@ fun LibraryScreen(
                     ) {
                         Icon(
                             icon, label,
-                            tint = if (selected) MaterialTheme.colorScheme.onPrimary
+                            tint = if (selected && isSpotifyMusicLibrary) Color.Black
+                                   else if (selected) MaterialTheme.colorScheme.onPrimary
                                    else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp),
                         )
@@ -502,11 +511,13 @@ fun LibraryScreen(
             }
         } else {
             if (activeMusicProvider == MusicProvider.Spotify) {
-                SpotifyLibraryContent(
-                    spotifyCookie = spotifyCookie,
-                    onOpenCollection = onOpenSpotifyPlaylist,
-                    modifier = Modifier.weight(1f),
-                )
+                SpotifyTheme {
+                    SpotifyLibraryContent(
+                        spotifyCookie = spotifyCookie,
+                        onOpenCollection = onOpenSpotifyPlaylist,
+                        modifier = Modifier.weight(1f).background(SpotifyBlack),
+                    )
+                }
             } else {
         Row(
             Modifier

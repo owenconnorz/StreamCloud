@@ -35,8 +35,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -71,6 +71,7 @@ fun GlobalMiniPlayer(
     playerSurfaceState: PlayerSurfaceState,
     onExpand: () -> Unit = { PlayerExpandBus.requestExpand() },
     onDismiss: () -> Unit = {},
+    forceSpotifyStyle: Boolean = false,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -78,7 +79,8 @@ fun GlobalMiniPlayer(
     val scope = rememberCoroutineScope()
     val sl = remember(context) { ServiceLocator.get(context) }
     val ytCookie by sl.settings.ytMusicCookie.collectAsState(initial = "")
-    val dynamicMiniTheme by sl.settings.dynamicMiniPlayerTheme.collectAsState(initial = true)
+    val dynamicMiniThemeSetting by sl.settings.dynamicMiniPlayerTheme.collectAsState(initial = true)
+    val dynamicMiniTheme = dynamicMiniThemeSetting && !forceSpotifyStyle
 
     var controller by remember { mutableStateOf<Player?>(null) }
     var title by remember { mutableStateOf<String?>(null) }
@@ -128,27 +130,43 @@ fun GlobalMiniPlayer(
     val navPillBgColor by AlbumArtThemeBus.navPillBg.collectAsState()
 
     val bgColor by animateColorAsState(
-        targetValue = if (dynamicMiniTheme) navPillBgColor else Color(0xFF1C1C1E),
+        targetValue = when {
+            forceSpotifyStyle -> Color(0xFF121212)
+            dynamicMiniTheme -> navPillBgColor
+            else -> Color(0xFF1C1C1E)
+        },
         animationSpec = tween(600),
         label = "miniPlayerBg",
     )
 
     val ringColor by animateColorAsState(
-        targetValue = if (dynamicMiniTheme) accent else Color.White,
+        targetValue = when {
+            forceSpotifyStyle -> Color(0xFF1ED760)
+            dynamicMiniTheme -> accent
+            else -> Color.White
+        },
         animationSpec = tween(600),
         label = "miniRingColor",
     )
-    val themedControlBackground = if (dynamicMiniTheme) {
-        accent.copy(alpha = 0.18f)
-    } else {
-        Color(0xFF2C2C2E)
+    val themedControlBackground = when {
+        forceSpotifyStyle -> Color(0xFF242424)
+        dynamicMiniTheme -> accent.copy(alpha = 0.18f)
+        else -> Color(0xFF2C2C2E)
     }
-    val themedControlActiveBackground = if (dynamicMiniTheme) accent else Color(0xFF2C2C2E)
-    val themedControlIcon = if (dynamicMiniTheme) accent else Color.White
-    val onThemedControlActive = if (dynamicMiniTheme && accent.luminance() > 0.4f) {
-        Color.Black
-    } else {
-        Color.White
+    val themedControlActiveBackground = when {
+        forceSpotifyStyle -> Color(0xFF1ED760)
+        dynamicMiniTheme -> accent
+        else -> Color(0xFF2C2C2E)
+    }
+    val themedControlIcon = when {
+        forceSpotifyStyle -> Color(0xFF1ED760)
+        dynamicMiniTheme -> accent
+        else -> Color.White
+    }
+    val onThemedControlActive = when {
+        forceSpotifyStyle -> Color.Black
+        dynamicMiniTheme && accent.luminance() > 0.4f -> Color.Black
+        else -> Color.White
     }
 
     var localPlaybackProgress by remember { mutableStateOf(0f) }
@@ -527,6 +545,8 @@ fun GlobalMiniPlayer(
                     .clip(CircleShape)
                     .background(
                         when {
+                            forceSpotifyStyle && isLiked -> themedControlActiveBackground
+                            forceSpotifyStyle -> themedControlBackground
                             dynamicMiniTheme && isLiked -> themedControlActiveBackground
                             dynamicMiniTheme -> themedControlBackground
                             isLiked -> Color(0xFFE91E63)
@@ -552,10 +572,12 @@ fun GlobalMiniPlayer(
                 Icon(
                     imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                     contentDescription = if (isLiked) "Unlike" else "Like",
-                    tint = if (dynamicMiniTheme) {
-                        if (isLiked) onThemedControlActive else themedControlIcon
-                    } else {
-                        Color.White
+                    tint = when {
+                        forceSpotifyStyle && isLiked -> Color.Black
+                        forceSpotifyStyle -> Color(0xFF1ED760)
+                        dynamicMiniTheme && isLiked -> onThemedControlActive
+                        dynamicMiniTheme -> themedControlIcon
+                        else -> Color.White
                     },
                     modifier = Modifier.size(20.dp),
                 )
@@ -569,7 +591,7 @@ fun GlobalMiniPlayer(
                     .size(40.dp)
                     .clip(CircleShape)
                     .background(
-                        if (dynamicMiniTheme && (isNetworkCasting || isSonosCasting)) {
+                        if ((dynamicMiniTheme || forceSpotifyStyle) && (isNetworkCasting || isSonosCasting)) {
                             themedControlActiveBackground
                         } else {
                             themedControlBackground
@@ -581,6 +603,8 @@ fun GlobalMiniPlayer(
                     imageVector = Icons.Default.Cast,
                     contentDescription = if (isNetworkCasting || isSonosCasting) "Casting to device" else "Cast to devices",
                     tint = when {
+                        forceSpotifyStyle && (isNetworkCasting || isSonosCasting) -> Color.Black
+                        forceSpotifyStyle -> Color(0xFF1ED760)
                         dynamicMiniTheme && (isNetworkCasting || isSonosCasting) -> onThemedControlActive
                         dynamicMiniTheme -> themedControlIcon
                         isNetworkCasting || isSonosCasting -> Color(0xFF66D9A6)

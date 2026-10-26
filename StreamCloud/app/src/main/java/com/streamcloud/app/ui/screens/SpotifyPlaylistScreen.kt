@@ -459,7 +459,7 @@ fun SpotifyPlaylistScreen(
                     playlistChoicesLoading -> Box(
                         Modifier.fillMaxWidth().height(112.dp),
                         contentAlignment = Alignment.Center,
-                    ) { CircularProgressIndicator(color = Color(0xFF1DB954)) }
+                    ) { CircularProgressIndicator(color = SpotifyGreen) }
                     playlistChoicesError != null -> Column(
                         Modifier.fillMaxWidth().padding(vertical = 20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -484,7 +484,7 @@ fun SpotifyPlaylistScreen(
                                     playlistChoicesLoading = false
                                 }
                             }
-                        }) { Text("Try again", color = Color(0xFF9ABEFF)) }
+                        }) { Text("Try again", color = SpotifyGreen) }
                     }
                     playlistChoices.isEmpty() -> Box(
                         Modifier.fillMaxWidth().height(112.dp),
@@ -550,7 +550,7 @@ fun SpotifyPlaylistScreen(
                                 Icon(
                                     Icons.Default.Add,
                                     contentDescription = "Add to ${playlist.name}",
-                                    tint = Color(0xFF9ABEFF),
+                                    tint = SpotifyGreen,
                                 )
                             }
                             HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
@@ -565,14 +565,14 @@ fun SpotifyPlaylistScreen(
                                     if (loadingMorePlaylistChoices) {
                                         CircularProgressIndicator(
                                             Modifier.size(18.dp),
-                                            color = Color(0xFF9ABEFF),
+                                            color = SpotifyGreen,
                                             strokeWidth = 2.dp,
                                         )
                                         Spacer(Modifier.width(8.dp))
                                     }
                                     Text(
                                         if (loadingMorePlaylistChoices) "Loading…" else "Load more playlists",
-                                        color = Color(0xFF9ABEFF),
+                                        color = SpotifyGreen,
                                     )
                                 }
                             }
@@ -668,7 +668,7 @@ fun SpotifyPlaylistScreen(
                             }
                             Icon(
                                 Icons.Default.Add, "Add",
-                                tint = Color(0xFF1DB954),
+                                tint = SpotifyGreen,
                                 modifier = Modifier.size(24.dp),
                             )
                         }
@@ -716,7 +716,7 @@ fun SpotifyPlaylistScreen(
             if (!loading && spDc.isNotBlank() && albumId == null && artistId == null) {
                 FloatingActionButton(
                     onClick = { showAddSheet = true },
-                    containerColor = Color(0xFF1DB954),
+                    containerColor = SpotifyGreen,
                     contentColor  = Color.White,
                 ) {
                     Icon(Icons.Default.Add, "Add songs")
@@ -763,7 +763,7 @@ fun SpotifyPlaylistScreen(
                     Box(
                         Modifier.fillMaxWidth().padding(vertical = 32.dp),
                         contentAlignment = Alignment.Center,
-                    ) { CircularProgressIndicator(color = Color(0xFF1DB954)) }
+                    ) { CircularProgressIndicator(color = SpotifyGreen) }
                 }
             } else if (loadError != null) {
                 item(key = "error") {
@@ -875,7 +875,7 @@ private fun SpotifyTrackRow(
                 CircularProgressIndicator(
                     Modifier.size(20.dp),
                     strokeWidth = 2.dp,
-                    color = Color(0xFF1DB954),
+                    color = SpotifyGreen,
                 )
             } else {
                 AsyncImage(

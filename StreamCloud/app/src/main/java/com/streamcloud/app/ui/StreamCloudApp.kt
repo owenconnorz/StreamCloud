@@ -212,6 +212,21 @@ fun StreamCloudApp() {
 
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
+    val musicHomeProvider by sl.settings.musicHomeProvider.collectAsState(
+        initial = com.streamcloud.app.data.music.MusicProvider.YouTubeMusic,
+    )
+    val isSpotifyScreen = when {
+        currentRoute == Tab.Music.route ->
+            musicHomeProvider == com.streamcloud.app.data.music.MusicProvider.Spotify
+        currentRoute == Tab.Library.route ->
+            !libraryMoviePaletteActive &&
+                musicHomeProvider == com.streamcloud.app.data.music.MusicProvider.Spotify
+        currentRoute == "spotify-search" -> true
+        currentRoute?.startsWith("spotify-artist/") == true -> true
+        currentRoute?.startsWith("spotify-album/") == true -> true
+        currentRoute?.startsWith("spotify-playlist/") == true -> true
+        else -> false
+    }
     val nsfwEnabled by sl.settings.nsfwEnabled.collectAsState(initial = false)
     val navOrderCsv by sl.settings.navTabOrderCsv.collectAsState(initial = null)
     val navHiddenCsv by sl.settings.navHiddenTabsCsv.collectAsState(initial = null)
@@ -342,7 +357,11 @@ fun StreamCloudApp() {
     val navAccentColor = remember(appearancePalette) {
         palettes[normalizeAppColorPaletteId(appearancePalette)]!!.primary
     }
-    val navPillColor = MaterialTheme.colorScheme.surface
+    val navPillColor = if (isSpotifyScreen) {
+        com.streamcloud.app.ui.screens.SpotifyBlack
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
     val isMusicRoute = remember(currentRoute) {
         val r = currentRoute ?: return@remember false
         r == Tab.Music.route ||
@@ -356,7 +375,9 @@ fun StreamCloudApp() {
     }
     val albumArtAccent by AlbumArtThemeBus.accent.collectAsState()
     val hasAlbumArt by AlbumArtThemeBus.hasArtwork.collectAsState()
-    val musicNavAccentColor = if (hasAlbumArt) {
+    val musicNavAccentColor = if (isSpotifyScreen) {
+        com.streamcloud.app.ui.screens.SpotifyGreen
+    } else if (hasAlbumArt) {
         albumArtAccent
     } else {
         navAccentColor
@@ -1209,26 +1230,28 @@ fun StreamCloudApp() {
                     )
                 }
                 composable("spotify-search") {
-                    com.streamcloud.app.ui.screens.SpotifySearchScreen(
-                        onBack = { nav.popBackStack() },
-                        onOpenPlaylist = { id, title ->
-                            val encodedId = URLEncoder.encode(id, "UTF-8")
-                            val encodedTitle = URLEncoder.encode(title, "UTF-8")
-                            nav.navigate("spotify-playlist/$encodedId/$encodedTitle")
-                        },
-                        onOpenArtist = { artist ->
-                            val id = URLEncoder.encode(artist.id, "UTF-8")
-                            val name = URLEncoder.encode(artist.name, "UTF-8")
-                            val thumb = URLEncoder.encode(artist.imageUrl.orEmpty(), "UTF-8")
-                            nav.navigate("spotify-artist/$id/$name?thumb=$thumb")
-                        },
-                        onOpenAlbum = { album ->
-                            val id = URLEncoder.encode(album.id, "UTF-8")
-                            val name = URLEncoder.encode(album.name, "UTF-8")
-                            val thumb = URLEncoder.encode(album.imageUrl.orEmpty(), "UTF-8")
-                            nav.navigate("spotify-album/$id/$name?thumb=$thumb")
-                        },
-                    )
+                    com.streamcloud.app.ui.screens.SpotifyTheme {
+                        com.streamcloud.app.ui.screens.SpotifySearchScreen(
+                            onBack = { nav.popBackStack() },
+                            onOpenPlaylist = { id, title ->
+                                val encodedId = URLEncoder.encode(id, "UTF-8")
+                                val encodedTitle = URLEncoder.encode(title, "UTF-8")
+                                nav.navigate("spotify-playlist/$encodedId/$encodedTitle")
+                            },
+                            onOpenArtist = { artist ->
+                                val id = URLEncoder.encode(artist.id, "UTF-8")
+                                val name = URLEncoder.encode(artist.name, "UTF-8")
+                                val thumb = URLEncoder.encode(artist.imageUrl.orEmpty(), "UTF-8")
+                                nav.navigate("spotify-artist/$id/$name?thumb=$thumb")
+                            },
+                            onOpenAlbum = { album ->
+                                val id = URLEncoder.encode(album.id, "UTF-8")
+                                val name = URLEncoder.encode(album.name, "UTF-8")
+                                val thumb = URLEncoder.encode(album.imageUrl.orEmpty(), "UTF-8")
+                                nav.navigate("spotify-album/$id/$name?thumb=$thumb")
+                            },
+                        )
+                    }
                 }
                 composable(
                     "spotify-artist/{id}/{title}?thumb={thumb}",
@@ -1248,29 +1271,31 @@ fun StreamCloudApp() {
                     val thumb = args.getString("thumb")
                         ?.let { URLDecoder.decode(it, "UTF-8") }
                         ?.takeIf(String::isNotBlank)
-                    com.streamcloud.app.ui.screens.SpotifyArtistScreen(
-                        artistId = artistId,
-                        initialName = title,
-                        initialImageUrl = thumb,
-                        onBack = { nav.popBackStack() },
-                        onOpenAlbum = { album ->
-                            val id = URLEncoder.encode(album.id, "UTF-8")
-                            val name = URLEncoder.encode(album.name, "UTF-8")
-                            val image = URLEncoder.encode(album.imageUrl.orEmpty(), "UTF-8")
-                            nav.navigate("spotify-album/$id/$name?thumb=$image")
-                        },
-                        onOpenArtist = { artist ->
-                            val id = URLEncoder.encode(artist.id, "UTF-8")
-                            val name = URLEncoder.encode(artist.name, "UTF-8")
-                            val image = URLEncoder.encode(artist.imageUrl.orEmpty(), "UTF-8")
-                            nav.navigate("spotify-artist/$id/$name?thumb=$image")
-                        },
-                        onOpenPlaylist = { playlist ->
-                            val id = URLEncoder.encode(playlist.id, "UTF-8")
-                            val name = URLEncoder.encode(playlist.name, "UTF-8")
-                            nav.navigate("spotify-playlist/$id/$name")
-                        },
-                    )
+                    com.streamcloud.app.ui.screens.SpotifyTheme {
+                        com.streamcloud.app.ui.screens.SpotifyArtistScreen(
+                            artistId = artistId,
+                            initialName = title,
+                            initialImageUrl = thumb,
+                            onBack = { nav.popBackStack() },
+                            onOpenAlbum = { album ->
+                                val id = URLEncoder.encode(album.id, "UTF-8")
+                                val name = URLEncoder.encode(album.name, "UTF-8")
+                                val image = URLEncoder.encode(album.imageUrl.orEmpty(), "UTF-8")
+                                nav.navigate("spotify-album/$id/$name?thumb=$image")
+                            },
+                            onOpenArtist = { artist ->
+                                val id = URLEncoder.encode(artist.id, "UTF-8")
+                                val name = URLEncoder.encode(artist.name, "UTF-8")
+                                val image = URLEncoder.encode(artist.imageUrl.orEmpty(), "UTF-8")
+                                nav.navigate("spotify-artist/$id/$name?thumb=$image")
+                            },
+                            onOpenPlaylist = { playlist ->
+                                val id = URLEncoder.encode(playlist.id, "UTF-8")
+                                val name = URLEncoder.encode(playlist.name, "UTF-8")
+                                nav.navigate("spotify-playlist/$id/$name")
+                            },
+                        )
+                    }
                 }
                 composable(
                     "spotify-album/{id}/{title}?thumb={thumb}",
@@ -1290,24 +1315,26 @@ fun StreamCloudApp() {
                     val thumb = args.getString("thumb")
                         ?.let { URLDecoder.decode(it, "UTF-8") }
                         ?.takeIf(String::isNotBlank)
-                    com.streamcloud.app.ui.screens.SpotifyAlbumScreen(
-                        albumId = albumId,
-                        initialName = title,
-                        initialImageUrl = thumb,
-                        onBack = { nav.popBackStack() },
-                        onOpenArtist = { artist ->
-                            val id = URLEncoder.encode(artist.id, "UTF-8")
-                            val name = URLEncoder.encode(artist.name, "UTF-8")
-                            val image = URLEncoder.encode(artist.imageUrl.orEmpty(), "UTF-8")
-                            nav.navigate("spotify-artist/$id/$name?thumb=$image")
-                        },
-                        onOpenAlbum = { album ->
-                            val id = URLEncoder.encode(album.id, "UTF-8")
-                            val name = URLEncoder.encode(album.name, "UTF-8")
-                            val image = URLEncoder.encode(album.imageUrl.orEmpty(), "UTF-8")
-                            nav.navigate("spotify-album/$id/$name?thumb=$image")
-                        },
-                    )
+                    com.streamcloud.app.ui.screens.SpotifyTheme {
+                        com.streamcloud.app.ui.screens.SpotifyAlbumScreen(
+                            albumId = albumId,
+                            initialName = title,
+                            initialImageUrl = thumb,
+                            onBack = { nav.popBackStack() },
+                            onOpenArtist = { artist ->
+                                val id = URLEncoder.encode(artist.id, "UTF-8")
+                                val name = URLEncoder.encode(artist.name, "UTF-8")
+                                val image = URLEncoder.encode(artist.imageUrl.orEmpty(), "UTF-8")
+                                nav.navigate("spotify-artist/$id/$name?thumb=$image")
+                            },
+                            onOpenAlbum = { album ->
+                                val id = URLEncoder.encode(album.id, "UTF-8")
+                                val name = URLEncoder.encode(album.name, "UTF-8")
+                                val image = URLEncoder.encode(album.imageUrl.orEmpty(), "UTF-8")
+                                nav.navigate("spotify-album/$id/$name?thumb=$image")
+                            },
+                        )
+                    }
                 }
                 composable(
                     "artist/{url}?thumb={thumb}",
@@ -1511,11 +1538,13 @@ fun StreamCloudApp() {
                         navArgument("title") { type = NavType.StringType },
                     ),
                 ) { entry ->
-                    com.streamcloud.app.ui.screens.SpotifyPlaylistScreen(
-                        playlistId    = URLDecoder.decode(entry.arguments!!.getString("id")!!,    "UTF-8"),
-                        playlistTitle = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8"),
-                        onBack        = { nav.popBackStack() },
-                    )
+                    com.streamcloud.app.ui.screens.SpotifyTheme {
+                        com.streamcloud.app.ui.screens.SpotifyPlaylistScreen(
+                            playlistId    = URLDecoder.decode(entry.arguments!!.getString("id")!!,    "UTF-8"),
+                            playlistTitle = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8"),
+                            onBack        = { nav.popBackStack() },
+                        )
+                    }
                 }
                 composable(
                     "yt-playlist/{id}/{title}?thumb={thumb}",
@@ -2026,6 +2055,7 @@ fun StreamCloudApp() {
                     ) {
                         com.streamcloud.app.ui.player.GlobalMiniPlayer(
                             playerSurfaceState = playerSurfaceState,
+                            forceSpotifyStyle = isSpotifyScreen,
                             onExpand = {
                                 com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
                             },
@@ -2092,6 +2122,7 @@ fun StreamCloudApp() {
                         if (showMiniPlayer) {
                             com.streamcloud.app.ui.player.GlobalMiniPlayer(
                                 playerSurfaceState = playerSurfaceState,
+                                forceSpotifyStyle = isSpotifyScreen,
                                 onExpand = {
                                     com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
                                 },

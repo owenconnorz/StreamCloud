@@ -103,11 +103,19 @@ fun MusicScreen(
         }
     }
     Column(
-        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+        Modifier.fillMaxSize().background(
+            if (activeProvider == MusicProvider.Spotify) SpotifyBlack
+            else MaterialTheme.colorScheme.background,
+        )
             .statusBarsPadding(),
     ) {
         TextButton(
             onClick = { showProviders = true },
+            colors = if (activeProvider == MusicProvider.Spotify) {
+                TextButtonDefaults.textButtonColors(contentColor = SpotifyGreen)
+            } else {
+                TextButtonDefaults.textButtonColors()
+            },
             modifier = Modifier
                 .padding(start = 16.dp, end = 16.dp, top = if (isTv) 68.dp else 4.dp)
                 .then(
@@ -140,11 +148,13 @@ fun MusicScreen(
                             Modifier.align(Alignment.Center).padding(24.dp),
                         )
                     } else {
-                        SpotifyHomeContent(
-                            spotifyCookie = spotifyCookie,
-                            onOpenCollection = onSpotifyPlaylistClick,
-                            onSearchClick = onSpotifySearchClick,
-                        )
+                        SpotifyTheme {
+                            SpotifyHomeContent(
+                                spotifyCookie = spotifyCookie,
+                                onOpenCollection = onSpotifyPlaylistClick,
+                                onSearchClick = onSpotifySearchClick,
+                            )
+                        }
                     }
                 }
                 null -> CircularProgressIndicator(Modifier.align(Alignment.Center))

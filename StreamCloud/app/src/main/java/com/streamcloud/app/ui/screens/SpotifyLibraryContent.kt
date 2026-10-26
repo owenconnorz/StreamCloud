@@ -297,7 +297,7 @@ internal fun SpotifyLibraryContent(
             ) {
                 CircularProgressIndicator(
                     Modifier.size(20.dp),
-                    color = androidx.compose.ui.graphics.Color(0xFF1DB954),
+                    color = SpotifyGreen,
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(
