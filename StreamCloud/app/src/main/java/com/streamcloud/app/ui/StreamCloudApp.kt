@@ -699,27 +699,27 @@ fun StreamCloudApp() {
                  navController = nav,
                  startDestination = startRoute,
                   enterTransition = {
-                      slideInHorizontally(
-                          initialOffsetX = { width -> width / 24 },
-                           animationSpec = tween(durationMillis = 145),
+                       slideInHorizontally(
+                           initialOffsetX = { width -> width },
+                           animationSpec = tween(durationMillis = 210),
                        )
                    },
                    exitTransition = {
                        slideOutHorizontally(
-                           targetOffsetX = { width -> -width / 40 },
-                           animationSpec = tween(durationMillis = 145),
+                           targetOffsetX = { width -> -width },
+                           animationSpec = tween(durationMillis = 210),
                        )
                    },
                    popEnterTransition = {
                        slideInHorizontally(
-                           initialOffsetX = { width -> -width / 40 },
-                           animationSpec = tween(durationMillis = 145),
+                           initialOffsetX = { width -> -width },
+                           animationSpec = tween(durationMillis = 210),
                        )
                    },
                    popExitTransition = {
                        slideOutHorizontally(
-                           targetOffsetX = { width -> width / 24 },
-                           animationSpec = tween(durationMillis = 145),
+                           targetOffsetX = { width -> width },
+                           animationSpec = tween(durationMillis = 210),
                        )
                    },
              ) {
