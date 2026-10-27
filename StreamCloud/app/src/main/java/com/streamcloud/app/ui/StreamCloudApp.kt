@@ -120,8 +120,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.material.icons.filled.Menu
@@ -703,27 +701,27 @@ fun StreamCloudApp() {
                   enterTransition = {
                       slideInHorizontally(
                           initialOffsetX = { width -> width / 24 },
-                          animationSpec = tween(durationMillis = 190),
-                      ) + fadeIn(animationSpec = tween(durationMillis = 160))
-                  },
-                  exitTransition = {
-                      slideOutHorizontally(
-                          targetOffsetX = { width -> -width / 40 },
-                          animationSpec = tween(durationMillis = 190),
-                      ) + fadeOut(animationSpec = tween(durationMillis = 130))
-                  },
-                  popEnterTransition = {
-                      slideInHorizontally(
-                          initialOffsetX = { width -> -width / 40 },
-                          animationSpec = tween(durationMillis = 190),
-                      ) + fadeIn(animationSpec = tween(durationMillis = 160))
-                  },
-                  popExitTransition = {
-                      slideOutHorizontally(
-                          targetOffsetX = { width -> width / 24 },
-                          animationSpec = tween(durationMillis = 190),
-                      ) + fadeOut(animationSpec = tween(durationMillis = 130))
-                  },
+                           animationSpec = tween(durationMillis = 145),
+                       )
+                   },
+                   exitTransition = {
+                       slideOutHorizontally(
+                           targetOffsetX = { width -> -width / 40 },
+                           animationSpec = tween(durationMillis = 145),
+                       )
+                   },
+                   popEnterTransition = {
+                       slideInHorizontally(
+                           initialOffsetX = { width -> -width / 40 },
+                           animationSpec = tween(durationMillis = 145),
+                       )
+                   },
+                   popExitTransition = {
+                       slideOutHorizontally(
+                           targetOffsetX = { width -> width / 24 },
+                           animationSpec = tween(durationMillis = 145),
+                       )
+                   },
              ) {
                 composable(Tab.Movies.route) {
                     MoviesScreen(
