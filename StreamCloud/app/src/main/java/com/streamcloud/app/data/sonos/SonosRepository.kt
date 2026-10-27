@@ -13,6 +13,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +31,8 @@ import java.util.concurrent.atomic.AtomicReference
 object SonosRepository {
 
     private const val TAG = "SonosRepository"
+    private const val DISCOVERY_PREFS = "sonos_discovery_cache"
+    private const val DISCOVERY_DEVICES_KEY = "last_devices"
 
     sealed interface CastState {
         object Idle : CastState
@@ -37,6 +40,8 @@ object SonosRepository {
         data class DevicesFound(
             val devices: List<SonosDevice>,
             val groups: List<SonosGroup> = emptyList(),
+            val isRefreshing: Boolean = false,
+            val refreshWarning: String? = null,
         ) : CastState
         object Connecting : CastState
         data class Casting(val device: SonosDevice, val title: String, val displayName: String = device.name) : CastState
@@ -71,10 +76,12 @@ object SonosRepository {
     private var completedQueueMediaId: String? = null
     @Volatile private var furthestSonosPositionMs = 0L
     private var pollingJob: kotlinx.coroutines.Job? = null
+    private var discoveryJob: Job? = null
     private var connectionJob: kotlinx.coroutines.Job? = null
     private var trackUpdateJob: kotlinx.coroutines.Job? = null
     private val trackUpdateMutex = Mutex()
     private val volumeMutex = Mutex()
+    private val discoveryGeneration = AtomicInteger(0)
     private val trackUpdateGeneration = AtomicInteger(0)
     private data class TrackUpdateIntent(val generation: Int, val shouldPlay: Boolean)
     private val trackUpdateIntent = AtomicReference(TrackUpdateIntent(0, true))
@@ -294,14 +301,62 @@ object SonosRepository {
     }
 
     fun startDiscovery(context: Context) {
-        _castState.update { CastState.Discovering }
-        scope.launch {
-            val found = SonosDiscovery.discover(context)
-            _devices.value = found
+        if (_castState.value is CastState.Casting ||
+            _castState.value is CastState.Connecting ||
+            discoveryJob?.isActive == true
+        ) return
+
+        val appContext = context.applicationContext
+        if (_devices.value.isEmpty()) {
+            val saved = runCatching {
+                appContext.getSharedPreferences(DISCOVERY_PREFS, Context.MODE_PRIVATE)
+                    .getString(DISCOVERY_DEVICES_KEY, null)
+                    .let(SonosDeviceCache::decode)
+            }.getOrDefault(emptyList())
+            if (saved.isNotEmpty()) _devices.value = saved
+        }
+
+        val cachedDevices = _devices.value
+        val cachedGroups = (_castState.value as? CastState.DevicesFound)?.groups.orEmpty()
+        _castState.value = if (cachedDevices.isEmpty()) {
+            CastState.Discovering
+        } else {
+            CastState.DevicesFound(
+                devices = cachedDevices,
+                groups = cachedGroups,
+                isRefreshing = true,
+            )
+        }
+        val generation = discoveryGeneration.incrementAndGet()
+        discoveryJob = scope.launch {
+            val found = SonosDiscovery.discover(appContext)
+            if (generation != discoveryGeneration.get()) return@launch
+
             if (found.isEmpty()) {
-                _castState.update { CastState.Error("No Sonos devices found on this network.") }
+                if (cachedDevices.isEmpty()) {
+                    _castState.update {
+                        CastState.Error("No Sonos devices found on this network.")
+                    }
+                } else {
+                    _castState.update {
+                        CastState.DevicesFound(
+                            devices = cachedDevices,
+                            groups = cachedGroups,
+                            refreshWarning = "No speakers responded. Showing saved devices.",
+                        )
+                    }
+                }
                 return@launch
             }
+            _devices.value = found
+            appContext.getSharedPreferences(DISCOVERY_PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(DISCOVERY_DEVICES_KEY, SonosDeviceCache.encode(found))
+                .apply()
+            _castState.update {
+                CastState.DevicesFound(found, isRefreshing = true)
+            }
+
             // Try each discovered device in turn until one answers GetZoneGroupState.
             // Non-Sonos devices (e.g. Vestel) don't support ZoneGroupTopology and
             // return null/error; a real Sonos speaker will respond correctly.
@@ -315,6 +370,7 @@ object SonosRepository {
                 }
                 zones
             }
+            if (generation != discoveryGeneration.get()) return@launch
             if (allZones.isNotEmpty()) {
                 val multiRoom     = allZones.filter { it.isMultiRoom }
                 val singleDevices = allZones.filter { !it.isMultiRoom }.map { it.coordinatorDevice }
@@ -333,6 +389,9 @@ object SonosRepository {
         watchUrl: String,
         displayName: String = device.name,
     ) {
+        discoveryGeneration.incrementAndGet()
+        discoveryJob?.cancel()
+        discoveryJob = null
         connectionJob?.cancel()
         _castState.update { CastState.Connecting }
         connectionJob = scope.launch {

@@ -54,6 +54,7 @@ fun SonosDevicePickerSheet(
 ) {
     val context   = LocalContext.current
     val castState by SonosRepository.castState.collectAsState()
+    val sonosDevices by SonosRepository.devices.collectAsState()
     val remoteCastState by MusicRemoteCast.state.collectAsState()
     val dlnaState by DlnaRepository.state.collectAsState()
     val dlnaDevices = (dlnaState as? DlnaRepository.State.Ready)?.devices.orEmpty()
@@ -136,6 +137,13 @@ fun SonosDevicePickerSheet(
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 )
                 Spacer(Modifier.weight(1f))
+                IconButton(onClick = { SonosRepository.startDiscovery(context) }) {
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = "Refresh Sonos speakers",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Default.Close, "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
                 }
@@ -181,13 +189,52 @@ fun SonosDevicePickerSheet(
                 0 -> when (val state = castState) {
 
                 is SonosRepository.CastState.Discovering ->
-                    SheetStatus("Scanning for Sonos speakers…", showSpinner = true)
+                    if (sonosDevices.isEmpty()) {
+                        SheetStatus("Scanning for Sonos speakers…", showSpinner = true)
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.tvFocusGroup(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            item(key = "cached_discovery_status") {
+                                SonosDiscoveryStatus(
+                                    refreshing = true,
+                                    warning = null,
+                                )
+                            }
+                            item(key = "cached_speakers_header") {
+                                SectionLabel("Choose a speaker")
+                                Spacer(Modifier.height(6.dp))
+                            }
+                            items(sonosDevices, key = { "cached_${it.udn}" }) { device ->
+                                DeviceRow(device = device) {
+                                    MusicRemoteCast.handOffToSonos {
+                                        SonosRepository.connect(
+                                            context = context,
+                                            device = device,
+                                            videoId = videoId,
+                                            title = title,
+                                            watchUrl = watchUrl,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                 is SonosRepository.CastState.DevicesFound -> {
                     LazyColumn(
                         modifier = Modifier.tvFocusGroup(),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
+                        if (state.isRefreshing || state.refreshWarning != null) {
+                            item(key = "discovery_status") {
+                                SonosDiscoveryStatus(
+                                    refreshing = state.isRefreshing,
+                                    warning = state.refreshWarning,
+                                )
+                            }
+                        }
                         // Groups section
                         if (state.groups.isNotEmpty()) {
                             item(key = "groups_header") {
@@ -675,6 +722,27 @@ private fun DeviceRow(device: SonosDevice, onClick: () -> Unit) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SonosDiscoveryStatus(refreshing: Boolean, warning: String?) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (refreshing) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+            )
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(
+            warning ?: "Showing saved speakers while refreshing",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 
