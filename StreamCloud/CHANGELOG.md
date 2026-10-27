@@ -1,3 +1,27 @@
+## Latest — Changes since V2245
+
+### Music
+- **Choose your music source** — switch between Spotify, YouTube Music, and offline downloads; source order and Spotify’s grid/list library layout now persist.
+- **Spotify has full browsing and search pages** — explore Home, playlists, albums, and artists; search updates as you type, with listening history and request cooldowns.
+- **Manage Spotify playlists from StreamCloud** — create playlists and add tracks from search and track menus using the connected account.
+- **Offline music downloads are clearer** — YouTube Music download progress refreshes reliably.
+
+### Adult video
+- **Added PornMz and Beeg** — browse their catalogues and play videos in StreamCloud’s native player.
+- **Added XHamster browsing and playback** — sign-in, category browsing, feed orientation, and native playback are supported.
+- **Improved XFree sign-in and playback handoff** — verification sessions and callbacks are preserved through account setup and playback.
+- **Improved Pornhub discovery** — search pagination and home categories now load more reliably.
+- **More consistent adult video details** — providers use the shared detail and playback flow where supported.
+
+### Movies and Android TV
+- **Faster Movies home refreshes** — saved rows stay visible while updated content loads.
+- **Smoother page changes** — transitions are applied across the app.
+- **Higher-refresh TV support and sharper artwork** — improved display-mode handling and image clarity on compatible TVs.
+
+### Casting and in-car playback
+- **Sonos rooms appear grouped immediately** — saved room groups show while discovery refreshes, and incomplete scans no longer replace known groups with separate speakers.
+- **Android Auto queues are more reliable** — playlist and artist browsing keeps the expected tracks in the queue.
+
 ## Latest — Changes since V2242
 
 ### Episode playback
