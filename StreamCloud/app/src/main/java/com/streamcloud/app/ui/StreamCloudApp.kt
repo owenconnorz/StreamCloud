@@ -101,7 +101,7 @@ import com.streamcloud.app.ui.screens.StremioUnifiedDetailScreen
 import com.streamcloud.app.ui.screens.YtMusicAccountSheet
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
-import com.streamcloud.app.ui.theme.findAutomaticHighRefreshTvDisplayModeId
+import com.streamcloud.app.ui.theme.findAutomaticTvDisplayModeId
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.LaunchedEffect
@@ -226,15 +226,15 @@ fun StreamCloudApp() {
 
         val window = activity.window
         val originalModeId = window.attributes.preferredDisplayModeId
-        val highRefreshModeId = findAutomaticHighRefreshTvDisplayModeId(activity)
-        if (highRefreshModeId != null) {
+        val preferredModeId = findAutomaticTvDisplayModeId(activity)
+        if (preferredModeId != null) {
             window.attributes = window.attributes.apply {
-                preferredDisplayModeId = highRefreshModeId
+                preferredDisplayModeId = preferredModeId
             }
         }
 
         onDispose {
-            if (highRefreshModeId != null) {
+            if (preferredModeId != null) {
                 window.attributes = window.attributes.apply {
                     preferredDisplayModeId = originalModeId
                 }

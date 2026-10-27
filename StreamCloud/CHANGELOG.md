@@ -1,8 +1,8 @@
 ## Latest — Changes since V2320
 
 ### Android TV display
-- **Refresh-rate selection is automatic** — StreamCloud requests a 120 Hz mode only when the TV reports one at its current resolution; otherwise it leaves the display mode unchanged.
-- **Safer startup on TVs** — removed the manual refresh-rate setting and stopped selecting arbitrary maximum modes that some TV firmware may not handle.
+- **Resolution and refresh rate are detected automatically** — keep the current resolution when it is 1080p or higher, then use the fastest reported mode up to 120 Hz (including 60 Hz when that is the best option); if the current mode is below 1080p, choose the highest supported 1080p-or-better mode.
+- **Safer TV startup** — removed the manual refresh-rate setting and avoid requesting unsupported resolutions or arbitrary refresh rates above 120 Hz.
 
 ## Latest — Changes since V2245
 

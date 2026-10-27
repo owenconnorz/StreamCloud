@@ -99,7 +99,7 @@ import com.streamcloud.app.torrent.TorrentService
 import com.streamcloud.app.torrent.TorrentState
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
-import com.streamcloud.app.ui.theme.findAutomaticHighRefreshTvDisplayModeId
+import com.streamcloud.app.ui.theme.findAutomaticTvDisplayModeId
 import com.streamcloud.app.ui.theme.findMatchingTvDisplayModeId
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
@@ -461,7 +461,7 @@ fun NativePlayerScreen(
                     findMatchingTvDisplayModeId(activity, frameRate)
                 } else {
                     null
-                } ?: findAutomaticHighRefreshTvDisplayModeId(activity)
+                } ?: findAutomaticTvDisplayModeId(activity)
                 setPreferredMode(preferredModeId ?: originalModeId)
             }
         }

@@ -11,23 +11,39 @@ internal data class TvDisplayModeCandidate(
     val refreshRate: Float,
 )
 
-internal fun selectAutomaticHighRefreshModeId(
+internal fun selectAutomaticTvDisplayModeId(
     current: TvDisplayModeCandidate,
     supportedModes: Iterable<TvDisplayModeCandidate>,
 ): Int? {
-    val candidate = supportedModes
+    val hdModes = supportedModes
         .asSequence()
-        .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
-        // Only request standard 120 Hz modes; do not force an arbitrary maximum
-        // such as 144/165 Hz, which some TV firmware handles poorly.
-        .filter { it.refreshRate.isFinite() && kotlin.math.abs(it.refreshRate - 120f) <= 2f }
-        .minByOrNull { kotlin.math.abs(it.refreshRate - 120f) }
-        ?: return null
+        .filter {
+            it.physicalWidth >= 1920 &&
+                it.physicalHeight >= 1080 &&
+                it.refreshRate.isFinite() &&
+                it.refreshRate in 48f..122f
+        }
+        .toList()
+    if (hdModes.isEmpty()) return null
+
+    val currentIsHd = current.physicalWidth >= 1920 && current.physicalHeight >= 1080
+    if (currentIsHd && current.refreshRate > 122f) return null
+    val resolutionModes = if (currentIsHd) {
+        hdModes.filter {
+            it.physicalWidth == current.physicalWidth &&
+                it.physicalHeight == current.physicalHeight
+        }
+    } else {
+        val bestPixelCount = hdModes.maxOf { it.physicalWidth.toLong() * it.physicalHeight }
+        hdModes.filter { it.physicalWidth.toLong() * it.physicalHeight == bestPixelCount }
+    }
+
+    val candidate = resolutionModes.maxByOrNull { it.refreshRate } ?: return null
     return candidate.modeId.takeIf { it != current.modeId }
 }
 
 @Suppress("DEPRECATION")
-internal fun findAutomaticHighRefreshTvDisplayModeId(activity: Activity): Int? {
+internal fun findAutomaticTvDisplayModeId(activity: Activity): Int? {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return null
 
     val display = activity.windowManager.defaultDisplay
@@ -38,7 +54,7 @@ internal fun findAutomaticHighRefreshTvDisplayModeId(activity: Activity): Int? {
         refreshRate = refreshRate,
     )
     val current = display.mode.toCandidate()
-    return selectAutomaticHighRefreshModeId(
+    return selectAutomaticTvDisplayModeId(
         current = current,
         supportedModes = display.supportedModes.map { it.toCandidate() },
     )
