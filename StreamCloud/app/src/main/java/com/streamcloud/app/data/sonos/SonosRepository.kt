@@ -307,18 +307,25 @@ object SonosRepository {
         ) return
 
         val appContext = context.applicationContext
-        if (_devices.value.isEmpty()) {
-            val saved = runCatching {
-                appContext.getSharedPreferences(DISCOVERY_PREFS, Context.MODE_PRIVATE)
-                    .getString(DISCOVERY_DEVICES_KEY, null)
-                    .let(SonosDeviceCache::decode)
-            }.getOrDefault(emptyList())
-            if (saved.isNotEmpty()) _devices.value = saved
+        var cachedGroups = (_castState.value as? CastState.DevicesFound)?.groups.orEmpty()
+        val savedValue = runCatching {
+            appContext.getSharedPreferences(DISCOVERY_PREFS, Context.MODE_PRIVATE)
+                .getString(DISCOVERY_DEVICES_KEY, null)
+        }.getOrNull()
+        val saved = SonosDeviceCache.decode(savedValue)
+        val legacyFallbackDevices = if (saved == null) {
+            SonosDeviceCache.decodeLegacyDevices(savedValue)
+        } else {
+            emptyList()
+        }
+        if (saved != null) {
+            _devices.value = saved.devices
+            cachedGroups = saved.groups
         }
 
         val cachedDevices = _devices.value
-        val cachedGroups = (_castState.value as? CastState.DevicesFound)?.groups.orEmpty()
-        _castState.value = if (cachedDevices.isEmpty()) {
+        val hasCachedTargets = cachedDevices.isNotEmpty() || cachedGroups.isNotEmpty()
+        _castState.value = if (!hasCachedTargets) {
             CastState.Discovering
         } else {
             CastState.DevicesFound(
@@ -333,9 +340,18 @@ object SonosRepository {
             if (generation != discoveryGeneration.get()) return@launch
 
             if (found.isEmpty()) {
-                if (cachedDevices.isEmpty()) {
-                    _castState.update {
-                        CastState.Error("No Sonos devices found on this network.")
+                if (!hasCachedTargets) {
+                    if (legacyFallbackDevices.isNotEmpty()) {
+                        _castState.update {
+                            CastState.DevicesFound(
+                                devices = legacyFallbackDevices,
+                                refreshWarning = "No speakers responded. Showing saved speakers.",
+                            )
+                        }
+                    } else {
+                        _castState.update {
+                            CastState.Error("No Sonos devices found on this network.")
+                        }
                     }
                 } else {
                     _castState.update {
@@ -347,14 +363,6 @@ object SonosRepository {
                     }
                 }
                 return@launch
-            }
-            _devices.value = found
-            appContext.getSharedPreferences(DISCOVERY_PREFS, Context.MODE_PRIVATE)
-                .edit()
-                .putString(DISCOVERY_DEVICES_KEY, SonosDeviceCache.encode(found))
-                .apply()
-            _castState.update {
-                CastState.DevicesFound(found, isRefreshing = true)
             }
 
             // Try each discovered device in turn until one answers GetZoneGroupState.
@@ -371,13 +379,37 @@ object SonosRepository {
                 zones
             }
             if (generation != discoveryGeneration.get()) return@launch
-            if (allZones.isNotEmpty()) {
-                val multiRoom     = allZones.filter { it.isMultiRoom }
-                val singleDevices = allZones.filter { !it.isMultiRoom }.map { it.coordinatorDevice }
-                _castState.update { CastState.DevicesFound(singleDevices, multiRoom) }
+            val topologyResolved = allZones.isNotEmpty()
+            val groups = if (topologyResolved) {
+                allZones.filter { it.isMultiRoom }
             } else {
-                _castState.update { CastState.DevicesFound(found, emptyList()) }
+                cachedGroups
             }
+            val displayDevices = if (topologyResolved) {
+                allZones.filter { !it.isMultiRoom }.map { it.coordinatorDevice }
+            } else if (hasCachedTargets) {
+                // A partial topology response must not replace a known room group with the
+                // individual SSDP devices that happen to answer during this scan.
+                cachedDevices
+            } else {
+                found
+            }
+            _devices.value = displayDevices
+            if (topologyResolved || !hasCachedTargets) {
+                appContext.getSharedPreferences(DISCOVERY_PREFS, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(DISCOVERY_DEVICES_KEY, SonosDeviceCache.encode(displayDevices, groups))
+                    .apply()
+            }
+            _castState.value = CastState.DevicesFound(
+                devices = displayDevices,
+                groups = groups,
+                refreshWarning = if (!topologyResolved && hasCachedTargets) {
+                    "Room grouping could not refresh. Showing saved speakers."
+                } else {
+                    null
+                },
+            )
         }
     }
 
