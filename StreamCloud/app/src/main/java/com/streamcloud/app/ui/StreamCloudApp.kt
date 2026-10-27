@@ -1673,7 +1673,10 @@ fun StreamCloudApp() {
                     AdultScreen(
                         onPlay = { videoId, embed, title ->
                             val t = URLEncoder.encode(title, "UTF-8")
-                            if (videoId.startsWith("xhamster://")) {
+                            if (videoId.startsWith("pornmz://")) {
+                                val u = URLEncoder.encode(embed, "UTF-8")
+                                nav.navigate("player/pornmz/$u/$t")
+                            } else if (videoId.startsWith("xhamster://")) {
                                 val id = URLEncoder.encode(
                                     videoId.removePrefix("xhamster://"),
                                     "UTF-8",
@@ -1722,7 +1725,10 @@ fun StreamCloudApp() {
                         onBack = { nav.popBackStack() },
                         onPlay = { videoId, embed, title ->
                             val t = URLEncoder.encode(title, "UTF-8")
-                            if (videoId.startsWith("xhamster://")) {
+                            if (videoId.startsWith("pornmz://")) {
+                                val u = URLEncoder.encode(embed, "UTF-8")
+                                nav.navigate("player/pornmz/$u/$t")
+                            } else if (videoId.startsWith("xhamster://")) {
                                 val id = URLEncoder.encode(
                                     videoId.removePrefix("xhamster://"),
                                     "UTF-8",
@@ -1760,6 +1766,22 @@ fun StreamCloudApp() {
                         title = title,
                         onBack = { nav.popBackStack() },
                         downloadWhenAvailable = entry.arguments?.getBoolean("download") == true,
+                    )
+                }
+
+                composable(
+                    "player/pornmz/{url}/{title}",
+                    arguments = listOf(
+                        navArgument("url") { type = NavType.StringType },
+                        navArgument("title") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val url = URLDecoder.decode(entry.arguments!!.getString("url")!!, "UTF-8")
+                    val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
+                    com.streamcloud.app.player.PornMzPlayerScreen(
+                        pageUrl = url,
+                        title = title,
+                        onBack = { nav.popBackStack() },
                     )
                 }
 
