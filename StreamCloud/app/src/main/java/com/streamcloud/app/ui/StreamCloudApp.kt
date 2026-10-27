@@ -1676,6 +1676,9 @@ fun StreamCloudApp() {
                             if (videoId.startsWith("pornmz://")) {
                                 val u = URLEncoder.encode(embed, "UTF-8")
                                 nav.navigate("player/pornmz/$u/$t")
+                            } else if (videoId.startsWith("beeg://")) {
+                                val u = URLEncoder.encode(embed, "UTF-8")
+                                nav.navigate("player/beeg/$u/$t")
                             } else if (videoId.startsWith("xhamster://")) {
                                 val id = URLEncoder.encode(
                                     videoId.removePrefix("xhamster://"),
@@ -1728,6 +1731,9 @@ fun StreamCloudApp() {
                             if (videoId.startsWith("pornmz://")) {
                                 val u = URLEncoder.encode(embed, "UTF-8")
                                 nav.navigate("player/pornmz/$u/$t")
+                            } else if (videoId.startsWith("beeg://")) {
+                                val u = URLEncoder.encode(embed, "UTF-8")
+                                nav.navigate("player/beeg/$u/$t")
                             } else if (videoId.startsWith("xhamster://")) {
                                 val id = URLEncoder.encode(
                                     videoId.removePrefix("xhamster://"),
@@ -1766,6 +1772,22 @@ fun StreamCloudApp() {
                         title = title,
                         onBack = { nav.popBackStack() },
                         downloadWhenAvailable = entry.arguments?.getBoolean("download") == true,
+                    )
+                }
+
+                composable(
+                    "player/beeg/{url}/{title}",
+                    arguments = listOf(
+                        navArgument("url") { type = NavType.StringType },
+                        navArgument("title") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val url = URLDecoder.decode(entry.arguments!!.getString("url")!!, "UTF-8")
+                    val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
+                    com.streamcloud.app.player.BeegPlayerScreen(
+                        pageUrl = url,
+                        title = title,
+                        onBack = { nav.popBackStack() },
                     )
                 }
 

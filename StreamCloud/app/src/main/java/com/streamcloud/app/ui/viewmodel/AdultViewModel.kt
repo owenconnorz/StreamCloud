@@ -9,6 +9,7 @@ import com.streamcloud.app.data.api.AdultItem
 import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.EpornerApi
 import com.streamcloud.app.data.api.EpornerCategory
+import com.streamcloud.app.data.api.BeegRepository
 import com.streamcloud.app.data.api.RedditAdultRepository
 import com.streamcloud.app.data.api.RedditAuthRequiredException
 import com.streamcloud.app.data.api.RedditRateLimitException
@@ -147,6 +148,14 @@ class AdultViewModel(
                 ) {
                     fetchPornMzPage(query = currentQuery, page = 1, replace = true)
                 }
+                if (
+                    c &&
+                    _state.value.source == AdultSource.Beeg &&
+                    _state.value.items.isEmpty() &&
+                    !_state.value.loading
+                ) {
+                    fetchBeegPage(query = currentQuery, page = 1, replace = true)
+                }
             }
         }
         viewModelScope.launch {
@@ -223,6 +232,12 @@ class AdultViewModel(
                         fetchPornMzPage(query = "", page = 1, replace = true)
                     }
                 }
+                AdultSource.Beeg -> {
+                    currentQuery = ""
+                    if (ageGateConfirmed) {
+                        fetchBeegPage(query = "", page = 1, replace = true)
+                    }
+                }
                 else -> {
                     fetchPage(query = "", page = 1, order = "most-popular", replaceItems = true, isInitial = true)
                     loadCategories()
@@ -292,6 +307,12 @@ class AdultViewModel(
                 currentQuery = ""
                 viewModelScope.launch {
                     fetchPornMzPage(query = "", page = 1, replace = true)
+                }
+            }
+            AdultSource.Beeg -> {
+                currentQuery = ""
+                viewModelScope.launch {
+                    fetchBeegPage(query = "", page = 1, replace = true)
                 }
             }
         }
@@ -380,6 +401,27 @@ class AdultViewModel(
             searchJob = viewModelScope.launch {
                 if (requestedQuery.isNotBlank()) delay(300L)
                 fetchPornMzPage(query = requestedQuery, page = 1, replace = true)
+            }
+            return
+        }
+        if (_state.value.source == AdultSource.Beeg) {
+            val requestedQuery = query.trim()
+            currentQuery = requestedQuery
+            searchJob?.cancel()
+            loadMoreJob?.cancel()
+            loadMoreJob = null
+            _state.update {
+                it.copy(
+                    loading = true,
+                    loadingMore = false,
+                    currentPage = 1,
+                    hasMore = true,
+                    error = null,
+                )
+            }
+            searchJob = viewModelScope.launch {
+                if (requestedQuery.isNotBlank()) delay(300L)
+                fetchBeegPage(query = requestedQuery, page = 1, replace = true)
             }
             return
         }
@@ -477,6 +519,14 @@ class AdultViewModel(
                     fetchPornMzPage(query = currentQuery, page = 1, replace = true)
                 }
             }
+            AdultSource.Beeg -> {
+                searchJob?.cancel()
+                loadMoreJob?.cancel()
+                loadMoreJob = null
+                searchJob = viewModelScope.launch {
+                    fetchBeegPage(query = currentQuery, page = 1, replace = true)
+                }
+            }
             else -> {
                 val newOrder = SORT_ORDERS.filterNot { it == currentOrder }.random()
                 currentOrder = newOrder
@@ -534,6 +584,15 @@ class AdultViewModel(
             val nextPage = _state.value.currentPage + 1
             loadMoreJob = viewModelScope.launch {
                 fetchPornMzPage(query = currentQuery, page = nextPage, replace = false)
+            }
+            return
+        }
+        if (_state.value.source == AdultSource.Beeg) {
+            if (_state.value.loading || _state.value.loadingMore || !_state.value.hasMore) return
+            if (loadMoreJob?.isActive == true) return
+            val nextPage = _state.value.currentPage + 1
+            loadMoreJob = viewModelScope.launch {
+                fetchBeegPage(query = currentQuery, page = nextPage, replace = false)
             }
             return
         }
@@ -965,6 +1024,49 @@ class AdultViewModel(
                     loadingMore = false,
                     hasMore = false,
                     error = "PornMZ unavailable: ${e.message}",
+                )
+            }
+        }
+    }
+
+    private suspend fun fetchBeegPage(
+        query: String,
+        page: Int,
+        replace: Boolean,
+    ) {
+        if (replace) {
+            _state.update { it.copy(loading = true, loadingMore = false, error = null) }
+        } else {
+            _state.update { it.copy(loadingMore = true, error = null) }
+        }
+
+        try {
+            val result = BeegRepository.fetchPage(query = query, page = page)
+            if (_state.value.source != AdultSource.Beeg || currentQuery != query) return
+
+            val currentItems = if (replace) emptyList() else _state.value.items
+            val currentIds = currentItems.mapTo(hashSetOf()) { it.id }
+            val incomingItems = result.items.filterNot { it.id in currentIds }
+            _state.update {
+                it.copy(
+                    items = currentItems + incomingItems,
+                    loading = false,
+                    loadingMore = false,
+                    hasMore = result.hasMore && (replace || incomingItems.isNotEmpty()),
+                    currentPage = page,
+                    error = null,
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (_state.value.source != AdultSource.Beeg || currentQuery != query) return
+            _state.update {
+                it.copy(
+                    loading = false,
+                    loadingMore = false,
+                    hasMore = false,
+                    error = "Beeg unavailable: ${e.message}",
                 )
             }
         }
