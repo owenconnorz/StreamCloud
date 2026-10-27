@@ -120,8 +120,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -699,28 +699,16 @@ fun StreamCloudApp() {
                  navController = nav,
                  startDestination = startRoute,
                   enterTransition = {
-                       slideInHorizontally(
-                           initialOffsetX = { width -> width },
-                           animationSpec = tween(durationMillis = 210),
-                       )
+                       fadeIn(animationSpec = tween(durationMillis = 150, delayMillis = 35))
                    },
                    exitTransition = {
-                       slideOutHorizontally(
-                           targetOffsetX = { width -> -width },
-                           animationSpec = tween(durationMillis = 210),
-                       )
+                       fadeOut(animationSpec = tween(durationMillis = 35))
                    },
                    popEnterTransition = {
-                       slideInHorizontally(
-                           initialOffsetX = { width -> -width },
-                           animationSpec = tween(durationMillis = 210),
-                       )
+                       fadeIn(animationSpec = tween(durationMillis = 150, delayMillis = 35))
                    },
                    popExitTransition = {
-                       slideOutHorizontally(
-                           targetOffsetX = { width -> width },
-                           animationSpec = tween(durationMillis = 210),
-                       )
+                       fadeOut(animationSpec = tween(durationMillis = 35))
                    },
              ) {
                 composable(Tab.Movies.route) {

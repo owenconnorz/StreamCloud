@@ -82,11 +82,9 @@ fun MusicScreen(
     var repositoryErrors by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var showAddRepository by rememberSaveable { mutableStateOf(false) }
     var repositoryInput by rememberSaveable { mutableStateOf("") }
-    val activeProvider = if (
-        selected == MusicProvider.Spotify &&
-        (repositories.isEmpty() || installed["spotify"] == null ||
-            catalogues.values.flatten().none { it.id == "spotify" })
-    ) MusicProvider.YouTubeMusic else selected
+    // Keep the saved source authoritative while plugin catalogues load. Falling back
+    // to YouTube Music here made Spotify routes reveal the wrong source underneath.
+    val activeProvider = selected
     val spotifyProviderAvailable = installed["spotify"] != null &&
         repositories.isNotEmpty() &&
         catalogues.values.flatten().any { it.id == "spotify" }
