@@ -231,7 +231,6 @@ fun SettingsHubScreen(
     var enabledCollections  by remember { mutableStateOf<Set<String>>(emptySet()) }
     var themeMode           by remember { mutableStateOf("dark") }
     var colorPalette        by remember { mutableStateOf("modern_blue") }
-    var highRefreshRate     by remember { mutableStateOf(true) }
     var dynamicMiniTheme    by remember { mutableStateOf(true) }
     var navLabels           by remember { mutableStateOf(true) }
     var navLiquidGlass      by remember { mutableStateOf(true) }
@@ -365,7 +364,6 @@ fun SettingsHubScreen(
         bassBoost           = sl.settings.bassBoost.first()
         themeMode           = sl.settings.theme.first()
         colorPalette        = normalizeAppColorPaletteId(sl.settings.colorPalette.first())
-        highRefreshRate     = sl.settings.highRefreshRate.first()
         dynamicMiniTheme    = sl.settings.dynamicMiniPlayerTheme.first()
         navLabels           = sl.settings.navLabels.first()
         navLiquidGlass      = sl.settings.navLiquidGlass.first()
@@ -1093,16 +1091,6 @@ fun SettingsHubScreen(
                             },
                         )
                     }
-                }
-                Spacer(Modifier.height(16.dp))
-                SettingsGroup {
-                    SettingToggle(
-                        icon = Icons.Default.Speed, tint = MaterialTheme.colorScheme.primary,
-                        title = "Enable high refresh rate",
-                        subtitle = "Request the highest supported refresh rate at the current resolution",
-                        checked = highRefreshRate,
-                        onChange = { highRefreshRate = it; scope.launch { sl.settings.setHighRefreshRate(it) } },
-                    )
                 }
                 Spacer(Modifier.height(16.dp))
                 SettingsGroup {

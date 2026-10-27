@@ -101,7 +101,7 @@ import com.streamcloud.app.ui.screens.StremioUnifiedDetailScreen
 import com.streamcloud.app.ui.screens.YtMusicAccountSheet
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
-import com.streamcloud.app.ui.theme.findHighestSupportedTvDisplayModeId
+import com.streamcloud.app.ui.theme.findAutomaticHighRefreshTvDisplayModeId
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.LaunchedEffect
@@ -124,7 +124,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import android.os.Build
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -215,15 +214,11 @@ fun StreamCloudApp() {
 
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
-    val highRefreshRateEnabled by sl.settings.highRefreshRate.collectAsState(initial = true)
-    DisposableEffect(context, isTvFormFactor, highRefreshRateEnabled, isVideoPlayerRoute) {
+    DisposableEffect(context, isTvFormFactor) {
         val activity = context as? Activity
         if (
             activity == null ||
             !isTvFormFactor ||
-            !highRefreshRateEnabled ||
-            isVideoPlayerRoute ||
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
             !activity.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
         ) {
             return@DisposableEffect onDispose {}
@@ -231,7 +226,7 @@ fun StreamCloudApp() {
 
         val window = activity.window
         val originalModeId = window.attributes.preferredDisplayModeId
-        val highRefreshModeId = findHighestSupportedTvDisplayModeId(activity)
+        val highRefreshModeId = findAutomaticHighRefreshTvDisplayModeId(activity)
         if (highRefreshModeId != null) {
             window.attributes = window.attributes.apply {
                 preferredDisplayModeId = highRefreshModeId

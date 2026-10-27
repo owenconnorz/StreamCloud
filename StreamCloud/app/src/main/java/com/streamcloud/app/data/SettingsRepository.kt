@@ -134,7 +134,6 @@ object SettingsKeys {
     val COLOR_PALETTE = stringPreferencesKey("color_palette")
 
 
-    val HIGH_REFRESH_RATE       = booleanPreferencesKey("high_refresh_rate")
     val NEW_PLAYER_DESIGN       = booleanPreferencesKey("new_player_design")
 
 
@@ -758,10 +757,8 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { it[SettingsKeys.ADULT_REDDIT_SUBS] = csv }
 
 
-    val highRefreshRate: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HIGH_REFRESH_RATE] ?: true }
     val newPlayerDesign: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.NEW_PLAYER_DESIGN] ?: true }
 
-    suspend fun setHighRefreshRate(b: Boolean) = context.dataStore.edit { it[SettingsKeys.HIGH_REFRESH_RATE] = b }
     suspend fun setNewPlayerDesign(b: Boolean) = context.dataStore.edit { it[SettingsKeys.NEW_PLAYER_DESIGN] = b }
 
 

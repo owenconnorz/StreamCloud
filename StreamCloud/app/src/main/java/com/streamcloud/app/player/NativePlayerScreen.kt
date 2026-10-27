@@ -99,7 +99,7 @@ import com.streamcloud.app.torrent.TorrentService
 import com.streamcloud.app.torrent.TorrentState
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
-import com.streamcloud.app.ui.theme.findHighestSupportedTvDisplayModeId
+import com.streamcloud.app.ui.theme.findAutomaticHighRefreshTvDisplayModeId
 import com.streamcloud.app.ui.theme.findMatchingTvDisplayModeId
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
@@ -241,7 +241,6 @@ fun NativePlayerScreen(
     val decoderFallbackEnabled by sl.settings.decoderFallbackEnabled.collectAsState(initial = true)
     val tunneledPlaybackEnabled by sl.settings.tunneledPlaybackEnabled.collectAsState(initial = false)
     val matchDisplayFrameRate by sl.settings.matchDisplayFrameRateEnabled.collectAsState(initial = false)
-    val highRefreshRate by sl.settings.highRefreshRate.collectAsState(initial = true)
     val gestureVolumeOn     by sl.settings.gestureVolumeEnabled.collectAsState(initial = true)
     val gestureBrightnessOn by sl.settings.gestureBrightnessEnabled.collectAsState(initial = true)
     val resumePlaybackOn    by sl.settings.resumePlayback.collectAsState(initial = true)
@@ -432,7 +431,7 @@ fun NativePlayerScreen(
         val session = MediaSession.Builder(context.applicationContext, currentEx).setId("sc_video_player").build()
         onDispose { session.release() }
     }
-    DisposableEffect(player.value, matchDisplayFrameRate, highRefreshRate) {
+    DisposableEffect(player.value, matchDisplayFrameRate) {
         val currentEx = player.value
         val activity = context as? Activity
         if (
@@ -462,11 +461,7 @@ fun NativePlayerScreen(
                     findMatchingTvDisplayModeId(activity, frameRate)
                 } else {
                     null
-                } ?: if (highRefreshRate) {
-                    findHighestSupportedTvDisplayModeId(activity)
-                } else {
-                    null
-                }
+                } ?: findAutomaticHighRefreshTvDisplayModeId(activity)
                 setPreferredMode(preferredModeId ?: originalModeId)
             }
         }
