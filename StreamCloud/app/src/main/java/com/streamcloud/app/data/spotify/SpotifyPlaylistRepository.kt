@@ -1241,6 +1241,73 @@ object SpotifyPlaylistRepository {
             .build()
         executeMutation(request, "remove this track from the playlist")
         invalidatePlaylistTrackResponses(token, playlistId)
+        invalidatePlaylistListResponses(token)
+        SpotifyWebPlayerRepository.invalidateAccountCache(spDc)
+        true
+    }
+
+    suspend fun removeTracks(
+        spDc: String,
+        playlistId: String,
+        tracks: List<Pair<String, Int>>,
+    ): Boolean = withContext(Dispatchers.IO) {
+        require(playlistId.matches(Regex("[A-Za-z0-9]+"))) { "Invalid Spotify playlist ID." }
+        require(tracks.isNotEmpty()) { "Select at least one track to remove." }
+        require(tracks.all { (uri, position) ->
+            uri.startsWith("spotify:track:") && position >= 0
+        }) { "Invalid Spotify playlist track selection." }
+
+        val token = accessToken(spDc)
+        val trackItems = JSONArray().apply {
+            tracks.forEach { (uri, position) ->
+                put(
+                    JSONObject()
+                        .put("uri", uri)
+                        .put("positions", JSONArray().put(position)),
+                )
+            }
+        }
+        val body = JSONObject().put("tracks", trackItems)
+            .toString().toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url("$BASE/playlists/$playlistId/items")
+            .header("Authorization", authHeader(token))
+            .header("Accept", "application/json")
+            .delete(body)
+            .build()
+        executeMutation(request, "remove selected tracks from the playlist")
+        invalidatePlaylistTrackResponses(token, playlistId)
+        invalidatePlaylistListResponses(token)
+        SpotifyWebPlayerRepository.invalidateAccountCache(spDc)
+        true
+    }
+
+    suspend fun updatePlaylistDetails(
+        spDc: String,
+        playlistId: String,
+        name: String,
+        description: String,
+    ): Boolean = withContext(Dispatchers.IO) {
+        require(playlistId.matches(Regex("[A-Za-z0-9]+"))) { "Invalid Spotify playlist ID." }
+        val cleanName = name.trim()
+        val cleanDescription = description.trim()
+        require(cleanName.isNotEmpty()) { "Enter a playlist name." }
+        require(cleanName.length <= 100) { "Spotify playlist names must be 100 characters or fewer." }
+        require(cleanDescription.length <= 300) { "Spotify playlist descriptions must be 300 characters or fewer." }
+
+        val token = accessToken(spDc)
+        val payload = JSONObject()
+            .put("name", cleanName)
+            .put("description", cleanDescription)
+        val request = Request.Builder()
+            .url("$BASE/playlists/$playlistId")
+            .header("Authorization", authHeader(token))
+            .header("Accept", "application/json")
+            .put(payload.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        executeMutation(request, "update playlist details")
+        invalidatePlaylistTrackResponses(token, playlistId)
+        invalidatePlaylistListResponses(token)
         SpotifyWebPlayerRepository.invalidateAccountCache(spDc)
         true
     }

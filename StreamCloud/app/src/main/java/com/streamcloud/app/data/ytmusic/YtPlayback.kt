@@ -279,6 +279,10 @@ object YtPlayback {
         }
     }
 
+    fun enqueuePlaylistDownload(context: Context, song: YtmSong) {
+        downloadSong(context, song)
+    }
+
     internal fun enqueueDownload(context: Context, song: YtmSong) {
         val appContext = context.applicationContext
         val watchUrl = watchUrl(song.videoId)

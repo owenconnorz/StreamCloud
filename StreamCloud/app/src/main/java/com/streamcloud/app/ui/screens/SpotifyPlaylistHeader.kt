@@ -7,10 +7,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircleOutline
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -49,6 +53,11 @@ internal fun SpotifyPlaylistHero(
     artworkColor: Color,
     accentColor: Color,
     accentContainerColor: Color,
+    isDownloading: Boolean,
+    downloadProgressText: String?,
+    onInvite: () -> Unit,
+    onDownload: () -> Unit,
+    onShare: () -> Unit,
     onShuffle: () -> Unit,
     onPlay: () -> Unit,
 ) {
@@ -139,13 +148,36 @@ internal fun SpotifyPlaylistHero(
             }
             if (ownerName.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.Person,
-                        contentDescription = null,
-                        tint = accentColor,
-                        modifier = Modifier.size(19.dp),
-                    )
-                    Spacer(Modifier.width(7.dp))
+                    IconButton(onClick = onInvite, modifier = Modifier.size(40.dp)) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.White.copy(alpha = 0.12f),
+                        ) {
+                            Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Filled.AddCircleOutline,
+                                    contentDescription = "Share playlist invite",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
+                        }
+                    }
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.White.copy(alpha = 0.16f),
+                        modifier = Modifier.size(34.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Filled.Person,
+                                contentDescription = null,
+                                tint = accentColor,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
                     Text(
                         ownerName,
                         color = Color.White,
@@ -155,17 +187,55 @@ internal fun SpotifyPlaylistHero(
                 }
             }
             Text(
-                buildString {
-                    append("${totalTrackCount.takeIf { it > 0 } ?: tracks.size} songs")
-                    durationLabel?.let { append(" · $it") }
-                },
+                "${totalTrackCount.takeIf { it > 0 } ?: tracks.size} songs",
                 color = Color.White.copy(alpha = 0.72f),
                 style = MaterialTheme.typography.bodyMedium,
             )
+            durationLabel?.let { duration ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.Public,
+                        contentDescription = "Playlist duration",
+                        tint = Color.White.copy(alpha = 0.72f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        duration,
+                        color = Color.White.copy(alpha = 0.72f),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                IconButton(onClick = onDownload, enabled = !isDownloading) {
+                    if (isDownloading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(
+                            Icons.Filled.Download,
+                            contentDescription = "Download playlist",
+                            tint = Color.White.copy(alpha = 0.8f),
+                            modifier = Modifier.size(25.dp),
+                        )
+                    }
+                }
+                IconButton(onClick = onShare) {
+                    Icon(
+                        Icons.Filled.Share,
+                        contentDescription = "Share playlist",
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(25.dp),
+                    )
+                }
+                Spacer(Modifier.weight(1f))
                 IconButton(onClick = onShuffle, enabled = tracks.isNotEmpty()) {
                     Icon(
                         Icons.Filled.Shuffle,
@@ -174,7 +244,7 @@ internal fun SpotifyPlaylistHero(
                         modifier = Modifier.size(28.dp),
                     )
                 }
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.width(12.dp))
                 Box(
                     modifier = Modifier
                         .size(58.dp)
@@ -190,6 +260,13 @@ internal fun SpotifyPlaylistHero(
                         modifier = Modifier.size(34.dp),
                     )
                 }
+            }
+            if (isDownloading && !downloadProgressText.isNullOrBlank()) {
+                Text(
+                    "Preparing offline matches · $downloadProgressText",
+                    color = Color.White.copy(alpha = 0.68f),
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }

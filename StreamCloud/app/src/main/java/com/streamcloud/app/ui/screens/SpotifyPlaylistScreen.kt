@@ -46,9 +46,14 @@ import com.streamcloud.app.data.ytmusic.YtmSong
 import com.streamcloud.app.ui.theme.rememberBannerPalette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -126,6 +131,17 @@ fun SpotifyPlaylistScreen(
     var recommendationRetryGeneration by remember(playlistId) { mutableIntStateOf(0) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
     var sortOrder by rememberSaveable(playlistId) { mutableStateOf("playlist") }
+    var editingTracks by rememberSaveable(playlistId) { mutableStateOf(false) }
+    var selectedTrackKeys by remember(playlistId) { mutableStateOf<Set<String>>(emptySet()) }
+    var showRemoveSelectedDialog by remember { mutableStateOf(false) }
+    var showDetailsDialog by remember { mutableStateOf(false) }
+    var showDownloadConfirmation by remember { mutableStateOf(false) }
+    var playlistNameInput by rememberSaveable(playlistId) { mutableStateOf("") }
+    var playlistDescriptionInput by rememberSaveable(playlistId) { mutableStateOf("") }
+    var savingPlaylistDetails by remember { mutableStateOf(false) }
+    var downloadingPlaylist by remember { mutableStateOf(false) }
+    var playlistDownloadProgress by remember { mutableIntStateOf(0) }
+    var playlistDownloadTotal by remember { mutableIntStateOf(0) }
 
     val isPlaylist = albumId == null && artistId == null
     val listState = rememberLazyListState()
@@ -144,6 +160,11 @@ fun SpotifyPlaylistScreen(
         when (sortOrder) {
             "title" -> tracks.sortedBy { it.title.lowercase() }
             "artist" -> tracks.sortedBy { it.artists.lowercase() }
+            "album" -> tracks.sortedWith(
+                compareBy<SpotifyTrack> { it.album.lowercase() }
+                    .thenBy { it.title.lowercase() },
+            )
+            "recent" -> tracks.asReversed()
             else -> tracks
         }
     }
@@ -302,6 +323,185 @@ fun SpotifyPlaylistScreen(
             visibleTracks.indices.firstOrNull()
         } ?: return
         playPlaylistTrack(visibleTracks[selected], selected)
+    }
+
+    fun sharePlaylist(inviteCollaborators: Boolean = false) {
+        val name = playlistDetails?.name?.takeIf(String::isNotBlank) ?: playlistTitle
+        val url = "https://open.spotify.com/playlist/$collectionId"
+        val text = if (inviteCollaborators) {
+            "Open \"$name\" in Spotify and choose Invite collaborators:\n$url"
+        } else {
+            "$name\n$url"
+        }
+        val share = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, name)
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        runCatching {
+            context.startActivity(Intent.createChooser(share, if (inviteCollaborators) "Invite collaborators" else "Share playlist"))
+        }.onFailure {
+            scope.launch { snackbarHostState.showSnackbar("Could not open the share menu.") }
+        }
+    }
+
+    fun savePlaylistDetails() {
+        val name = playlistNameInput.trim()
+        val description = playlistDescriptionInput.trim()
+        if (name.isBlank()) {
+            scope.launch { snackbarHostState.showSnackbar("Enter a playlist name.") }
+            return
+        }
+        if (name.length > 100 || description.length > 300) {
+            scope.launch {
+                snackbarHostState.showSnackbar("Name limit is 100 characters; description limit is 300.")
+            }
+            return
+        }
+        if (savingPlaylistDetails) return
+        savingPlaylistDetails = true
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    SpotifyPlaylistRepository.updatePlaylistDetails(
+                        spDc,
+                        collectionId,
+                        name,
+                        description,
+                    )
+                }
+                val current = playlistDetails
+                playlistDetails = (current ?: SpotifyPlaylist(collectionId, name)).copy(
+                    name = name,
+                    description = description,
+                )
+                showDetailsDialog = false
+                snackbarHostState.showSnackbar("Playlist details updated.")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                snackbarHostState.showSnackbar(
+                    failure.message ?: "Spotify couldn't update this playlist.",
+                )
+            } finally {
+                savingPlaylistDetails = false
+            }
+        }
+    }
+
+    fun removeSelectedTracks() {
+        val positions = tracks.mapIndexedNotNull { index, track ->
+            if ("${track.uri}-$index" in selectedTrackKeys) track.uri to index else null
+        }.sortedByDescending { it.second }
+        if (positions.isEmpty()) {
+            editingTracks = false
+            selectedTrackKeys = emptySet()
+            return
+        }
+        showRemoveSelectedDialog = false
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    SpotifyPlaylistRepository.removeTracks(spDc, collectionId, positions)
+                }
+                val removedCount = positions.size
+                selectedTrackKeys = emptySet()
+                editingTracks = false
+                totalTrackCount = (totalTrackCount - removedCount).coerceAtLeast(0)
+                syncTracks(forceRefresh = true)
+                snackbarHostState.showSnackbar(
+                    if (removedCount == 1) "Removed 1 song." else "Removed $removedCount songs.",
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                snackbarHostState.showSnackbar(
+                    failure.message ?: "Spotify couldn't remove the selected songs.",
+                )
+            }
+        }
+    }
+
+    fun downloadPlaylistMatches() {
+        if (downloadingPlaylist) return
+        downloadingPlaylist = true
+        playlistDownloadProgress = 0
+        playlistDownloadTotal = tracks.size
+        scope.launch {
+            try {
+                val allTracks = tracks.toMutableList()
+                var offset = nextTrackOffset
+                while (offset != null) {
+                    val page = withContext(Dispatchers.IO) {
+                        SpotifyWebPlayerRepository.getPlaylistTracksPage(
+                            spDc,
+                            collectionId,
+                            offset = offset,
+                        )
+                    }
+                    allTracks += page.items
+                    offset = page.nextOffset
+                    totalTrackCount = maxOf(totalTrackCount, page.totalCount, allTracks.size)
+                }
+                tracks = allTracks
+                nextTrackOffset = null
+                val candidates = allTracks.distinctBy { it.uri }
+                playlistDownloadTotal = candidates.size
+                if (candidates.isEmpty()) {
+                    snackbarHostState.showSnackbar("This playlist has no songs to download.")
+                    return@launch
+                }
+
+                var queued = 0
+                var alreadyDownloaded = 0
+                var unavailable = 0
+                val downloadSlots = Semaphore(3)
+                coroutineScope {
+                    candidates.map { spotifyTrack ->
+                        async {
+                            downloadSlots.withPermit {
+                                try {
+                                    val match = withContext(Dispatchers.IO) {
+                                        YtMusicSearchRepository.songs(
+                                            "${spotifyTrack.title} ${spotifyTrack.artists}",
+                                        ).firstOrNull()
+                                    }
+                                    if (match == null) {
+                                        unavailable++
+                                    } else {
+                                        val song = match.asYtmSong(spotifyTrack.id)
+                                        if (YtPlayback.isDownloaded(context, song)) {
+                                            alreadyDownloaded++
+                                        } else {
+                                            YtPlayback.enqueuePlaylistDownload(context, song)
+                                            queued++
+                                        }
+                                    }
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (_: Exception) {
+                                    unavailable++
+                                } finally {
+                                    playlistDownloadProgress++
+                                }
+                            }
+                        }
+                    }.awaitAll()
+                }
+                snackbarHostState.showSnackbar(
+                    "Queued $queued YouTube Music matches; $alreadyDownloaded already downloaded; " +
+                        "$unavailable could not be matched.",
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                snackbarHostState.showSnackbar(
+                    failure.message ?: "The playlist could not be prepared for download.",
+                )
+            } finally {
+                downloadingPlaylist = false
+            }
+        }
     }
 
     fun loadMorePlaylistChoices() {
@@ -477,6 +677,150 @@ fun SpotifyPlaylistScreen(
             },
             dismissButton = { TextButton(onClick = { removeTarget = null }) { Text("Cancel") } },
         )
+    }
+
+    if (showRemoveSelectedDialog) {
+        AlertDialog(
+            onDismissRequest = { showRemoveSelectedDialog = false },
+            title = { Text("Remove selected songs?") },
+            text = {
+                Text(
+                    "${selectedTrackKeys.size} selected song(s) will be removed from this Spotify playlist.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = ::removeSelectedTracks) {
+                    Text("Remove", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemoveSelectedDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (showDetailsDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!savingPlaylistDetails) showDetailsDialog = false },
+            title = { Text("Name and details") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = playlistNameInput,
+                        onValueChange = { playlistNameInput = it.take(100) },
+                        label = { Text("Playlist name") },
+                        singleLine = true,
+                        enabled = !savingPlaylistDetails,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = playlistDescriptionInput,
+                        onValueChange = { playlistDescriptionInput = it.take(300) },
+                        label = { Text("Description") },
+                        minLines = 3,
+                        maxLines = 4,
+                        enabled = !savingPlaylistDetails,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = ::savePlaylistDetails,
+                    enabled = !savingPlaylistDetails,
+                ) {
+                    if (savingPlaylistDetails) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDetailsDialog = false },
+                    enabled = !savingPlaylistDetails,
+                ) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (showDownloadConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDownloadConfirmation = false },
+            title = { Text("Download playlist?") },
+            text = {
+                Text(
+                    "Spotify doesn’t provide downloadable audio to StreamCloud. " +
+                        "StreamCloud will match these songs to YouTube Music and queue those versions for offline playback.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDownloadConfirmation = false
+                    downloadPlaylistMatches()
+                }) { Text("Continue") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDownloadConfirmation = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (sortMenuExpanded) {
+        ModalBottomSheet(
+            onDismissRequest = { sortMenuExpanded = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = Color(0xFF202020),
+            contentColor = Color.White,
+            scrimColor = Color.Black.copy(alpha = 0.62f),
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(bottom = 24.dp),
+            ) {
+                Text(
+                    "Sort by",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                )
+                listOf(
+                    "playlist" to "Custom order",
+                    "title" to "Title",
+                    "artist" to "Artist",
+                    "album" to "Album",
+                    "recent" to "Recently added",
+                ).forEach { (value, label) ->
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable {
+                                sortOrder = value
+                                playingIndex = null
+                                editingTracks = false
+                                selectedTrackKeys = emptySet()
+                                sortMenuExpanded = false
+                            }
+                            .padding(horizontal = 16.dp, vertical = 15.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            label,
+                            modifier = Modifier.weight(1f),
+                            color = if (sortOrder == value) SpotifyGreen else Color.White.copy(alpha = 0.66f),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        if (sortOrder == value) {
+                            Icon(
+                                MaterialIcons.Filled.Check,
+                                contentDescription = "Selected",
+                                tint = SpotifyGreen,
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     menuTrack?.let { track ->
@@ -910,7 +1254,11 @@ fun SpotifyPlaylistScreen(
             TopAppBar(
                 title = {
                     if (!isPlaylist || playlistCollapsed) {
-                        Text(playlistTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            playlistDetails?.name?.takeIf(String::isNotBlank) ?: playlistTitle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 },
                 navigationIcon = {
@@ -998,6 +1346,11 @@ fun SpotifyPlaylistScreen(
                         artworkColor = playlistPalette.artworkColor,
                         accentColor = playlistPalette.accent,
                         accentContainerColor = playlistPalette.accentContainer,
+                        isDownloading = downloadingPlaylist,
+                        downloadProgressText = "$playlistDownloadProgress / $playlistDownloadTotal",
+                        onInvite = { sharePlaylist(inviteCollaborators = true) },
+                        onDownload = { showDownloadConfirmation = true },
+                        onShare = { sharePlaylist() },
                         onShuffle = { playPlaylist(shuffle = true) },
                         onPlay = { playPlaylist() },
                     )
@@ -1007,6 +1360,7 @@ fun SpotifyPlaylistScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(SpotifyBlack)
+                            .horizontalScroll(rememberScrollState())
                             .padding(horizontal = 16.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1016,37 +1370,54 @@ fun SpotifyPlaylistScreen(
                             icon = MaterialIcons.Filled.Add,
                             onClick = { showAddSheet = true },
                         )
-                        Box {
+                        PlaylistActionPill(
+                            label = if (editingTracks) "Done" else "Edit",
+                            icon = if (editingTracks) MaterialIcons.Filled.Check else MaterialIcons.Filled.Edit,
+                            onClick = {
+                                editingTracks = !editingTracks
+                                selectedTrackKeys = emptySet()
+                                if (editingTracks) sortOrder = "playlist"
+                            },
+                        )
+                        if (editingTracks) {
                             PlaylistActionPill(
-                                label = when (sortOrder) {
-                                    "title" -> "Title"
-                                    "artist" -> "Artist"
-                                    else -> "Playlist order"
+                                label = "Remove ${selectedTrackKeys.size}",
+                                icon = MaterialIcons.Filled.Delete,
+                                onClick = {
+                                    if (selectedTrackKeys.isEmpty()) {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Select songs to remove.")
+                                        }
+                                    } else {
+                                        showRemoveSelectedDialog = true
+                                    }
                                 },
-                                icon = MaterialIcons.Filled.Sort,
-                                onClick = { sortMenuExpanded = true },
                             )
-                            DropdownMenu(
-                                expanded = sortMenuExpanded,
-                                onDismissRequest = { sortMenuExpanded = false },
-                            ) {
-                                listOf(
-                                    "playlist" to "Playlist order",
-                                    "title" to "Title",
-                                    "artist" to "Artist",
-                                ).forEach { (value, label) ->
-                                    DropdownMenuItem(
-                                        text = { Text(label) },
-                                        onClick = {
-                                            sortOrder = value
-                                            playingIndex = null
-                                            sortMenuExpanded = false
-                                        },
-                                    )
-                                }
+                        }
+                        PlaylistActionPill(
+                            label = "Name and details",
+                            icon = MaterialIcons.Filled.Edit,
+                            onClick = {
+                                playlistNameInput = playlistDetails?.name?.takeIf(String::isNotBlank)
+                                    ?: playlistTitle
+                                playlistDescriptionInput = playlistDetails?.description.orEmpty()
+                                showDetailsDialog = true
+                            },
+                        )
+                        Surface(
+                            modifier = Modifier.size(48.dp).clip(CircleShape)
+                                .clickable { sortMenuExpanded = true },
+                            shape = CircleShape,
+                            color = Color(0xFF292929),
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    MaterialIcons.Filled.SwapVert,
+                                    contentDescription = "Sort playlist",
+                                    tint = Color.White,
+                                )
                             }
                         }
-                        Spacer(Modifier.weight(1f))
                         Surface(
                             modifier = Modifier
                                 .size(48.dp)
@@ -1115,12 +1486,33 @@ fun SpotifyPlaylistScreen(
                     }
                 }
             } else {
-                itemsIndexed(visibleTracks, key = { _, t -> t.uri }) { index, track ->
+                itemsIndexed(visibleTracks, key = { index, t -> "${t.uri}-$index" }) { index, track ->
                     SpotifyTrackRow(
                         track     = track,
                         isLoading = playingIndex == index,
                         allowRemove = albumId == null && artistId == null,
-                        onClick   = { playPlaylistTrack(track, index) },
+                        isEditing = editingTracks,
+                        isSelected = "${track.uri}-$index" in selectedTrackKeys,
+                        onClick = {
+                            if (editingTracks) {
+                                val trackKey = "${track.uri}-$index"
+                                selectedTrackKeys = if (trackKey in selectedTrackKeys) {
+                                    selectedTrackKeys - trackKey
+                                } else {
+                                    selectedTrackKeys + trackKey
+                                }
+                            } else {
+                                playPlaylistTrack(track, index)
+                            }
+                        },
+                        onToggleSelection = {
+                            val trackKey = "${track.uri}-$index"
+                            selectedTrackKeys = if (trackKey in selectedTrackKeys) {
+                                selectedTrackKeys - trackKey
+                            } else {
+                                selectedTrackKeys + trackKey
+                            }
+                        },
                         onMore = { menuTrack = track },
                     )
                     HorizontalDivider(
@@ -1239,7 +1631,10 @@ private fun SpotifyTrackRow(
     track: SpotifyTrack,
     isLoading: Boolean,
     allowRemove: Boolean,
+    isEditing: Boolean,
+    isSelected: Boolean,
     onClick: () -> Unit,
+    onToggleSelection: () -> Unit,
     onMore: () -> Unit,
 ) {
     Row(
@@ -1293,7 +1688,16 @@ private fun SpotifyTrackRow(
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (allowRemove) {
+        if (isEditing) {
+            Checkbox(
+                checked = isSelected,
+                onCheckedChange = { onToggleSelection() },
+                colors = CheckboxDefaults.colors(
+                    checkedColor = SpotifyGreen,
+                    checkmarkColor = Color.Black,
+                ),
+            )
+        } else if (allowRemove) {
             IconButton(onClick = onMore, modifier = Modifier.size(40.dp)) {
                 Icon(
                     Icons.Default.MoreVert,
