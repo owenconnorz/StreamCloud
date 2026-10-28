@@ -1531,6 +1531,10 @@ fun StreamCloudApp() {
                                       .orEmpty()
                                   val t = URLEncoder.encode(itemName, "UTF-8")
                                   when (provider.lowercase()) {
+                                       "xnxx" -> {
+                                           val u = URLEncoder.encode(itemUrl, "UTF-8")
+                                           nav.navigate("player/xnxx/$u/$t")
+                                       }
                                       "pornhub" -> {
                                           val id = itemUrl.substringAfter("viewkey=", "")
                                               .substringBefore('&')
@@ -1660,6 +1664,9 @@ fun StreamCloudApp() {
                             } else if (videoId.startsWith("beeg://")) {
                                 val u = URLEncoder.encode(embed, "UTF-8")
                                 nav.navigate("player/beeg/$u/$t")
+                            } else if (videoId.startsWith("xnxx://")) {
+                                val u = URLEncoder.encode(embed, "UTF-8")
+                                nav.navigate("player/xnxx/$u/$t")
                             } else if (videoId.startsWith("xhamster://")) {
                                 val id = URLEncoder.encode(
                                     videoId.removePrefix("xhamster://"),
@@ -1715,6 +1722,9 @@ fun StreamCloudApp() {
                             } else if (videoId.startsWith("beeg://")) {
                                 val u = URLEncoder.encode(embed, "UTF-8")
                                 nav.navigate("player/beeg/$u/$t")
+                            } else if (videoId.startsWith("xnxx://")) {
+                                val u = URLEncoder.encode(embed, "UTF-8")
+                                nav.navigate("player/xnxx/$u/$t")
                             } else if (videoId.startsWith("xhamster://")) {
                                 val id = URLEncoder.encode(
                                     videoId.removePrefix("xhamster://"),
@@ -1766,6 +1776,22 @@ fun StreamCloudApp() {
                     val url = URLDecoder.decode(entry.arguments!!.getString("url")!!, "UTF-8")
                     val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
                     com.streamcloud.app.player.BeegPlayerScreen(
+                        pageUrl = url,
+                        title = title,
+                        onBack = { nav.popBackStack() },
+                    )
+                }
+
+                composable(
+                    "player/xnxx/{url}/{title}",
+                    arguments = listOf(
+                        navArgument("url") { type = NavType.StringType },
+                        navArgument("title") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val url = URLDecoder.decode(entry.arguments!!.getString("url")!!, "UTF-8")
+                    val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
+                    com.streamcloud.app.player.XnxxPlayerScreen(
                         pageUrl = url,
                         title = title,
                         onBack = { nav.popBackStack() },
