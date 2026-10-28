@@ -40,11 +40,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -57,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -70,12 +72,15 @@ import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.data.spotify.SpotifyAlbum
 import com.streamcloud.app.data.spotify.SpotifyArtist
 import com.streamcloud.app.data.spotify.SpotifyEpisode
+import com.streamcloud.app.data.spotify.SpotifyHomeCard
+import com.streamcloud.app.data.spotify.SpotifyHomeFeed
 import com.streamcloud.app.data.spotify.SpotifyPlaylist
 import com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
 import com.streamcloud.app.data.spotify.SpotifyPlaylistRepository.RateLimitedException
 import com.streamcloud.app.data.spotify.SpotifyPodcast
 import com.streamcloud.app.data.spotify.SpotifySearchResults
 import com.streamcloud.app.data.spotify.SpotifyTrack
+import com.streamcloud.app.data.spotify.SpotifyWebPlayerRepository
 import com.streamcloud.app.data.ytmusic.YtMusicSearchRepository
 import com.streamcloud.app.data.ytmusic.YtPlayback
 import com.streamcloud.app.data.ytmusic.YtmSong
@@ -85,7 +90,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class SpotifySearchFilter(val label: String) {
+internal enum class SpotifySearchFilter(val label: String) {
     All("All"),
     Tracks("Tracks"),
     Artists("Artists"),
@@ -141,6 +146,10 @@ fun SpotifySearchScreen(
     var playingTrackId by remember { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     var actionTarget by remember { mutableStateOf<SpotifySearchMenuTarget?>(null) }
+    var browseFeed by remember { mutableStateOf<SpotifyHomeFeed?>(null) }
+    var browseLoading by remember { mutableStateOf(false) }
+    var browseError by remember { mutableStateOf<String?>(null) }
+    var browseRefreshGeneration by remember { mutableStateOf(0) }
 
     fun submitSearch() {
         val cleanQuery = query.trim()
@@ -152,6 +161,15 @@ fun SpotifySearchScreen(
         searchGeneration += 1
         results = null
         error = null
+    }
+
+    fun searchBrowseCategory(searchQuery: String, selectedFilter: SpotifySearchFilter) {
+        if (searchQuery.trim().length < 2) return
+        query = searchQuery
+        filter = selectedFilter
+        results = null
+        error = null
+        searchGeneration += 1
     }
 
     LaunchedEffect(query, spotifyCookie, searchGeneration) {
@@ -194,6 +212,31 @@ fun SpotifySearchScreen(
             }
         } finally {
             if (query.trim() == cleanQuery) loading = false
+        }
+    }
+
+    LaunchedEffect(spotifyCookie, browseRefreshGeneration) {
+        if (spotifyCookie.isBlank()) {
+            browseFeed = null
+            browseError = "Sign in to Spotify in Settings to browse music."
+            browseLoading = false
+            return@LaunchedEffect
+        }
+        browseLoading = true
+        browseError = null
+        try {
+            browseFeed = withContext(Dispatchers.IO) {
+                SpotifyWebPlayerRepository.getHomeFeed(
+                    spotifyCookie,
+                    forceRefresh = browseRefreshGeneration > 0,
+                )
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            browseError = failure.message ?: "Spotify Discover could not be loaded."
+        } finally {
+            browseLoading = false
         }
     }
 
@@ -256,7 +299,7 @@ fun SpotifySearchScreen(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
                 Text(
-                    "Spotify search",
+                    "Search",
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
@@ -270,7 +313,7 @@ fun SpotifySearchScreen(
         Column(
             Modifier.fillMaxSize().padding(innerPadding),
         ) {
-            OutlinedTextField(
+            TextField(
                 value = query,
                 onValueChange = {
                     query = it
@@ -305,26 +348,44 @@ fun SpotifySearchScreen(
                     }
                 },
                 singleLine = true,
-                shape = RoundedCornerShape(28.dp),
+                shape = RoundedCornerShape(7.dp),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.White,
+                    unfocusedContainerColor = Color.White,
+                    disabledContainerColor = Color.White,
+                    focusedTextColor = Color.Black,
+                    unfocusedTextColor = Color.Black,
+                    focusedPlaceholderColor = Color(0xFF575757),
+                    unfocusedPlaceholderColor = Color(0xFF575757),
+                    focusedLeadingIconColor = Color.Black,
+                    unfocusedLeadingIconColor = Color.Black,
+                    focusedTrailingIconColor = Color.DarkGray,
+                    unfocusedTrailingIconColor = Color.DarkGray,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    cursorColor = SpotifyGreen,
+                ),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { submitSearch() }),
             )
 
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                SpotifySearchFilter.entries.forEach { option ->
-                    FilterChip(
-                        selected = filter == option,
-                        onClick = { filter = option },
-                        label = { Text(option.label) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                        ),
-                    )
+            if (query.trim().length >= 2) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SpotifySearchFilter.entries.forEach { option ->
+                        FilterChip(
+                            selected = filter == option,
+                            onClick = { filter = option },
+                            label = { Text(option.label) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                            ),
+                        )
+                    }
                 }
             }
 
@@ -332,8 +393,36 @@ fun SpotifySearchScreen(
                 spotifyCookie.isBlank() -> SpotifySearchMessage(
                     "Sign in to Spotify in Settings to search its catalogue.",
                 )
-                query.trim().length < 2 -> SpotifySearchMessage(
-                    "Search Spotify for songs, artists, albums, playlists and podcasts.",
+                query.trim().length < 2 -> SpotifySearchBrowseContent(
+                    feed = browseFeed,
+                    loading = browseLoading,
+                    error = browseError,
+                    onRetry = { browseRefreshGeneration++ },
+                    onSearch = ::searchBrowseCategory,
+                    onPlayTrack = ::playTrack,
+                    onOpenCard = { card ->
+                        val collectionId = card.collectionId
+                        when {
+                            card.track != null -> playTrack(card.track)
+                            collectionId == null -> Unit
+                            collectionId.startsWith("artist:") -> onOpenArtist(
+                                SpotifyArtist(
+                                    id = collectionId.removePrefix("artist:"),
+                                    name = card.title,
+                                    imageUrl = card.imageUrl,
+                                ),
+                            )
+                            collectionId.startsWith("album:") -> onOpenAlbum(
+                                SpotifyAlbum(
+                                    id = collectionId.removePrefix("album:"),
+                                    name = card.title,
+                                    artists = card.subtitle,
+                                    imageUrl = card.imageUrl,
+                                ),
+                            )
+                            else -> onOpenPlaylist(collectionId, card.title)
+                        }
+                    },
                 )
                 rateLimitUntilMs > 0L && currentTimeMs < rateLimitUntilMs -> SpotifySearchMessage(
                     "Spotify has temporarily limited requests. Try again in " +
