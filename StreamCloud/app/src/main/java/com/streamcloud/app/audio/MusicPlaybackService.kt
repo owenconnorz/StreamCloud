@@ -1907,7 +1907,7 @@ class MusicPlaybackService : MediaLibraryService() {
                 runCatching {
                     val queue = loadBrowseQueue(queueRequest.parentId)
                         .filterNot { it.mediaId.startsWith(ERROR_PREFIX) }
-                    val resolvedQueue = queue.map(::attachUri)
+                    val resolvedQueue = resolveSpotifyQueue(queue).map(::attachUri)
                     require(resolvedQueue.isNotEmpty()) {
                         "This playlist has no playable tracks."
                     }
