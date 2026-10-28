@@ -58,4 +58,11 @@ class SonosProxyServerTest {
         assertTrue(shouldRetrySonosUpstreamStatus(503))
         assertFalse(shouldRetrySonosUpstreamStatus(404))
     }
+
+    @Test
+    fun ignoresFailuresFromAReplacedSonosTrack() {
+        assertFalse(isSonosRequestFailureCurrent(activeGeneration = 8L, requestGeneration = 7L))
+        assertTrue(isSonosRequestFailureCurrent(activeGeneration = 8L, requestGeneration = 8L))
+        assertFalse(isSonosRequestFailureCurrent(activeGeneration = null, requestGeneration = 8L))
+    }
 }

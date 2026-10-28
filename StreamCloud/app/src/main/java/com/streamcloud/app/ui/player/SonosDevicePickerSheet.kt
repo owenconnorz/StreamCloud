@@ -326,6 +326,14 @@ fun SonosDevicePickerSheet(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        state.warning?.let { warning ->
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                warning,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                         Spacer(Modifier.height(24.dp))
 
                         Text(

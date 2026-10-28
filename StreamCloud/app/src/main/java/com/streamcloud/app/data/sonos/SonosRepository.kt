@@ -27,6 +27,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ConcurrentHashMap
 
 object SonosRepository {
 
@@ -44,7 +45,12 @@ object SonosRepository {
             val refreshWarning: String? = null,
         ) : CastState
         object Connecting : CastState
-        data class Casting(val device: SonosDevice, val title: String, val displayName: String = device.name) : CastState
+        data class Casting(
+            val device: SonosDevice,
+            val title: String,
+            val displayName: String = device.name,
+            val warning: String? = null,
+        ) : CastState
         data class Error(val message: String) : CastState
     }
 
@@ -85,6 +91,7 @@ object SonosRepository {
     private val trackUpdateGeneration = AtomicInteger(0)
     private data class TrackUpdateIntent(val generation: Int, val shouldPlay: Boolean)
     private val trackUpdateIntent = AtomicReference(TrackUpdateIntent(0, true))
+    private val upstreamRecoveryAttempts = ConcurrentHashMap.newKeySet<String>()
 
     private val _isSonosTrackUpdating = MutableStateFlow(false)
     val isSonosTrackUpdating: StateFlow<Boolean> = _isSonosTrackUpdating.asStateFlow()
@@ -161,9 +168,7 @@ object SonosRepository {
                     furthestSonosPositionMs = 0L
                     val (videoId, title, watchUrl) = queueTrack(item) ?: run {
                         Log.w(TAG, "Cannot map queue item ${item.mediaId} to a Sonos stream")
-                        _castState.update {
-                            CastState.Error("Sonos cannot play the selected queue item.")
-                        }
+                        setActiveTrackWarning("Sonos cannot play the selected queue item.")
                         return
                     }
                     // Sonos owns only one external URI at a time. Media3 remains the queue owner,
@@ -235,13 +240,26 @@ object SonosRepository {
                 delay(1_000)
                 val upstreamFailure = SonosProxyServer.consumeUpstreamFailure()
                 if (upstreamFailure != null) {
-                    Log.w(TAG, "Sonos proxy stopped serving audio: $upstreamFailure")
-                    _isSonosPlaying.value = false
-                    _castState.update { CastState.Error("Sonos playback stopped: $upstreamFailure") }
-                    SonosProxyServer.stop()
-                    runCatching { SonosController.stop(device) }
-                    stopCastKeepAlive(appContext)
-                    break
+                    val activeItem = withContext(Dispatchers.Main) {
+                        queuePlayer?.currentMediaItem
+                    }
+                    val activeTrack = activeItem?.let(::queueTrack)
+                    if (
+                        activeTrack != null &&
+                        upstreamRecoveryAttempts.add(activeTrack.first)
+                    ) {
+                        Log.w(TAG, "Refreshing Sonos stream after upstream failure: $upstreamFailure")
+                        updateTrack(
+                            appContext ?: return@launch,
+                            activeTrack.first,
+                            activeTrack.second,
+                            activeTrack.third,
+                        )
+                    } else {
+                        Log.w(TAG, "Sonos stream failed after recovery: $upstreamFailure")
+                        _isSonosPlaying.value = false
+                        setActiveTrackWarning("Sonos playback paused: $upstreamFailure")
+                    }
                 }
                 // GetPositionInfo every second for smooth progress bar
                 val positionInfo = runCatching {
@@ -529,6 +547,7 @@ object SonosRepository {
                     _isSonosPlaying.value = true
                     activeDevice  = device
                     appContext    = context.applicationContext
+                    upstreamRecoveryAttempts.clear()
 
                     val observerError = runCatching {
                         attachQueueObserver(context.applicationContext)
@@ -625,42 +644,49 @@ object SonosRepository {
 
                 // Use resolveAudioFormatInfo (same as connect()) so we also get the mimeType,
                 // which the proxy needs for correct Content-Type in HEAD responses.
-                val preparedStream = withTimeoutOrNull(STREAM_PREPARATION_TIMEOUT_MS) {
-                    prepareSonosStream(videoId, watchUrl)
-                }
-                currentCoroutineContext().ensureActive()
-                if (!isCurrentTrackUpdate(updateGeneration)) return@withLock
-                val prepared = preparedStream?.takeIf { it.url != null }
-                if (prepared == null) {
-                    Log.w(TAG, "updateTrack could not prepare a stream for $videoId")
-                    _castState.update {
-                        CastState.Error(
-                            "Sonos cannot play this track: unable to prepare a playable audio stream.",
-                        )
+                var verifiedTrack: SonosProxyServer.TrackInfo? = null
+                var lastPreparationError = "unable to prepare a playable audio stream."
+                for (attempt in 0..1) {
+                    val prepared = withTimeoutOrNull(STREAM_PREPARATION_TIMEOUT_MS) {
+                        prepareSonosStream(videoId, watchUrl)
+                    }?.takeIf { it.url != null }
+                    currentCoroutineContext().ensureActive()
+                    if (!isCurrentTrackUpdate(updateGeneration)) return@withLock
+
+                    if (prepared == null) {
+                        lastPreparationError = "unable to prepare a playable audio stream."
+                        if (attempt == 0) delay(500L)
+                        continue
                     }
-                    return@withLock
+
+                    val preflight = SonosProxyServer.preflight(
+                        SonosProxyServer.TrackInfo(
+                            videoId = videoId,
+                            title = title,
+                            watchUrl = watchUrl,
+                            resolvedUrl = requireNotNull(prepared.url),
+                            mimeType = prepared.mimeType,
+                            userAgent = prepared.userAgent,
+                            contentLength = prepared.contentLength,
+                        ),
+                    )
+                    currentCoroutineContext().ensureActive()
+                    if (!isCurrentTrackUpdate(updateGeneration)) return@withLock
+                    verifiedTrack =
+                        (preflight as? SonosProxyServer.TrackPreflight.Ready)?.track
+                    if (verifiedTrack != null) break
+
+                    lastPreparationError =
+                        (preflight as? SonosProxyServer.TrackPreflight.Failed)?.message
+                            ?: "The audio source could not be verified."
+                    if (attempt == 0) delay(500L)
                 }
-                val preflight = SonosProxyServer.preflight(
-                    SonosProxyServer.TrackInfo(
-                        videoId = videoId,
-                        title = title,
-                        watchUrl = watchUrl,
-                        resolvedUrl = requireNotNull(prepared.url),
-                        mimeType = prepared.mimeType,
-                        userAgent = prepared.userAgent,
-                        contentLength = prepared.contentLength,
-                    ),
-                )
-                currentCoroutineContext().ensureActive()
-                if (!isCurrentTrackUpdate(updateGeneration)) return@withLock
-                val verifiedTrack = (preflight as? SonosProxyServer.TrackPreflight.Ready)?.track
                 if (verifiedTrack == null) {
-                    val reason = (preflight as? SonosProxyServer.TrackPreflight.Failed)?.message
-                        ?: "The audio source could not be verified."
-                    Log.w(TAG, "updateTrack preflight failed: $reason")
-                    _castState.update { CastState.Error("Sonos cannot play this track: $reason") }
+                    Log.w(TAG, "updateTrack could not verify $videoId: $lastPreparationError")
+                    setActiveTrackWarning("Sonos could not play “$title”: $lastPreparationError")
                     return@withLock
                 }
+                val readyTrack = verifiedTrack
 
                 // start() calls stop() internally which clears currentTrack — must call
                 // start() FIRST, then setTrack(), so Sonos's HEAD probe after setUri finds
@@ -670,7 +696,7 @@ object SonosRepository {
                     SonosProxyServer.stop()
                     return@withLock
                 }
-                SonosProxyServer.setTrack(verifiedTrack)
+                SonosProxyServer.setTrack(readyTrack)
                 if (!isCurrentTrackUpdate(updateGeneration)) {
                     SonosProxyServer.stop()
                     return@withLock
@@ -682,7 +708,7 @@ object SonosRepository {
                 SonosController.stop(device)
                 if (!isCurrentTrackUpdate(updateGeneration)) return@withLock
 
-                var uriError = SonosController.setUri(device, proxyUrl, title, verifiedTrack.mimeType)
+                var uriError = SonosController.setUri(device, proxyUrl, title, readyTrack.mimeType)
                 currentCoroutineContext().ensureActive()
                 if (!isCurrentTrackUpdate(updateGeneration)) return@withLock
                 if (uriError != null) {
@@ -691,7 +717,7 @@ object SonosRepository {
                     currentCoroutineContext().ensureActive()
                     if (!isCurrentTrackUpdate(updateGeneration)) return@withLock
                     SonosController.stop(device)
-                    uriError = SonosController.setUri(device, proxyUrl, title, verifiedTrack.mimeType)
+                    uriError = SonosController.setUri(device, proxyUrl, title, readyTrack.mimeType)
                     currentCoroutineContext().ensureActive()
                     if (!isCurrentTrackUpdate(updateGeneration)) return@withLock
                 }
@@ -704,11 +730,11 @@ object SonosRepository {
                     }
                     // Preserve the device reference and display name from the current cast state.
                     _castState.update { cs ->
-                        if (cs is CastState.Casting) cs.copy(title = title) else cs
+                        if (cs is CastState.Casting) cs.copy(title = title, warning = null) else cs
                     }
                 } else {
                     Log.w(TAG, "updateTrack setUri failed after retry: $uriError")
-                    _castState.update { CastState.Error("Sonos cannot play this track: $uriError") }
+                    setActiveTrackWarning("Sonos could not load “$title”: $uriError")
                 }
                 } finally {
                     if (trackUpdateGeneration.get() == updateGeneration) {
@@ -716,6 +742,16 @@ object SonosRepository {
                         trackUpdateJob = null
                     }
                 }
+            }
+        }
+    }
+
+    private fun setActiveTrackWarning(message: String) {
+        _castState.update { state ->
+            if (state is CastState.Casting) {
+                state.copy(warning = message)
+            } else {
+                CastState.Error(message)
             }
         }
     }
@@ -767,6 +803,7 @@ object SonosRepository {
         val ctx    = appContext
         activeDevice = null
         appContext    = null
+        upstreamRecoveryAttempts.clear()
         scope.launch(Dispatchers.Main) { detachQueueObserverOnMain() }
         SonosProxyServer.stop()
         stopCastKeepAlive(ctx)

@@ -19,6 +19,7 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 object SonosProxyServer {
@@ -46,8 +47,13 @@ object SonosProxyServer {
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val currentTrack = AtomicReference<TrackInfo?>(null)
-    private val latestUpstreamFailure = AtomicReference<String?>(null)
+    private data class ActiveTrack(val generation: Long, val info: TrackInfo)
+    private data class UpstreamFailure(val generation: Long, val message: String)
+
+    private val trackGeneration = AtomicLong(0L)
+    private val trackStateLock = Any()
+    private val currentTrack = AtomicReference<ActiveTrack?>(null)
+    private val latestUpstreamFailure = AtomicReference<UpstreamFailure?>(null)
     private var serverSocket: ServerSocket? = null
     private var acceptJob: Job? = null
 
@@ -78,12 +84,28 @@ object SonosProxyServer {
         .build()
 
     fun setTrack(info: TrackInfo) {
-        currentTrack.set(info)
-        latestUpstreamFailure.set(null)
+        synchronized(trackStateLock) {
+            currentTrack.set(ActiveTrack(trackGeneration.incrementAndGet(), info))
+            latestUpstreamFailure.set(null)
+        }
     }
 
     /** Returns and clears the latest upstream error observed while Sonos was fetching audio. */
-    fun consumeUpstreamFailure(): String? = latestUpstreamFailure.getAndSet(null)
+    fun consumeUpstreamFailure(): String? = synchronized(trackStateLock) {
+        val failure = latestUpstreamFailure.getAndSet(null) ?: return@synchronized null
+        failure.message.takeIf {
+            isSonosRequestFailureCurrent(currentTrack.get()?.generation, failure.generation)
+        }
+    }
+
+    private fun updateTrackIfCurrent(generation: Long, info: TrackInfo) {
+        synchronized(trackStateLock) {
+            val active = currentTrack.get() ?: return
+            if (active.generation == generation) {
+                currentTrack.set(active.copy(info = info))
+            }
+        }
+    }
 
     fun start(localIp: String): String {
         stop()
@@ -104,8 +126,11 @@ object SonosProxyServer {
         runCatching { serverSocket?.close() }
         serverSocket = null
         port = 0
-        currentTrack.set(null)
-        latestUpstreamFailure.set(null)
+        synchronized(trackStateLock) {
+            trackGeneration.incrementAndGet()
+            currentTrack.set(null)
+            latestUpstreamFailure.set(null)
+        }
     }
 
     private suspend fun acceptLoop(ss: ServerSocket) {
@@ -293,11 +318,13 @@ object SonosProxyServer {
                 return
             }
 
-            val track = currentTrack.get() ?: run {
+            val activeTrack = currentTrack.get() ?: run {
                 client.getOutputStream()
                     .write("HTTP/1.1 503 No Track Set\r\nConnection: close\r\n\r\n".toByteArray())
                 return
             }
+            val requestGeneration = activeTrack.generation
+            val track = activeTrack.info
 
             if (method == "HEAD") {
                 val contentLength = track.contentLength
@@ -323,7 +350,7 @@ object SonosProxyServer {
 
             if (resolveStreamUrl(track) == null) {
                 Log.w(TAG, "Could not resolve stream for ${track.videoId}")
-                reportUpstreamFailure("The audio source could not resolve a playable stream.")
+                reportUpstreamFailure(requestGeneration, "The audio source could not resolve a playable stream.")
                 client.getOutputStream()
                     .write("HTTP/1.1 502 Stream Resolve Failed\r\nConnection: close\r\n\r\n".toByteArray())
                 return
@@ -335,14 +362,14 @@ object SonosProxyServer {
             } catch (firstError: Exception) {
                 val refreshed = refreshTrack(requestTrack)
                 if (refreshed == null) {
-                    reportUpstreamFailure("The audio source connection failed (${firstError.javaClass.simpleName}).")
+                    reportUpstreamFailure(requestGeneration, "The audio source connection failed (${firstError.javaClass.simpleName}).")
                     client.getOutputStream().write("HTTP/1.1 502 Upstream Connection Failed\r\nConnection: close\r\n\r\n".toByteArray())
                     return
                 }
                 requestTrack = refreshed
-                currentTrack.set(refreshed)
+                updateTrackIfCurrent(requestGeneration, refreshed)
                 try { openUpstream(requestTrack, rangeHeader) } catch (retryError: Exception) {
-                    reportUpstreamFailure("The refreshed audio source connection failed (${retryError.javaClass.simpleName}).")
+                    reportUpstreamFailure(requestGeneration, "The refreshed audio source connection failed (${retryError.javaClass.simpleName}).")
                     client.getOutputStream().write("HTTP/1.1 502 Refreshed Upstream Failed\r\nConnection: close\r\n\r\n".toByteArray())
                     return
                 }
@@ -359,13 +386,13 @@ object SonosProxyServer {
                 val refreshed = refreshTrack(requestTrack)
                 if (refreshed != null) {
                     requestTrack = refreshed
-                    currentTrack.set(refreshed)
+                    updateTrackIfCurrent(requestGeneration, refreshed)
                     upstreamResponse = try {
                         openUpstream(requestTrack, rangeHeader)
                     } catch (error: Exception) {
                         val message =
                             "The refreshed audio source connection failed (${error.javaClass.simpleName})."
-                        reportUpstreamFailure(message)
+                        reportUpstreamFailure(requestGeneration, message)
                         client.getOutputStream()
                             .write("HTTP/1.1 502 Refreshed Upstream Failed\r\nConnection: close\r\n\r\n".toByteArray())
                         return
@@ -373,11 +400,11 @@ object SonosProxyServer {
                 }
             }
 
-            currentTrack.set(requestTrack)
+            updateTrackIfCurrent(requestGeneration, requestTrack)
             upstreamResponse.use { resp ->
                 if (!resp.isSuccessful) {
                     Log.w(TAG, "CDN error HTTP ${resp.code} for ${requestTrack.videoId}")
-                    reportUpstreamFailure("The audio source rejected playback (HTTP ${resp.code}).")
+                    reportUpstreamFailure(requestGeneration, "The audio source rejected playback (HTTP ${resp.code}).")
                     client.getOutputStream()
                         .write("HTTP/1.1 ${resp.code} Upstream Error\r\nConnection: close\r\n\r\n".toByteArray())
                     return
@@ -401,7 +428,7 @@ object SonosProxyServer {
 
                 val input = resp.body?.byteStream()
                 if (input == null) {
-                    reportUpstreamFailure("The audio source returned no audio body.")
+                    reportUpstreamFailure(requestGeneration, "The audio source returned no audio body.")
                     return
                 }
                 input.use {
@@ -412,6 +439,7 @@ object SonosProxyServer {
                             input.read(buf)
                         } catch (error: Exception) {
                             reportUpstreamFailure(
+                                requestGeneration,
                                 "Audio delivery stopped while reading the source " +
                                     "(${error.javaClass.simpleName}).",
                             )
@@ -437,9 +465,16 @@ object SonosProxyServer {
         }
     }
 
-    private fun reportUpstreamFailure(message: String) {
-        latestUpstreamFailure.set(message)
-        Log.w(TAG, message)
+    private fun reportUpstreamFailure(generation: Long, message: String) {
+        val belongsToActiveTrack = synchronized(trackStateLock) {
+            if (!isSonosRequestFailureCurrent(currentTrack.get()?.generation, generation)) {
+                false
+            } else {
+                latestUpstreamFailure.set(UpstreamFailure(generation, message))
+                true
+            }
+        }
+        if (belongsToActiveTrack) Log.w(TAG, message)
     }
 
     private val SONOS_AUDIO_MIME_TYPES = setOf(
@@ -463,6 +498,11 @@ object SonosProxyServer {
 
 internal fun shouldRetrySonosUpstreamStatus(statusCode: Int): Boolean =
     statusCode in setOf(403, 408, 416, 429, 500, 502, 503, 504)
+
+internal fun isSonosRequestFailureCurrent(
+    activeGeneration: Long?,
+    requestGeneration: Long,
+): Boolean = activeGeneration == requestGeneration
 
 /**
  * For a ranged response, Content-Length is only the size of the selected range. Sonos needs the
