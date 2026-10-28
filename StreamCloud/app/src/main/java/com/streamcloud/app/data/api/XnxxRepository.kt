@@ -1,7 +1,9 @@
 package com.streamcloud.app.data.api
 
+import android.webkit.CookieManager
 import com.streamcloud.app.data.network.BrowserHeaders
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -34,6 +36,8 @@ object XnxxRepository {
     private const val BASE_URL = "https://www.xnxx.com/"
     private const val BEST_URL = "https://www.xnxx.com/best"
     private const val PAGE_SIZE = 18
+    private val cookieHosts = listOf("https://www.xnxx.com", "https://xnxx.com")
+    private val cookiePaths = listOf("/", "/account", "/account/")
 
     private val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -90,6 +94,57 @@ object XnxxRepository {
                 ),
             )
         }
+
+    /**
+     * Clears only XNXX site cookies. The WebView cookie store is otherwise kept
+     * on-device so the official sign-in and verification session can persist.
+     */
+    suspend fun clearSessionCookies(): Boolean {
+        val manager = CookieManager.getInstance()
+        val cookieNames = cookieHosts.flatMap { host ->
+            cookiePaths.flatMap { path ->
+                runCatching { manager.getCookie("$host$path").orEmpty() }
+                    .getOrDefault("")
+                    .split(';')
+                    .mapNotNull { cookie ->
+                        cookie.trim()
+                            .substringBefore('=')
+                            .takeIf(String::isNotBlank)
+                    }
+            }
+        }.distinct()
+
+        cookieNames.forEach { name ->
+            cookieHosts.forEach { host ->
+                cookiePaths.forEach { path ->
+                    manager.setCookie(
+                        "$host$path",
+                        "$name=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=$path; Secure",
+                    )
+                    manager.setCookie(
+                        "$host$path",
+                        "$name=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Domain=.xnxx.com; Path=$path; Secure",
+                    )
+                }
+            }
+        }
+        manager.flush()
+        repeat(3) { attempt ->
+            if (attempt > 0) delay(150L)
+            manager.flush()
+            val remaining = cookieHosts.any { host ->
+                cookiePaths.any { path ->
+                    runCatching { manager.getCookie("$host$path").orEmpty() }
+                        .getOrDefault("")
+                        .split(';')
+                        .map { it.trim().substringBefore('=') }
+                        .any { it in cookieNames }
+                }
+            }
+            if (!remaining) return true
+        }
+        return cookieNames.isEmpty()
+    }
 
     internal fun buildSearchUrl(query: String, page: Int): String {
         require(page > 0) { "Page must be positive." }
@@ -187,20 +242,23 @@ object XnxxRepository {
     private fun requestHtml(url: String): String {
         val safeUrl = normalizeXnxxRequestUrl(url)
             ?: throw IOException("XNXX returned a link outside its secure site.")
-        val request = Request.Builder()
-            .url(safeUrl)
-            .header("User-Agent", BrowserHeaders.USER_AGENT)
-            .header("Accept-Language", BrowserHeaders.ACCEPT_LANGUAGE)
-            .header("Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8")
-            .header("Referer", BASE_URL)
-            .get()
-            .build()
-
         var currentUrl = safeUrl
         for (redirectCount in 0..3) {
             var redirected = false
             var responseBody: String? = null
-            client.newCall(request.newBuilder().url(currentUrl).build()).execute().use { response ->
+            val requestBuilder = Request.Builder()
+                .url(currentUrl)
+                .header("User-Agent", BrowserHeaders.USER_AGENT)
+                .header("Accept-Language", BrowserHeaders.ACCEPT_LANGUAGE)
+                .header("Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8")
+                .header("Referer", BASE_URL)
+            val providerCookies = runCatching {
+                CookieManager.getInstance().getCookie(currentUrl)
+            }.getOrNull()
+            if (!providerCookies.isNullOrBlank()) {
+                requestBuilder.header("Cookie", providerCookies)
+            }
+            client.newCall(requestBuilder.get().build()).execute().use { response ->
                 if (response.isRedirect) {
                     if (redirectCount == 3) {
                         throw IOException("XNXX redirected too many times.")

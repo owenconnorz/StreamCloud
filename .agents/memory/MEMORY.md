@@ -29,3 +29,4 @@
 - [Fire TV idle recommendations](fire-tv-idle-recommendations.md) — Use an in-app idle screen; StreamCloud cannot overlay Amazon Gallery after Fire OS takes control.
 - [App palette scope](app-palette-scope.md) — Apply reference palettes to Movies home, Library, and Settings; keep Music and detail-page theming unchanged.
 - [Spotify private library actions](spotify-private-library-actions.md) — Spotube-style regular playlist creation; collaborative creation stays on Spotify REST, with separate cooldowns and verified mutations.
+- [XNXX login sessions](xnxx-login-session.md) — Keep provider verification intact and scope persistent sign-in cookies to on-device XNXX page requests.

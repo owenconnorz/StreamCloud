@@ -450,6 +450,7 @@ fun StreamCloudApp() {
         currentRoute == "reddit-login" ||
         currentRoute == "pornhub-login" ||
         currentRoute == "xhamster-login" ||
+        currentRoute == "xnxx-login" ||
         currentRoute == "xfree-login" ||
         currentRoute?.startsWith("adult-search/") == true ||
         currentRoute == Tab.Adult.route
@@ -2078,6 +2079,7 @@ fun StreamCloudApp() {
                             onOpenRedditLogin = { nav.navigate("reddit-login") },
                             onOpenPornhubLogin = { nav.navigate("pornhub-login") },
                             onOpenXHamsterLogin = { nav.navigate("xhamster-login") },
+                            onOpenXnxxLogin = { nav.navigate("xnxx-login") },
                             onOpenXFreeLogin = { nav.navigate("xfree-login") },
                             onSubPageChanged  = { settingsHasSubPage = it },
                             backRequest       = settingsBackRequest,
@@ -2124,6 +2126,18 @@ fun StreamCloudApp() {
                         onLoginSuccess = {
                             loginScope.launch {
                                 sl.settings.setXHamsterSignedIn(true)
+                                nav.popBackStack()
+                            }
+                        },
+                        onBack = { nav.popBackStack() },
+                    )
+                }
+                composable("xnxx-login") {
+                    val loginScope = rememberCoroutineScope()
+                    com.streamcloud.app.ui.screens.adult.XnxxLoginScreen(
+                        onSessionSaved = {
+                            loginScope.launch {
+                                sl.settings.setXnxxSessionSaved(true)
                                 nav.popBackStack()
                             }
                         },

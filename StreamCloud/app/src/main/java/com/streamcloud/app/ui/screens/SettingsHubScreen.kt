@@ -197,6 +197,7 @@ fun SettingsHubScreen(
     onOpenPornhubLogin: () -> Unit,
     onOpenXHamsterLogin: () -> Unit,
     onOpenXFreeLogin: () -> Unit,
+    onOpenXnxxLogin: () -> Unit = {},
     onSubPageChanged: (Boolean) -> Unit = {},
     backRequest: Int = 0,
     focusRequest: Int = 0,
@@ -1449,6 +1450,8 @@ fun SettingsHubScreen(
                     PornhubAccountRow(onLogin = onOpenPornhubLogin)
                     SettingDivider()
                     XHamsterAccountRow(onLogin = onOpenXHamsterLogin)
+                    SettingDivider()
+                    XnxxAccountRow(onLogin = onOpenXnxxLogin)
                     SettingDivider()
                     XFreeAccountRow(onLogin = onOpenXFreeLogin)
                 }
@@ -4200,6 +4203,70 @@ private fun XHamsterAccountRow(onLogin: () -> Unit) {
                             android.widget.Toast.makeText(
                                 context,
                                 "Could not clear the XHamster session. Try again.",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    }
+                },
+            ) { Text("Sign out") }
+        } else {
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun XnxxAccountRow(onLogin: () -> Unit) {
+    val context = LocalContext.current
+    val sl = remember(context) { ServiceLocator.get(context) }
+    val sessionSaved by sl.settings.xnxxSessionSaved.collectAsState(initial = false)
+    val scope = rememberCoroutineScope()
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .tvFocusBorder(RoundedCornerShape(18.dp), showOutline = false)
+            .clickable(onClick = onLogin)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBox(
+            if (sessionSaved) Icons.Default.Logout else Icons.Default.Login,
+            Color(0xFF4F8DFF),
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (sessionSaved) "XNXX session saved" else "Sign in to XNXX",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                if (sessionSaved) "Session stays on this device — tap to manage"
+                else "Use XNXX’s official sign-in and verification page",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+            )
+        }
+        if (sessionSaved) {
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        val cleared = runCatching {
+                            com.streamcloud.app.data.api.XnxxRepository.clearSessionCookies()
+                        }.getOrDefault(false)
+                        if (cleared) {
+                            sl.settings.clearXnxxSession()
+                        } else {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Could not clear the XNXX session. Try again.",
                                 android.widget.Toast.LENGTH_SHORT,
                             ).show()
                         }
