@@ -6,6 +6,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -67,6 +69,7 @@ private val ColourStremio     = Color(0xFF9B6CE0)
 private val ColourNuvio       = Color(0xFF4CAF88)
 private val ColourTester      = Color(0xFFE8974F)
 private val AddonIconBg       = Color(0xFF1B2D52)
+private val installedPluginFilters = listOf("All", "Movies", "TV Shows", "Adult", "Anime")
 
 @Composable
 fun PluginsScreen(onBack: () -> Unit) {
@@ -187,7 +190,7 @@ private fun PluginsHubPage(
     onTester: () -> Unit,
 ) {
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = PluginUiPalette.background,
         topBar = {
             TopAppBar(
                 title = { Text("Plugins & Addons") },
@@ -197,7 +200,7 @@ private fun PluginsHubPage(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
+                    containerColor = PluginUiPalette.background,
                     titleContentColor = MaterialTheme.colorScheme.onBackground,
                 ),
             )
@@ -213,7 +216,7 @@ private fun PluginsHubPage(
             Text(
                 "Choose a plugin ecosystem to manage",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = PluginUiPalette.muted,
                 modifier = Modifier.padding(bottom = 4.dp),
             )
 
@@ -281,7 +284,7 @@ private fun AddonHubCard(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .background(PluginUiPalette.card)
             .clickable(onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 20.dp),
     ) {
@@ -314,7 +317,7 @@ private fun AddonHubCard(
                 Text(
                     title,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = PluginUiPalette.text,
                 )
                 if (!badgeText.isNullOrBlank()) {
                     Box(
@@ -335,7 +338,7 @@ private fun AddonHubCard(
             Text(
                 description,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = PluginUiPalette.muted,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -344,7 +347,7 @@ private fun AddonHubCard(
         Icon(
             Icons.Default.ChevronRight,
             null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+            tint = PluginUiPalette.muted.copy(alpha = 0.55f),
             modifier = Modifier.size(22.dp),
         )
     }
@@ -366,9 +369,21 @@ private fun CloudStreamPluginsPage(
     var addName    by remember { mutableStateOf("") }
     var addUrl     by remember { mutableStateOf("") }
     var showRepoDialog by remember { mutableStateOf(false) }
+    var installedSearch by remember { mutableStateOf("") }
+    var showInstalledSearch by remember { mutableStateOf(false) }
+    var installedFilter by remember { mutableStateOf("All") }
+    var showInstalledFilterMenu by remember { mutableStateOf(false) }
 
     var pluginHasSettings by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val filteredInstalled = remember(state.installed, installedSearch, installedFilter) {
+        state.installed.filter { plugin ->
+            val searchable = "${plugin.name} ${plugin.internalName} ${plugin.description.orEmpty()} " +
+                plugin.tvTypes.orEmpty().joinToString(" ")
+            (installedSearch.isBlank() || searchable.contains(installedSearch, ignoreCase = true)) &&
+                matchesInstalledPluginCategory(plugin, installedFilter)
+        }
+    }
 
     LaunchedEffect(state.installed) {
         state.installed.forEach { plugin ->
@@ -384,6 +399,7 @@ private fun CloudStreamPluginsPage(
     if (showRepoDialog) {
         AddNamedRepositoryDialog(
             title = "Add CloudStream Repository",
+            description = "Add a CloudStream repository to browse and install plugins.",
             urlLabel = "repo.json URL",
             urlPlaceholder = "https://example.com/repo.json",
             saveLabel = "Save Repository",
@@ -404,7 +420,7 @@ private fun CloudStreamPluginsPage(
     }
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = PluginUiPalette.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
@@ -414,14 +430,9 @@ private fun CloudStreamPluginsPage(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
-                actions = {
-                    IconButton(onClick = { showRepoDialog = true }) {
-                        Icon(Icons.Default.Add, "Add repository")
-                    }
-                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    containerColor = PluginUiPalette.background,
+                    titleContentColor = PluginUiPalette.text,
                 ),
             )
         },
@@ -434,12 +445,36 @@ private fun CloudStreamPluginsPage(
             state.info?.let  { item { StatusBanner(it, isError = false) { vm.clearMessages() } } }
             state.error?.let { item { StatusBanner(it, isError = true)  { vm.clearMessages() } } }
 
-            // Overview chips
+            // The three summary cards and repository section lead, as in the reference.
             item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { StatChip("${state.repos.size} repositories", ColourCloudStream) }
-                    item { StatChip("${state.installed.size} installed", ColourCloudStream) }
-                    item { StatChip("CS3 packages", MaterialTheme.colorScheme.onSurfaceVariant) }
+                val packageCount = state.pluginsByRepo.values
+                    .flatten()
+                    .distinctBy { it.internalName ?: it.name }
+                    .size
+                    .coerceAtLeast(state.repos.sumOf { it.pluginCount })
+                    .coerceAtLeast(state.installed.size)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OverviewStatCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.Cloud,
+                        value = state.repos.size.toString(),
+                        label = "repositories",
+                    )
+                    OverviewStatCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.Extension,
+                        value = state.installed.size.toString(),
+                        label = "installed",
+                    )
+                    OverviewStatCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.CloudDownload,
+                        value = packageCount.toString(),
+                        label = "CS3 packages",
+                    )
                 }
             }
 
@@ -448,32 +483,21 @@ private fun CloudStreamPluginsPage(
                 Text(
                     "Install .cs3 plugin packages from community repository URLs. Each repository lists plugins you can install individually.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = PluginUiPalette.muted,
                     modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
                 )
             }
 
-            // Installed plugins section
-            if (state.installed.isNotEmpty()) {
-                item { Spacer(Modifier.height(4.dp)) }
-                item { SectionLabel("Installed Plugins (${state.installed.size})") }
-                items(
-                    state.installed,
-                    key = { p -> "inst_${p.sourceRepoId}_${p.internalName}_${p.installedAt}" },
-                ) { p ->
-                    InstalledRow(
-                        p          = p,
-                        onUninstall = { vm.uninstall(p) },
-                        onSettings  = if (pluginHasSettings[p.filePath] == true) {
-                            { PluginSettingsActivity.start(context, p.filePath, p.name) }
-                        } else null,
-                    )
-                }
+            item {
+                PluginMainSectionHeader(
+                    icon = Icons.Default.Cloud,
+                    title = "CS3 Repositories",
+                    count = state.repos.size,
+                    accent = ColourCloudStream,
+                    actionLabel = "Add Repository",
+                    onAction = { showRepoDialog = true },
+                )
             }
-
-            // CS3 Repositories section
-            item { Spacer(Modifier.height(4.dp)) }
-            item { SectionLabel("CS3 Repositories (${state.repos.size})") }
 
             if (state.repos.isEmpty()) {
                 item {
@@ -481,13 +505,13 @@ private fun CloudStreamPluginsPage(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .background(PluginUiPalette.card)
                             .padding(20.dp),
                     ) {
                         Text(
                             "No repositories yet",
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = PluginUiPalette.text,
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
@@ -497,7 +521,7 @@ private fun CloudStreamPluginsPage(
                                 "• https://raw.githubusercontent.com/SaurabhKaperwan/CSX/master\n" +
                                 "• https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/builds",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = PluginUiPalette.muted,
                         )
                     }
                 }
@@ -509,9 +533,104 @@ private fun CloudStreamPluginsPage(
                     pluginCount      = state.pluginsByRepo[repo.id]?.size ?: repo.pluginCount,
                     isLoading        = state.loadingRepoIds.contains(repo.id),
                     onOpen           = { onOpenRepository(repo) },
-                    onFetch          = { vm.fetchRepo(repo) },
                     onRemove         = { vm.removeRepo(repo.id) },
                 )
+            }
+
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Installed plugins",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = PluginUiPalette.text,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "(${state.installed.size})",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = ColourCloudStream,
+                    )
+                    IconButton(onClick = { showInstalledSearch = !showInstalledSearch }) {
+                        Icon(Icons.Default.Search, "Search installed plugins", tint = PluginUiPalette.muted)
+                    }
+                    Box {
+                        IconButton(onClick = { showInstalledFilterMenu = true }) {
+                            Icon(Icons.Default.Tune, "Filter installed plugins", tint = PluginUiPalette.muted)
+                        }
+                        DropdownMenu(
+                            expanded = showInstalledFilterMenu,
+                            onDismissRequest = { showInstalledFilterMenu = false },
+                        ) {
+                            installedPluginFilters.forEach { filter ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(if (filter == installedFilter) "✓  $filter" else filter)
+                                    },
+                                    onClick = {
+                                        installedFilter = filter
+                                        showInstalledFilterMenu = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            if (showInstalledSearch) {
+                item {
+                    OutlinedTextField(
+                        value = installedSearch,
+                        onValueChange = { installedSearch = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        placeholder = { Text("Search installed plugins") },
+                        leadingIcon = { Icon(Icons.Default.Search, null) },
+                        trailingIcon = {
+                            IconButton(onClick = {
+                                installedSearch = ""
+                                showInstalledSearch = false
+                            }) {
+                                Text("×", color = PluginUiPalette.muted, fontSize = 20.sp)
+                            }
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = PluginUiPalette.text,
+                            unfocusedTextColor = PluginUiPalette.text,
+                            focusedBorderColor = ColourCloudStream,
+                            unfocusedBorderColor = PluginUiPalette.border,
+                            focusedLabelColor = PluginUiPalette.muted,
+                            unfocusedLabelColor = PluginUiPalette.muted,
+                            cursorColor = ColourCloudStream,
+                        ),
+                    )
+                }
+            }
+            if (filteredInstalled.isEmpty()) {
+                item {
+                    RepositoryEmptyCard(
+                        if (state.installed.isEmpty()) "No plugins installed"
+                        else "No plugins match this filter",
+                        if (state.installed.isEmpty()) "Open a repository above and install a plugin."
+                        else "Try another category or search term.",
+                    )
+                }
+            } else {
+                items(
+                    filteredInstalled,
+                    key = { p -> "inst_${p.sourceRepoId}_${p.internalName}_${p.installedAt}" },
+                ) { p ->
+                    InstalledRow(
+                        p = p,
+                        onUninstall = { vm.uninstall(p) },
+                        onSettings = if (pluginHasSettings[p.filePath] == true) {
+                            { PluginSettingsActivity.start(context, p.filePath, p.name) }
+                        } else null,
+                    )
+                }
             }
         }
     }
@@ -536,6 +655,7 @@ private fun StremioAddonsPage(
     if (showAddonDialog) {
         AddNamedRepositoryDialog(
             title = "Add Stremio Add-on",
+            description = "Save a Stremio manifest to review and install the add-on.",
             urlLabel = "Manifest URL",
             urlPlaceholder = "https://your-addon.com/manifest.json",
             saveLabel = "Save Add-on",
@@ -556,7 +676,7 @@ private fun StremioAddonsPage(
     }
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = PluginUiPalette.background,
         topBar = {
             TopAppBar(
                 title = { Text("Stremio") },
@@ -565,14 +685,9 @@ private fun StremioAddonsPage(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
-                actions = {
-                    IconButton(onClick = { showAddonDialog = true }) {
-                        Icon(Icons.Default.Add, "Add Stremio add-on")
-                    }
-                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    containerColor = PluginUiPalette.background,
+                    titleContentColor = PluginUiPalette.text,
                 ),
             )
         },
@@ -589,13 +704,22 @@ private fun StremioAddonsPage(
                 Text(
                     "Save an add-on manifest here, then open it to review its details and install it.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = PluginUiPalette.muted,
                     modifier = Modifier.padding(vertical = 4.dp),
                 )
             }
-            item { SectionLabel("Stremio Add-ons (${state.stremioSavedRepos.size})") }
+            item {
+                PluginMainSectionHeader(
+                    icon = Icons.Default.Extension,
+                    title = "Stremio Add-ons",
+                    count = state.stremioSavedRepos.size,
+                    accent = ColourStremio,
+                    actionLabel = "Add Add-on",
+                    onAction = { showAddonDialog = true },
+                )
+            }
             if (state.stremioSavedRepos.isEmpty()) {
-                item { RepositoryEmptyCard("No add-ons saved yet", "Select + to add a display name and manifest URL.") }
+                item { RepositoryEmptyCard("No add-ons saved yet", "Select Add Add-on to enter a display name and manifest URL.") }
             }
             items(state.stremioSavedRepos, key = { "stremio_repo_${it.id}" }) { repo ->
                 SavedRepositoryRow(
@@ -610,10 +734,9 @@ private fun StremioAddonsPage(
                 )
             }
 
-            // Installed Addons section
+            item { Spacer(Modifier.height(4.dp)) }
+            item { SectionLabel("Installed Add-ons (${state.stremioAddons.size})") }
             if (state.stremioAddons.isNotEmpty()) {
-                item { Spacer(Modifier.height(4.dp)) }
-                item { SectionLabel("Installed Addons (${state.stremioAddons.size})") }
                 items(state.stremioAddons, key = { it.manifestUrl }) { addon ->
                     StremioAddonRow(
                         addon    = addon,
@@ -627,13 +750,13 @@ private fun StremioAddonsPage(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .background(PluginUiPalette.card)
                             .padding(20.dp),
                     ) {
                         Text(
                             "No addons installed yet",
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = PluginUiPalette.text,
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
@@ -642,7 +765,7 @@ private fun StremioAddonsPage(
                                 "• https://torrentio.strem.fun/manifest.json\n" +
                                 "• https://nuviostreams.hayd.uk/manifest.json",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = PluginUiPalette.muted,
                         )
                     }
                 }
@@ -668,6 +791,7 @@ private fun NuvioProvidersPage(
     if (showRepoDialog) {
         AddNamedRepositoryDialog(
             title = "Add Nuvio Repository",
+            description = "Add a Nuvio repository to browse and install providers.",
             urlLabel = "Repository URL",
             urlPlaceholder = "https://raw.githubusercontent.com/…/main/",
             saveLabel = "Save Repository",
@@ -688,7 +812,7 @@ private fun NuvioProvidersPage(
     }
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = PluginUiPalette.background,
         topBar = {
             TopAppBar(
                 title = { Text("Nuvio Providers") },
@@ -697,14 +821,9 @@ private fun NuvioProvidersPage(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
-                actions = {
-                    IconButton(onClick = { showRepoDialog = true }) {
-                        Icon(Icons.Default.Add, "Add Nuvio repository")
-                    }
-                },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    containerColor = PluginUiPalette.background,
+                    titleContentColor = PluginUiPalette.text,
                 ),
             )
         },
@@ -717,32 +836,56 @@ private fun NuvioProvidersPage(
             state.info?.let  { item { StatusBanner(it, isError = false) { vm.clearMessages() } } }
             state.error?.let { item { StatusBanner(it, isError = true)  { vm.clearMessages() } } }
 
-            // Overview chips
+            // Overview cards
             item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { StatChip("${state.nuvioSavedRepos.size} repos", ColourNuvio) }
-                    item { StatChip("${state.nuvioProviders.size} providers", ColourNuvio) }
-                    item {
-                        StatChip(
-                            if (state.nuvioProviders.isEmpty()) "No plugins" else "Plugins enabled",
-                            if (state.nuvioProviders.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
-                            else ColourNuvio,
-                        )
-                    }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OverviewStatCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.Cloud,
+                        value = state.nuvioSavedRepos.size.toString(),
+                        label = "repositories",
+                        accent = ColourNuvio,
+                    )
+                    OverviewStatCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.Extension,
+                        value = state.nuvioProviders.size.toString(),
+                        label = "installed",
+                        accent = ColourNuvio,
+                    )
+                    OverviewStatCard(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Default.CloudDownload,
+                    value = state.nuvioProviders.map { it.repoUrl }.distinct().size.toString(),
+                        label = "provider repos",
+                        accent = ColourNuvio,
+                    )
                 }
             }
 
             item {
                 Text(
-                    "Add a provider repository with +, then open it to browse and install providers.",
+                    "Add a provider repository, then open it to browse and install providers.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = PluginUiPalette.muted,
                     modifier = Modifier.padding(vertical = 4.dp),
                 )
             }
-            item { SectionLabel("Repositories (${state.nuvioSavedRepos.size})") }
+            item {
+                PluginMainSectionHeader(
+                    icon = Icons.Default.Cloud,
+                    title = "Nuvio Repositories",
+                    count = state.nuvioSavedRepos.size,
+                    accent = ColourNuvio,
+                    actionLabel = "Add Repository",
+                    onAction = { showRepoDialog = true },
+                )
+            }
             if (state.nuvioSavedRepos.isEmpty()) {
-                item { RepositoryEmptyCard("No repositories saved yet", "Select + to add a display name and repository URL.") }
+                item { RepositoryEmptyCard("No repositories saved yet", "Select Add Repository to enter a display name and repository URL.") }
             }
             items(state.nuvioSavedRepos, key = { "repo_${it.id}" }) { savedRepo ->
                 val count = state.nuvioProviders.count { it.repoUrl == savedRepo.url }
@@ -782,11 +925,106 @@ private fun NuvioProvidersPage(
 @Composable
 private fun SectionLabel(text: String) {
     Text(
-        text.uppercase(),
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
+        text,
+        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+        color = PluginUiPalette.text,
         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
     )
+}
+
+@Composable
+private fun OverviewStatCard(
+    modifier: Modifier = Modifier,
+    icon: ImageVector,
+    value: String,
+    label: String,
+    accent: Color = ColourCloudStream,
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .border(1.dp, PluginUiPalette.border, RoundedCornerShape(16.dp))
+            .background(PluginUiPalette.card)
+            .padding(horizontal = 10.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(icon, null, tint = accent, modifier = Modifier.size(25.dp))
+        Column {
+            Text(
+                value,
+                color = PluginUiPalette.text,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1,
+            )
+            Text(
+                label,
+                color = PluginUiPalette.muted,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PluginMainSectionHeader(
+    icon: ImageVector,
+    title: String,
+    count: Int,
+    accent: Color,
+    actionLabel: String,
+    onAction: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(icon, null, tint = accent, modifier = Modifier.size(24.dp))
+        Text(
+            "$title ($count)",
+            modifier = Modifier.weight(1f),
+            color = PluginUiPalette.text,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Button(
+            onClick = onAction,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp),
+            shape = RoundedCornerShape(24.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = accent),
+        ) {
+            Icon(Icons.Default.Add, null, modifier = Modifier.size(17.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(actionLabel, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        }
+    }
+}
+
+private fun matchesInstalledPluginCategory(plugin: InstalledPlugin, category: String): Boolean {
+    if (category == "All") return true
+    val metadata = buildString {
+        append(plugin.name)
+        append(' ')
+        append(plugin.internalName)
+        append(' ')
+        append(plugin.description.orEmpty())
+        append(' ')
+        append(plugin.tvTypes.orEmpty().joinToString(" "))
+    }.lowercase()
+    return when (category) {
+        "Movies" -> plugin.tvTypes.orEmpty().any { it.contains("movie", true) } ||
+            metadata.contains("movie") || metadata.contains("film")
+        "TV Shows" -> plugin.tvTypes.orEmpty().any {
+            it.contains("tv", true) || it.contains("series", true) || it.contains("show", true)
+        } || listOf("series", "tv show", "episode").any(metadata::contains)
+        "Adult" -> plugin.isAdultPlugin()
+        "Anime" -> metadata.contains("anime")
+        else -> true
+    }
 }
 
 @Composable
@@ -839,13 +1077,14 @@ private fun InstalledRow(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clip(RoundedCornerShape(14.dp))
+            .border(1.dp, PluginUiPalette.border, RoundedCornerShape(14.dp))
+            .background(PluginUiPalette.card)
             .padding(12.dp),
     ) {
         Box(
             Modifier
-                .size(40.dp)
+                .size(46.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(AddonIconBg),
             contentAlignment = Alignment.Center,
@@ -869,14 +1108,14 @@ private fun InstalledRow(
         Column(Modifier.weight(1f)) {
             Text(
                 p.name,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = PluginUiPalette.text,
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 "v${p.version} · ${p.internalName}",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = PluginUiPalette.muted,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -885,7 +1124,7 @@ private fun InstalledRow(
                 Icon(
                     Icons.Default.Tune,
                     contentDescription = "Plugin settings",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = PluginUiPalette.muted,
                     modifier = Modifier.size(20.dp),
                 )
             }
@@ -893,6 +1132,7 @@ private fun InstalledRow(
         IconButton(onClick = onUninstall) {
             Icon(Icons.Default.Delete, "Uninstall", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
         }
+        Icon(Icons.Default.ChevronRight, null, tint = PluginUiPalette.muted)
     }
 }
 
@@ -909,7 +1149,7 @@ private fun NuvioProviderRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .background(PluginUiPalette.card)
             .padding(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -958,7 +1198,7 @@ private fun NuvioProviderRow(
                 Spacer(Modifier.height(2.dp))
                 Text(
                     p.name,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = PluginUiPalette.text,
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -966,7 +1206,7 @@ private fun NuvioProviderRow(
                 if (!p.description.isNullOrBlank()) {
                     Text(
                         p.description,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = PluginUiPalette.muted,
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -1007,7 +1247,7 @@ private fun StremioAddonRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .background(PluginUiPalette.card)
             .padding(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1037,21 +1277,21 @@ private fun StremioAddonRow(
             Column(Modifier.weight(1f)) {
                 Text(
                     addon.name,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = PluginUiPalette.text,
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     addon.id,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = PluginUiPalette.muted,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
             IconButton(onClick = onRefresh) {
-                Icon(Icons.Default.Refresh, "Refresh", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.Refresh, "Refresh", tint = PluginUiPalette.muted, modifier = Modifier.size(20.dp))
             }
             IconButton(onClick = onRemove) {
                 Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
@@ -1061,7 +1301,7 @@ private fun StremioAddonRow(
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             EcosystemChip("Active", ColourStremio)
             if (!addon.version.isNullOrBlank()) EcosystemChip("v${addon.version}", ColourStremio)
-            EcosystemChip("Stremio", MaterialTheme.colorScheme.onSurfaceVariant)
+            EcosystemChip("Stremio", PluginUiPalette.muted)
         }
     }
 }
@@ -1088,14 +1328,14 @@ private fun RepoCard(
     pluginCount: Int,
     isLoading: Boolean,
     onOpen: () -> Unit,
-    onFetch: () -> Unit,
     onRemove: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .border(1.dp, PluginUiPalette.border, RoundedCornerShape(14.dp))
+            .background(PluginUiPalette.card)
             .clickable(onClick = onOpen)
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1113,14 +1353,14 @@ private fun RepoCard(
         Column(Modifier.weight(1f)) {
             Text(
                 repo.name,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = PluginUiPalette.text,
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 repo.url,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = PluginUiPalette.muted,
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1133,16 +1373,12 @@ private fun RepoCard(
             )
         }
         if (isLoading) {
-            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-        } else {
-            IconButton(onClick = onFetch) {
-                Icon(Icons.Default.Refresh, "Refresh", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-            }
+            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = ColourCloudStream)
         }
         IconButton(onClick = onRemove) {
             Icon(Icons.Default.Delete, "Remove repository", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
         }
-        Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(Icons.Default.ChevronRight, null, tint = PluginUiPalette.muted)
     }
 }
 
@@ -1194,7 +1430,7 @@ private fun PluginRow(
             plugin.description?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     it,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = PluginUiPalette.muted,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1202,8 +1438,8 @@ private fun PluginRow(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 EcosystemChip("v${plugin.version}", ColourCloudStream)
-                plugin.language?.let { EcosystemChip(it, MaterialTheme.colorScheme.onSurfaceVariant) }
-                plugin.tvTypes?.firstOrNull()?.let { EcosystemChip(it, MaterialTheme.colorScheme.onSurfaceVariant) }
+                plugin.language?.let { EcosystemChip(it, PluginUiPalette.muted) }
+                plugin.tvTypes?.firstOrNull()?.let { EcosystemChip(it, PluginUiPalette.muted) }
             }
         }
         Spacer(Modifier.width(6.dp))
@@ -1245,7 +1481,7 @@ private fun ProviderTesterPage(
     val context = LocalContext.current
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = PluginUiPalette.background,
         topBar = {
             TopAppBar(
                 title = { Text("Provider Tester") },
@@ -1255,8 +1491,8 @@ private fun ProviderTesterPage(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    containerColor = PluginUiPalette.background,
+                    titleContentColor = PluginUiPalette.text,
                 ),
             )
         },
@@ -1326,7 +1562,7 @@ private fun ProviderTesterPage(
                             "No providers installed yet.\n" +
                                 "Install plugins from CloudStream, Stremio, or Nuvio first.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = PluginUiPalette.muted,
                         )
                     }
                 }
@@ -1350,7 +1586,7 @@ private fun TesterHeaderCard(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .background(PluginUiPalette.card)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -1373,7 +1609,7 @@ private fun TesterHeaderCard(
                 Text(
                     "TEST FILM",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = PluginUiPalette.muted,
                 )
                 Text(
                     "The Dark Knight",
@@ -1382,12 +1618,12 @@ private fun TesterHeaderCard(
                 Text(
                     "2008 · tt0468569 · TMDB 155",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = PluginUiPalette.muted,
                 )
                 Text(
                     "A provider passes if it returns ≥ 1 stream.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = PluginUiPalette.muted,
                 )
             }
         }
@@ -1397,7 +1633,7 @@ private fun TesterHeaderCard(
                 if (passed  > 0) TesterScorePill("$passed passed",  Color(0xFF4CAF50))
                 if (empty   > 0) TesterScorePill("$empty empty",    Color(0xFFFF9800))
                 if (failed  > 0) TesterScorePill("$failed failed",  MaterialTheme.colorScheme.error)
-                if (pending > 0) TesterScorePill("$pending pending", MaterialTheme.colorScheme.onSurfaceVariant)
+                if (pending > 0) TesterScorePill("$pending pending", PluginUiPalette.muted)
             }
         }
 
@@ -1461,7 +1697,7 @@ private fun TesterSectionHeader(name: String, color: Color, count: Int) {
         Text(
             "$count",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = PluginUiPalette.muted,
         )
     }
 }
@@ -1477,7 +1713,7 @@ private fun ProviderTestRow(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .background(PluginUiPalette.card)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1523,7 +1759,7 @@ private fun ProviderTestRow(
                 TestStatus.Success -> Text(
                     "${result.durationMs}ms",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = PluginUiPalette.muted,
                 )
                 else -> {}
             }
@@ -1567,7 +1803,7 @@ private fun ProviderTestRow(
                     Text(
                         "—",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                        color = PluginUiPalette.muted.copy(alpha = 0.35f),
                     )
             }
         }

@@ -1,8 +1,11 @@
 package com.streamcloud.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,11 +16,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
@@ -27,17 +33,21 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -59,6 +69,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.streamcloud.app.data.plugins.CloudStreamPlugin
 import com.streamcloud.app.data.plugins.CloudStreamRepo
 import com.streamcloud.app.data.stremio.StremioSavedRepo
@@ -71,10 +83,20 @@ private val CloudStreamBlue = Color(0xFF2684FF)
 private val NuvioGreen = Color(0xFF4CAF88)
 private val StremioPurple = Color(0xFF9B6CE0)
 
-@OptIn(ExperimentalMaterial3Api::class)
+internal object PluginUiPalette {
+    val background = Color(0xFF0B1727)
+    val card = Color(0xFF1B2B42)
+    val cardRaised = Color(0xFF223650)
+    val border = Color(0xFF35557A)
+    val text = Color(0xFFF2F6FC)
+    val muted = Color(0xFFAFC1D8)
+    val blue = Color(0xFF1678F5)
+}
+
 @Composable
 internal fun AddNamedRepositoryDialog(
     title: String,
+    description: String,
     urlLabel: String,
     urlPlaceholder: String,
     saveLabel: String,
@@ -87,51 +109,148 @@ internal fun AddNamedRepositoryDialog(
     onSave: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .widthIn(max = 760.dp),
+            shape = RoundedCornerShape(26.dp),
+            color = PluginUiPalette.background,
+            border = BorderStroke(1.dp, PluginUiPalette.border),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(78.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(PluginUiPalette.cardRaised),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Default.Cloud,
+                            contentDescription = null,
+                            tint = accent,
+                            modifier = Modifier.size(42.dp),
+                        )
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            title,
+                            color = PluginUiPalette.text,
+                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                        )
+                        Text(
+                            description,
+                            color = PluginUiPalette.muted,
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                    }
+                    IconButton(
+                        onClick = onDismiss,
+                        enabled = !busy,
+                        modifier = Modifier
+                            .size(50.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(PluginUiPalette.cardRaised),
+                    ) {
+                        Text("×", color = PluginUiPalette.text, fontSize = 30.sp, lineHeight = 30.sp)
+                    }
+                }
+
                 OutlinedTextField(
                     value = name,
                     onValueChange = onNameChange,
                     label = { Text("Display name") },
-                    placeholder = { Text("e.g. My repository") },
+                    placeholder = { Text("Enter display name") },
+                    leadingIcon = { Icon(Icons.Default.Extension, null, tint = PluginUiPalette.muted) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    colors = repositoryFieldColors(accent),
                 )
                 OutlinedTextField(
                     value = url,
                     onValueChange = onUrlChange,
                     label = { Text(urlLabel) },
                     placeholder = { Text(urlPlaceholder) },
+                    leadingIcon = { Icon(Icons.Default.Cloud, null, tint = PluginUiPalette.muted) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    colors = repositoryFieldColors(accent),
                 )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = onSave,
-                enabled = name.isNotBlank() && url.isNotBlank() && !busy,
-                colors = ButtonDefaults.buttonColors(containerColor = accent),
-            ) {
-                if (busy) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
-                    Spacer(Modifier.width(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        enabled = !busy,
+                        modifier = Modifier.weight(1f).height(58.dp),
+                        shape = RoundedCornerShape(30.dp),
+                        border = BorderStroke(1.dp, PluginUiPalette.border),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = PluginUiPalette.text),
+                    ) {
+                        Text("Cancel", style = MaterialTheme.typography.titleMedium)
+                    }
+                    Button(
+                        onClick = onSave,
+                        enabled = name.isNotBlank() && url.isNotBlank() && !busy,
+                        modifier = Modifier.weight(1f).height(58.dp),
+                        shape = RoundedCornerShape(30.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PluginUiPalette.blue,
+                            contentColor = Color.White,
+                        ),
+                    ) {
+                        if (busy) {
+                            CircularProgressIndicator(
+                                Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = Color.White,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text(if (busy) "Checking…" else saveLabel, style = MaterialTheme.typography.titleMedium)
+                    }
                 }
-                Text(if (busy) "Checking…" else saveLabel)
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !busy) { Text("Cancel") }
-        },
-    )
+        }
+    }
 }
+
+@Composable
+private fun repositoryFieldColors(accent: Color) = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = PluginUiPalette.text,
+    unfocusedTextColor = PluginUiPalette.text,
+    focusedContainerColor = Color.Transparent,
+    unfocusedContainerColor = Color.Transparent,
+    focusedBorderColor = accent,
+    unfocusedBorderColor = PluginUiPalette.border,
+    focusedLabelColor = PluginUiPalette.muted,
+    unfocusedLabelColor = PluginUiPalette.muted,
+    focusedPlaceholderColor = PluginUiPalette.muted,
+    unfocusedPlaceholderColor = PluginUiPalette.muted,
+    cursorColor = accent,
+)
 
 @Composable
 internal fun SavedRepositoryRow(
@@ -148,7 +267,8 @@ internal fun SavedRepositoryRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(15.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .border(1.dp, PluginUiPalette.border, RoundedCornerShape(15.dp))
+            .background(PluginUiPalette.card)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -176,14 +296,14 @@ internal fun SavedRepositoryRow(
             Text(
                 name,
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface,
+                color = PluginUiPalette.text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 url,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = PluginUiPalette.muted,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -192,7 +312,7 @@ internal fun SavedRepositoryRow(
         IconButton(onClick = onDelete) {
             Icon(Icons.Default.Delete, "Remove repository", tint = MaterialTheme.colorScheme.error)
         }
-        Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(Icons.Default.ChevronRight, null, tint = PluginUiPalette.muted)
     }
 }
 
@@ -202,12 +322,13 @@ internal fun RepositoryEmptyCard(title: String, message: String) {
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .border(1.dp, PluginUiPalette.border, RoundedCornerShape(14.dp))
+            .background(PluginUiPalette.card)
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Text(title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
-        Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(title, color = PluginUiPalette.text, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+        Text(message, style = MaterialTheme.typography.bodySmall, color = PluginUiPalette.muted)
     }
 }
 
@@ -231,35 +352,56 @@ internal fun CloudStreamRepositoryPage(
             val matchesQuery = query.isBlank() ||
                 plugin.name.contains(query, ignoreCase = true) ||
                 plugin.description.orEmpty().contains(query, ignoreCase = true)
-            val metadata = "${plugin.name} ${plugin.description.orEmpty()} ${plugin.tvTypes.orEmpty().joinToString(" ")}"
-                .lowercase()
-            val matchesFilter = when (selectedFilter) {
-                "Movies" -> plugin.tvTypes.orEmpty().any { it.contains("movie", true) } ||
-                    metadata.contains("movie")
-                "TV Shows" -> plugin.tvTypes.orEmpty().any {
-                    it.contains("tv", true) || it.contains("series", true) || it.contains("show", true)
-                } || metadata.contains("series") || metadata.contains("tv show")
-                "Adult" -> listOf("adult", "porn", "xxx", "nsfw", "erotic", "xnxx", "xhamster")
-                    .any(metadata::contains)
-                "Anime" -> metadata.contains("anime")
-                else -> true
-            }
-            matchesQuery && matchesFilter
+            matchesQuery && matchesCloudStreamCategory(plugin, selectedFilter)
         }
     }
     val installed = remember(state.installed) { state.installed.map { it.internalName }.toSet() }
+    val pluginCounts = remember(plugins) {
+        filters.associateWith { category ->
+            plugins.count { matchesCloudStreamCategory(it, category) }
+        }
+    }
+    var showRepositoryMenu by remember(repo.id) { mutableStateOf(false) }
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = PluginUiPalette.background,
         topBar = {
             TopAppBar(
-                title = { Text(repo.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text("Repository", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                actions = {
+                    IconButton(onClick = { showRepositoryMenu = true }) {
+                        Text("⋮", color = PluginUiPalette.text, fontSize = 24.sp)
+                    }
+                    DropdownMenu(
+                        expanded = showRepositoryMenu,
+                        onDismissRequest = { showRepositoryMenu = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Refresh repository") },
+                            onClick = {
+                                showRepositoryMenu = false
+                                vm.fetchRepo(repo)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Remove repository") },
+                            onClick = {
+                                showRepositoryMenu = false
+                                vm.removeRepo(repo.id)
+                                onBack()
+                            },
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = PluginUiPalette.background,
+                    titleContentColor = PluginUiPalette.text,
+                ),
             )
         },
     ) { padding ->
@@ -287,6 +429,7 @@ internal fun CloudStreamRepositoryPage(
                     placeholder = { Text("Search plugins in this repository…") },
                     leadingIcon = { Icon(Icons.Default.Search, null) },
                     shape = RoundedCornerShape(14.dp),
+                    colors = repositoryFieldColors(CloudStreamBlue),
                 )
             }
             item {
@@ -295,7 +438,13 @@ internal fun CloudStreamRepositoryPage(
                         FilterChip(
                             selected = selectedFilter == filter,
                             onClick = { selectedFilter = filter },
-                            label = { Text(filter) },
+                            label = { Text("$filter (${pluginCounts[filter] ?: 0})") },
+                            colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = CloudStreamBlue,
+                                selectedLabelColor = Color.White,
+                                containerColor = PluginUiPalette.card,
+                                labelColor = PluginUiPalette.muted,
+                            ),
                         )
                     }
                 }
@@ -358,34 +507,35 @@ internal fun NuvioRepositoryPage(
     var selectedFilter by remember(repo.url) { mutableStateOf("All") }
     val filters = listOf("All", "Movies", "TV Shows", "Anime", "Adult")
     val installedIds = remember(state.nuvioProviders) { state.nuvioProviders.map { it.id }.toSet() }
+    val filterCounts = remember(manifest) {
+        filters.associateWith { filter ->
+            manifest?.allProviders.orEmpty().count { entry ->
+                matchesNuvioCategory("${entry.name} ${entry.description.orEmpty()}".lowercase(), filter)
+            }
+        }
+    }
     val providers = remember(manifest, query, selectedFilter) {
         manifest?.allProviders.orEmpty().filter { entry ->
             val metadata = "${entry.name} ${entry.description.orEmpty()}".lowercase()
             val matchesQuery = query.isBlank() || metadata.contains(query.lowercase())
-            val matchesFilter = when (selectedFilter) {
-                "Movies" -> metadata.contains("movie") || metadata.contains("film")
-                "TV Shows" -> metadata.contains("series") || metadata.contains("tv show") ||
-                    metadata.contains("episode")
-                "Anime" -> metadata.contains("anime")
-                "Adult" -> listOf("adult", "porn", "xxx", "nsfw", "erotic", "xnxx", "xhamster")
-                    .any(metadata::contains)
-                else -> true
-            }
-            matchesQuery && matchesFilter
+            matchesQuery && matchesNuvioCategory(metadata, selectedFilter)
         }
     }
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = PluginUiPalette.background,
         topBar = {
             TopAppBar(
-                title = { Text(repo.name ?: "Nuvio repository", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text("Repository", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = PluginUiPalette.background,
+                    titleContentColor = PluginUiPalette.text,
+                ),
             )
         },
     ) { padding ->
@@ -413,6 +563,7 @@ internal fun NuvioRepositoryPage(
                     placeholder = { Text("Search providers in this repository…") },
                     leadingIcon = { Icon(Icons.Default.Search, null) },
                     shape = RoundedCornerShape(14.dp),
+                    colors = repositoryFieldColors(NuvioGreen),
                 )
             }
             item {
@@ -421,7 +572,13 @@ internal fun NuvioRepositoryPage(
                         FilterChip(
                             selected = selectedFilter == filter,
                             onClick = { selectedFilter = filter },
-                            label = { Text(filter) },
+                            label = { Text("$filter (${filterCounts[filter] ?: 0})") },
+                            colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = NuvioGreen,
+                                selectedLabelColor = Color.White,
+                                containerColor = PluginUiPalette.card,
+                                labelColor = PluginUiPalette.muted,
+                            ),
                         )
                     }
                 }
@@ -478,6 +635,40 @@ internal fun NuvioRepositoryPage(
     }
 }
 
+private fun matchesCloudStreamCategory(plugin: CloudStreamPlugin, category: String): Boolean {
+    if (category == "All") return true
+    val metadata = buildString {
+        append(plugin.name)
+        append(' ')
+        append(plugin.internalName.orEmpty())
+        append(' ')
+        append(plugin.description.orEmpty())
+        append(' ')
+        append(plugin.tvTypes.orEmpty().joinToString(" "))
+    }.lowercase()
+    return when (category) {
+        "Movies" -> plugin.tvTypes.orEmpty().any { it.contains("movie", ignoreCase = true) } ||
+            metadata.contains("movie") || metadata.contains("film")
+        "TV Shows" -> plugin.tvTypes.orEmpty().any {
+            it.contains("tv", ignoreCase = true) || it.contains("series", ignoreCase = true) ||
+                it.contains("show", ignoreCase = true)
+        } || listOf("series", "tv show", "episode").any(metadata::contains)
+        "Adult" -> listOf("adult", "porn", "xxx", "nsfw", "erotic", "xnxx", "xhamster", "pornhub")
+            .any(metadata::contains)
+        "Anime" -> metadata.contains("anime")
+        else -> true
+    }
+}
+
+private fun matchesNuvioCategory(metadata: String, category: String): Boolean = when (category) {
+    "Movies" -> metadata.contains("movie") || metadata.contains("film")
+    "TV Shows" -> listOf("series", "tv show", "episode", "tv").any(metadata::contains)
+    "Anime" -> metadata.contains("anime")
+    "Adult" -> listOf("adult", "porn", "xxx", "nsfw", "erotic", "xnxx", "xhamster", "pornhub")
+        .any(metadata::contains)
+    else -> true
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun StremioRepositoryPage(
@@ -498,16 +689,19 @@ internal fun StremioRepositoryPage(
         it.manifestUrl.equals(repo.manifestUrl, ignoreCase = true)
     }
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = PluginUiPalette.background,
         topBar = {
             TopAppBar(
-                title = { Text(repo.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text("Repository", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = PluginUiPalette.background,
+                    titleContentColor = PluginUiPalette.text,
+                ),
             )
         },
     ) { padding ->
@@ -637,7 +831,8 @@ private fun RepositoryHeader(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .border(1.dp, PluginUiPalette.border, RoundedCornerShape(16.dp))
+            .background(PluginUiPalette.card)
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -661,8 +856,8 @@ private fun RepositoryHeader(
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(name, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
-            Text(url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(name, color = PluginUiPalette.text, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+            Text(url, style = MaterialTheme.typography.bodySmall, color = PluginUiPalette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(subtitle, style = MaterialTheme.typography.labelSmall, color = accent)
         }
     }
@@ -674,7 +869,7 @@ private fun RepositorySectionTitle(text: String, accent: Color) {
         text,
         modifier = Modifier.padding(top = 6.dp),
         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-        color = accent,
+        color = PluginUiPalette.text,
     )
 }
 
@@ -687,11 +882,11 @@ private fun RepositoryMessage(text: String, isError: Boolean, accent: Color) {
             .clip(RoundedCornerShape(12.dp))
             .background(
                 if (isError) MaterialTheme.colorScheme.errorContainer
-                else MaterialTheme.colorScheme.surfaceContainerHigh,
+                else PluginUiPalette.card,
             )
             .padding(14.dp),
         color = if (isError) MaterialTheme.colorScheme.onErrorContainer
-        else MaterialTheme.colorScheme.onSurfaceVariant,
+        else PluginUiPalette.muted,
         style = MaterialTheme.typography.bodyMedium,
     )
 }
@@ -715,15 +910,15 @@ private fun RepositoryListInfoRow(icon: ImageVector, accent: Color, title: Strin
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .background(PluginUiPalette.card)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, tint = accent, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(title, color = PluginUiPalette.text, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = PluginUiPalette.muted)
         }
     }
 }
@@ -736,28 +931,33 @@ private fun CloudStreamPluginInstallRow(
     onInstall: () -> Unit,
     onUninstall: () -> Unit,
 ) {
+    val categoryTags = when {
+        matchesCloudStreamCategory(plugin, "Adult") -> listOf("Adult")
+        else -> plugin.tvTypes.orEmpty().take(2)
+    }
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .border(1.dp, PluginUiPalette.border, RoundedCornerShape(14.dp))
+            .background(PluginUiPalette.card)
             .padding(11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         PluginLogo(plugin.name, plugin.iconUrl, CloudStreamBlue)
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
-            Text(plugin.name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(plugin.name, color = PluginUiPalette.text, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 plugin.description ?: "v${plugin.version} · ${plugin.internalName ?: plugin.name}",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = PluginUiPalette.muted,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 RepositoryTag("v${plugin.version}", CloudStreamBlue)
-                plugin.tvTypes.orEmpty().take(2).forEach { RepositoryTag(it, CloudStreamBlue) }
+                categoryTags.forEach { RepositoryTag(it, CloudStreamBlue) }
             }
         }
         Spacer(Modifier.width(8.dp))
@@ -768,6 +968,7 @@ private fun CloudStreamPluginInstallRow(
                 onClick = onInstall,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = CloudStreamBlue),
+                shape = RoundedCornerShape(50),
             ) {
                 Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(17.dp))
                 Spacer(Modifier.width(4.dp))
@@ -789,22 +990,29 @@ private fun NuvioProviderInstallRow(
     onInstall: () -> Unit,
     onUninstall: () -> Unit,
 ) {
+    val metadata = "$name ${description.orEmpty()}".lowercase()
+    val categoryTags = listOf("Movies", "TV Shows", "Anime", "Adult")
+        .filter { matchesNuvioCategory(metadata, it) }
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .border(1.dp, PluginUiPalette.border, RoundedCornerShape(14.dp))
+            .background(PluginUiPalette.card)
             .padding(11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         PluginLogo(name, logo, accent)
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
-            Text(name, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(name, color = PluginUiPalette.text, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!description.isNullOrBlank()) {
-                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(description, style = MaterialTheme.typography.bodySmall, color = PluginUiPalette.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            if (!version.isNullOrBlank()) RepositoryTag("v$version", accent)
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                if (!version.isNullOrBlank()) RepositoryTag("v$version", accent)
+                categoryTags.take(2).forEach { RepositoryTag(it, accent) }
+            }
         }
         Spacer(Modifier.width(8.dp))
         when {
@@ -814,6 +1022,7 @@ private fun NuvioProviderInstallRow(
                 onClick = onInstall,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = accent),
+                shape = RoundedCornerShape(50),
             ) {
                 Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(17.dp))
                 Spacer(Modifier.width(4.dp))
