@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -24,6 +25,7 @@ import java.util.concurrent.TimeUnit
 private val Context.pluginStore by preferencesDataStore("streamcloud_plugins")
 private val KEY_REPOS = stringPreferencesKey("repos_json")
 private val KEY_INSTALLED = stringPreferencesKey("installed_json")
+private val KEY_PICKER_FAVORITES = stringPreferencesKey("picker_favorites_json")
 
 class PluginRepository(private val context: Context) {
 
@@ -49,6 +51,27 @@ class PluginRepository(private val context: Context) {
                 Net.json.decodeFromString(ListSerializer(InstalledPlugin.serializer()), it)
             }.getOrDefault(emptyList())
         } ?: emptyList()
+    }
+
+    val pickerFavorites: Flow<Set<String>> = context.pluginStore.data.map { prefs ->
+        prefs[KEY_PICKER_FAVORITES]?.let { encoded ->
+            runCatching {
+                Net.json.decodeFromString(ListSerializer(String.serializer()), encoded).toSet()
+            }.getOrDefault(emptySet())
+        } ?: emptySet()
+    }
+
+    suspend fun togglePickerFavorite(internalName: String) {
+        context.pluginStore.edit { prefs ->
+            val current = prefs[KEY_PICKER_FAVORITES]?.let { encoded ->
+                runCatching {
+                    Net.json.decodeFromString(ListSerializer(String.serializer()), encoded).toSet()
+                }.getOrDefault(emptySet())
+            } ?: emptySet()
+            val updated = if (internalName in current) current - internalName else current + internalName
+            prefs[KEY_PICKER_FAVORITES] =
+                Net.json.encodeToString(ListSerializer(String.serializer()), updated.sorted())
+        }
     }
 
     suspend fun addRepo(name: String, url: String) {

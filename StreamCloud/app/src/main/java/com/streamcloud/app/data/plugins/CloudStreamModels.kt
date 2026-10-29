@@ -51,8 +51,21 @@ data class InstalledPlugin(
     val tvTypes: List<String>? = null,
 ) {
     fun isAdultPlugin(): Boolean {
-        val types = tvTypes ?: return false
-        val adultKeywords = setOf("nsfw", "adult", "xxx", "hentai", "hentaisub", "18+", "porn", "erotic")
-        return types.any { it.lowercase() in adultKeywords }
+        val adultKeywords = listOf(
+            "nsfw", "adult", "xxx", "hentai", "18+", "porn", "erotic",
+            "xnxx", "xhamster", "pornhub", "eporner", "beeg",
+        )
+        val searchableMetadata = buildList {
+            addAll(tvTypes.orEmpty())
+            add(name)
+            add(internalName)
+            add(description.orEmpty())
+        }
+        return searchableMetadata.any { value ->
+            val normalized = value.lowercase().replace(Regex("[^a-z0-9+]+"), "")
+            adultKeywords.any { keyword ->
+                normalized.contains(keyword.lowercase().replace(Regex("[^a-z0-9+]+"), ""))
+            }
+        }
     }
 }

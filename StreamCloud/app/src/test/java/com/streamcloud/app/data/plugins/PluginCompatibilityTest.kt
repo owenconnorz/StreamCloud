@@ -16,6 +16,15 @@ import org.junit.Test
 class PluginCompatibilityTest {
 
     @Test
+    fun adultSourcesAreRecognizedFromCloudStreamTypesAndNames() {
+        assertTrue(installedPlugin(name = "Example", types = listOf("NSFW")).isAdultPlugin())
+        assertTrue(installedPlugin(name = "XNXX", types = listOf("Movie")).isAdultPlugin())
+        assertTrue(installedPlugin(name = "Example", types = listOf("HentaiSub")).isAdultPlugin())
+        assertFalse(installedPlugin(name = "AnimeCloud", types = listOf("Anime")).isAdultPlugin())
+        assertFalse(installedPlugin(name = "MovieLand", types = listOf("Movie")).isAdultPlugin())
+    }
+
+    @Test
     fun amapOnListReceiverDoublesEveryElement() = runBlocking {
         val input: List<Int> = listOf(1, 2, 3, 4, 5)
         val result = input.amap { it * 2 }
@@ -64,4 +73,15 @@ class PluginCompatibilityTest {
         assertEquals(listOf(2, 4), result)
         assertFalse(result.contains(1))
     }
+
+    private fun installedPlugin(name: String, types: List<String>) = InstalledPlugin(
+        name = name,
+        internalName = name,
+        version = 1,
+        filePath = "",
+        sourceRepoId = "",
+        sourceUrl = "",
+        installedAt = 0L,
+        tvTypes = types,
+    )
 }
