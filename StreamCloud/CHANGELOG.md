@@ -1,4 +1,12 @@
-## Latest — Changes since V2347
+## Latest — Changes since V2350
+
+### Android TV
+- **Navigation follows the app's real sections** — Movies, Library, Music, Live TV, and Adult are available from the top bar; Adult appears only when enabled in settings. TV Shows, Anime, and Categories remain in the Movies home shortcuts.
+- **Branded TV header** — added the blue StreamCloud cloud mark and purple-blue wordmark.
+- **More room for featured and continuing titles** — the Movies hero is taller and Continue Watching cards are wider, while the Movies, TV Shows, Anime, Adult, Trending, and New Releases shortcuts remain available.
+- **Clearer remote focus** — a cyan focus outline now matches the rounded shape of the purple-blue selected tab.
+
+## Changes since V2347
 
 ### Android TV
 - **Refined the TV Movies home to match the supplied reference** — updated the wide-screen navigation and dark background while keeping the live movie content and TV focus behavior.
