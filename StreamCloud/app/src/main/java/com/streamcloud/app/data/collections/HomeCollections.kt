@@ -43,6 +43,13 @@ object HomeCollections {
             emoji = "", defaultEnabled = true,
         ) { api, key, page -> api.topRated(key, page).results },
 
+        HomeCollection(
+            id = "tv_popular", title = "Popular TV Shows",
+            subtitle = "Popular series",
+            emoji = "", defaultEnabled = false,
+        ) { api, key, page ->
+            api.discoverTv(apiKey = key, sortBy = "popularity.desc", page = page).results
+        },
 
         HomeCollection(
             id = "marvel", title = "Marvel Cinematic Universe",

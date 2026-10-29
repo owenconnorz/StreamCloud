@@ -58,6 +58,7 @@ import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.theme.UiFormFactor
@@ -102,6 +103,14 @@ private data class PosterSheetItem(
     val title: String,
     val posterUrl: String?,
     val mediaType: String,
+)
+
+private data class TvHomeShortcut(
+    val title: String,
+    val icon: ImageVector,
+    val imageUrl: String?,
+    val tint: Color,
+    val onClick: () -> Unit,
 )
 
 private const val TV_IDLE_RECOMMENDATION_DELAY_MS = 2 * 60_000L
@@ -205,6 +214,8 @@ fun MoviesScreen(
         { _, _, _ -> },
     onOpenCollectionFolder: (Long) -> Unit = {},
     onOpenCollectionTabbed: (Long) -> Unit = {},
+    showAdultShortcut: Boolean = false,
+    onAdultShortcutClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val sl = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
@@ -446,6 +457,96 @@ fun MoviesScreen(
     val firstStremioRowKey = state.stremioRows
         .firstOrNull { it.items.isNotEmpty() }
         ?.rowKey
+    val homeCollectionRows = remember(isTv, state.collections) {
+        if (isTv) {
+            state.collections.sortedBy { if (it.id == "popular") 0 else 1 }
+        } else {
+            state.collections
+        }
+    }
+    val tvSeriesArtwork = state.stremioRows
+        .firstOrNull { it.type.equals("series", ignoreCase = true) }
+        ?.items
+        ?.firstOrNull()
+        ?.background
+        ?: state.trending.firstOrNull { it.name != null }?.backdropUrl
+    val animeArtwork = state.collections
+        .firstOrNull { it.id == "anime" }
+        ?.items
+        ?.firstOrNull()
+        ?.backdropUrl
+    val tvHomeShortcuts = if (isTv) {
+        buildList {
+            add(
+                TvHomeShortcut(
+                    title = "Movies",
+                    icon = Icons.Default.Movie,
+                    imageUrl = state.popular.firstOrNull()?.backdropUrl,
+                    tint = Color(0xFFE63946),
+                    onClick = {
+                        onOpenCatalog("tmdb:popular", "Popular Movies", "All-time fan favourites")
+                    },
+                ),
+            )
+            add(
+                TvHomeShortcut(
+                    title = "TV Shows",
+                    icon = Icons.Default.Tv,
+                    imageUrl = tvSeriesArtwork,
+                    tint = Color(0xFF277DA1),
+                    onClick = {
+                        onOpenCatalog("tmdb:tv_popular", "Popular TV Shows", "Popular series")
+                    },
+                ),
+            )
+            add(
+                TvHomeShortcut(
+                    title = "Anime",
+                    icon = Icons.Default.AutoAwesome,
+                    imageUrl = animeArtwork ?: state.popular.firstOrNull()?.backdropUrl,
+                    tint = Color(0xFF9B4DCA),
+                    onClick = {
+                        onOpenCatalog("tmdb:anime", "Anime Movies", "Anime feature films")
+                    },
+                ),
+            )
+            if (showAdultShortcut) {
+                add(
+                    TvHomeShortcut(
+                        title = "Adult",
+                        icon = Icons.Default.Whatshot,
+                        imageUrl = null,
+                        tint = Color(0xFF9B1B62),
+                        onClick = onAdultShortcutClick,
+                    ),
+                )
+            }
+            add(
+                TvHomeShortcut(
+                    title = "Trending",
+                    icon = Icons.Default.TrendingUp,
+                    imageUrl = state.trending.firstOrNull()?.backdropUrl,
+                    tint = Color(0xFF3155A5),
+                    onClick = {
+                        onOpenCatalog("tmdb:trending", "Trending This Week", "What everyone's watching right now")
+                    },
+                ),
+            )
+            add(
+                TvHomeShortcut(
+                    title = "New Releases",
+                    icon = Icons.Default.PlayCircle,
+                    imageUrl = state.nowPlaying.firstOrNull()?.backdropUrl,
+                    tint = Color(0xFFB65A24),
+                    onClick = {
+                        onOpenCatalog("tmdb:now_playing", "In Theatres", "Now playing in cinemas")
+                    },
+                ),
+            )
+        }
+    } else {
+        emptyList()
+    }
     val hasBrowseContent = state.continueWatching.isNotEmpty() ||
         firstCollectionRowId != null ||
         firstStremioRowKey != null ||
@@ -556,13 +657,6 @@ fun MoviesScreen(
                     )
                 }
             } else {
-                if (isTv && state.heroBanner.isNotEmpty() && state.showHeroSection) {
-                    item(key = "tv_hero_nav_spacing") {
-                        // The transparent TV navigation bar is an overlay. Keep the hero
-                        // below the actual nav row instead of placing artwork behind it.
-                        Spacer(Modifier.statusBarsPadding().height(64.dp))
-                    }
-                }
                 if (state.heroBanner.isNotEmpty() && state.showHeroSection) {
                     item(key = "hero_pager") {
                         HeroPager(
@@ -730,6 +824,11 @@ fun MoviesScreen(
                         }
                     }
                 }
+                if (isTv && tvHomeShortcuts.isNotEmpty()) {
+                    item(key = "tv_home_shortcuts") {
+                        TvHomeShortcutRow(shortcuts = tvHomeShortcuts)
+                    }
+                }
                 state.pinnedCollections.forEach { pinnedRow ->
                     item(key = "pinned_t_${pinnedRow.collectionId}") {
                         if (pinnedRow.viewMode == "tabbed_grid") {
@@ -804,7 +903,7 @@ fun MoviesScreen(
                     }
                 }
 
-                state.collections.forEachIndexed { _, row ->
+                homeCollectionRows.forEachIndexed { _, row ->
                     item(key = "col_t_${row.id}") {
                         SectionTitleWithViewAll(
                             title = row.title,
@@ -845,7 +944,12 @@ fun MoviesScreen(
                                 val mediaType = if (m.title != null) "movie" else "tv"
                                 MidPoster(
                                     m = m,
-                                    posterStyle = posterStyle,
+                                    posterStyle = if (isTv && row.id == "popular") {
+                                        "landscape"
+                                    } else {
+                                        posterStyle
+                                    },
+                                    landscapeCardWidth = if (isTv && row.id == "popular") 150.dp else 220.dp,
                                     isWatched = m.id in watchedTmdbIds,
                                     isTv = isTv,
                                     titleLogoUrl = state.tmdbTitleLogos["$mediaType:${m.id}"],
@@ -1326,6 +1430,90 @@ private fun MoviesHeader(
     }
 }
 
+@Composable
+private fun TvHomeShortcutRow(shortcuts: List<TvHomeShortcut>) {
+    if (shortcuts.isEmpty()) return
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val horizontalPadding = 24.dp
+    val spacing = 10.dp
+    val cardWidth = (
+        screenWidth -
+            horizontalPadding * 2 -
+            spacing * (shortcuts.size - 1)
+        ) / shortcuts.size
+    LazyRow(
+        modifier = Modifier.tvFocusGroup(),
+        contentPadding = PaddingValues(horizontal = horizontalPadding, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(spacing),
+    ) {
+        items(shortcuts, key = { it.title }) { shortcut ->
+            val shape = RoundedCornerShape(12.dp)
+            val resolvedCardWidth = cardWidth.coerceIn(96.dp, 190.dp)
+            val compact = resolvedCardWidth < 124.dp
+            Box(
+                modifier = Modifier
+                    .width(resolvedCardWidth)
+                    .height(78.dp)
+                    .clip(shape)
+                    .background(
+                        Brush.linearGradient(
+                            listOf(shortcut.tint, shortcut.tint.copy(alpha = 0.55f), Color(0xFF15151B)),
+                        ),
+                    )
+                    .tvFocusBorder(shape)
+                    .clickable(onClick = shortcut.onClick),
+            ) {
+                if (!shortcut.imageUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = tvHighResolutionTmdbArtworkUrl(shortcut.imageUrl),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        shortcut.tint.copy(alpha = 0.82f),
+                                        Color.Black.copy(alpha = 0.28f),
+                                        Color.Black.copy(alpha = 0.58f),
+                                    ),
+                                ),
+                            ),
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .padding(horizontal = if (compact) 8.dp else 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = shortcut.icon,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(if (compact) 17.dp else 20.dp),
+                    )
+                    Text(
+                        text = shortcut.title,
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontSize = if (compact) 12.sp else 15.sp,
+                        ),
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HeroPager(
@@ -1341,11 +1529,8 @@ private fun HeroPager(
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    // Keep the TV hero inset like Netflix's rounded landscape card.
-    val tvHeroInset = 24.dp
-    val tvHeroWidth = (LocalConfiguration.current.screenWidthDp.dp - tvHeroInset * 2)
-        .coerceAtLeast(320.dp)
-    val tvHeroHeight = tvHeroWidth * (7f / 16f)
+    val tvHeroHeight = (LocalConfiguration.current.screenHeightDp.dp * 0.46f)
+        .coerceIn(220.dp, 360.dp)
 
     if (isTv) {
         // HorizontalPager intercepts every D-pad left/right at the input level and permanently
@@ -1363,70 +1548,51 @@ private fun HeroPager(
                 currentPage = (currentPage + 1) % items.size
             }
         }
-        val heroShape = RoundedCornerShape(24.dp)
-        val heroGlowColor = MaterialTheme.colorScheme.primary
         Box(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = tvHeroInset)
                 .height(tvHeroHeight),
         ) {
-            Box(
+            Crossfade(
+                targetState = currentPage,
+                modifier = Modifier.fillMaxSize(),
+                label = "tvHeroBanner",
+            ) { page ->
+                val item = items.getOrNull(page) ?: return@Crossfade
+                HeroBannerSlide(
+                    item = item,
+                    onClick = { onClick(item) },
+                    titleLogoUrl = titleLogoUrlFor(item),
+                    titleLogoRequestKey = titleLogoRequestKeyFor(item),
+                    onRequestTitleLogo = { onRequestTitleLogoFor(item) },
+                    isCurrentPage = page == currentPage,
+                    buttonFocusRequester = if (page == 0) initialFocusRequester else null,
+                    navFocusRequester = if (page == currentPage) navFocusRequester else null,
+                    // Keep the hero on its static artwork instead of loading a TV trailer.
+                    showTrailerPreview = false,
+                    onButtonFocusChanged = { focused ->
+                        buttonHasFocus = focused
+                        onInitialItemFocusChanged(focused)
+                    },
+                )
+            }
+            Row(
                 Modifier
-                    .fillMaxSize()
-                    .shadow(
-                        elevation = 22.dp,
-                        shape = heroShape,
-                        clip = false,
-                        ambientColor = heroGlowColor.copy(alpha = 0.68f),
-                        spotColor = heroGlowColor.copy(alpha = 0.52f),
-                    )
-                    .clip(heroShape),
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 32.dp, bottom = 14.dp),
             ) {
-                Crossfade(
-                    targetState = currentPage,
-                    modifier = Modifier.fillMaxSize(),
-                    label = "tvHeroBanner",
-                ) { page ->
-                    val item = items.getOrNull(page) ?: return@Crossfade
-                    HeroBannerSlide(
-                        item = item,
-                        onClick = { onClick(item) },
-                        titleLogoUrl = titleLogoUrlFor(item),
-                        titleLogoRequestKey = titleLogoRequestKeyFor(item),
-                        onRequestTitleLogo = { onRequestTitleLogoFor(item) },
-                        isCurrentPage = page == currentPage,
-                        // Only page 0 carries the startup focus requester. Crossfade composes
-                        // both old and new content during the transition, so attaching the same
-                        // requester to every page would cause a duplicate-requester error.
-                        buttonFocusRequester = if (page == 0) initialFocusRequester else null,
-                        navFocusRequester = if (page == currentPage) navFocusRequester else null,
-                        showTrailerPreview = page == currentPage,
-                        onButtonFocusChanged = { focused ->
-                            buttonHasFocus = focused
-                            onInitialItemFocusChanged(focused)
-                        },
+                items.forEachIndexed { i, _ ->
+                    val active = i == currentPage
+                    Box(
+                        Modifier
+                            .padding(horizontal = 4.dp)
+                            .height(6.dp)
+                            .width(if (active) 22.dp else 6.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                if (active) Color.White else Color.White.copy(alpha = 0.55f),
+                            ),
                     )
-                }
-                Row(
-                    Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 32.dp, bottom = 18.dp),
-                ) {
-                    items.forEachIndexed { i, _ ->
-                        val active = i == currentPage
-                        Box(
-                            Modifier
-                                .padding(horizontal = 4.dp)
-                                .height(6.dp)
-                                .width(if (active) 22.dp else 6.dp)
-                                .clip(RoundedCornerShape(50))
-                                .background(
-                                    if (active) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                                )
-                        )
-                    }
                 }
             }
         }
@@ -1604,7 +1770,6 @@ private fun HeroBannerSlide(
     Box(
         modifier
             .fillMaxSize()
-            .then(if (isTv) Modifier.clip(RoundedCornerShape(24.dp)) else Modifier)
             .background(MaterialTheme.colorScheme.surface)
             // On TV the outer box is a visual container only; the button below is the
             // sole focus target so D-pad navigates freely in all directions.
@@ -1643,13 +1808,14 @@ private fun HeroBannerSlide(
         ).joinToString("  •  ")
 
         if (isTv) {
-            // TV: Netflix-style — left-side + bottom gradient, title/buttons bottom-left
+            // TV: full-bleed editorial hero with details and actions on the left.
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.horizontalGradient(
                         listOf(
-                            Color.Black.copy(alpha = 0.85f),
-                            Color.Black.copy(alpha = 0.25f),
+                            Color.Black.copy(alpha = 0.92f),
+                            Color.Black.copy(alpha = 0.62f),
+                            Color.Black.copy(alpha = 0.10f),
                             Color.Transparent,
                         )
                     )
@@ -1659,23 +1825,35 @@ private fun HeroBannerSlide(
                 Modifier.fillMaxSize().background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
-                            0f to Color.Black.copy(alpha = 0.38f),
-                            0.16f to Color.Black.copy(alpha = 0.10f),
-                            0.34f to Color.Transparent,
+                            0f to Color.Black.copy(alpha = 0.30f),
+                            0.20f to Color.Transparent,
                             0.62f to Color.Transparent,
-                            0.76f to Color.Black.copy(alpha = 0.16f),
-                            0.88f to Color.Black.copy(alpha = 0.68f),
-                            1f to Color.Black.copy(alpha = 0.97f),
+                            0.84f to Color.Black.copy(alpha = 0.22f),
+                            1f to Color.Black.copy(alpha = 0.90f),
                         ),
                     )
                 )
             )
             Column(
                 Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = 48.dp, bottom = 52.dp, end = 260.dp),
+                    .align(Alignment.CenterStart)
+                    .padding(
+                        start = 40.dp,
+                        end = LocalConfiguration.current.screenWidthDp.dp * 0.48f,
+                        top = 30.dp,
+                    ),
                 horizontalAlignment = Alignment.Start,
             ) {
+                Text(
+                    if (item.mediaType == "tv") "SERIES" else "FEATURED MOVIE",
+                    color = Color.White.copy(alpha = 0.88f),
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = 11.sp,
+                        letterSpacing = 3.sp,
+                    ),
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(4.dp))
                 HeroBannerTitle(
                     title = item.title,
                     logoUrl = titleLogoUrl,
@@ -1685,12 +1863,23 @@ private fun HeroBannerSlide(
                 Text(
                     meta,
                     color = Color.White.copy(alpha = 0.85f),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp),
                 )
-                Spacer(Modifier.height(22.dp))
+                val overview = item.overview.trim()
+                if (overview.isNotBlank()) {
+                    Spacer(Modifier.height(7.dp))
+                    Text(
+                        overview,
+                        color = Color.White.copy(alpha = 0.90f),
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
                 // Netflix-style: Play (white, primary) + More Info (semi-transparent) side by side
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     // Play — white filled, ▶ icon, primary action
@@ -1704,7 +1893,7 @@ private fun HeroBannerSlide(
                             .clip(RoundedCornerShape(50))
                             .background(Color.White)
                             .clickable(onClick = onClick)
-                            .padding(horizontal = 28.dp, vertical = 13.dp),
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
@@ -1715,7 +1904,7 @@ private fun HeroBannerSlide(
                             modifier = Modifier.size(22.dp),
                         )
                         Text(
-                            "Play",
+                            "Watch Now",
                             color = Color.Black,
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         )
@@ -1728,7 +1917,7 @@ private fun HeroBannerSlide(
                             .background(Color.White.copy(alpha = 0.22f))
                             .border(1.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(50))
                             .clickable(onClick = onClick)
-                            .padding(horizontal = 28.dp, vertical = 13.dp),
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
@@ -1810,15 +1999,15 @@ private fun HeroBannerTitle(
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxWidth(if (isTv) 0.56f else 0.72f)
-                .height(if (isTv) 100.dp else 76.dp),
+                .height(if (isTv) 68.dp else 76.dp),
         )
     } else {
         Text(
             title,
             style = MaterialTheme.typography.displayLarge.copy(
                 fontWeight = FontWeight.Black,
-                fontSize = if (isTv) 44.sp else 36.sp,
-                lineHeight = if (isTv) 48.sp else 40.sp,
+                fontSize = if (isTv) 38.sp else 36.sp,
+                lineHeight = if (isTv) 42.sp else 40.sp,
             ),
             color = Color.White,
             textAlign = if (isTv) {
@@ -1894,12 +2083,20 @@ private fun NoticeBanner(text: String, onDismiss: () -> Unit) {
 
 @Composable
 private fun SectionTitle(text: String) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Text(
         text,
-        style = MaterialTheme.typography.headlineSmall,
+        style = if (isTv) {
+            MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp)
+        } else {
+            MaterialTheme.typography.headlineSmall
+        },
         color = MaterialTheme.colorScheme.onBackground,
         fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+        modifier = Modifier.padding(
+            horizontal = if (isTv) 24.dp else 20.dp,
+            vertical = if (isTv) 7.dp else 12.dp,
+        ),
     )
 }
 
@@ -1951,15 +2148,23 @@ private fun ViewAllCard(
 
 @Composable
 private fun SectionTitleWithViewAll(title: String, onViewAll: () -> Unit) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(
+                horizontal = if (isTv) 24.dp else 20.dp,
+                vertical = if (isTv) 7.dp else 12.dp,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             title,
-            style = MaterialTheme.typography.headlineSmall,
+            style = if (isTv) {
+                MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp)
+            } else {
+                MaterialTheme.typography.headlineSmall
+            },
             color = MaterialTheme.colorScheme.onBackground,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.weight(1f),
@@ -2034,6 +2239,12 @@ private fun ContinueWatchingCard(
     onClick: () -> Unit,
     onLongPress: () -> Unit,
 ) {
+    val cardWidth = if (isTv) {
+        (LocalConfiguration.current.screenWidthDp.dp * 0.19f).coerceIn(168.dp, 248.dp)
+    } else {
+        320.dp
+    }
+    val cardHeight = if (isTv) cardWidth * 0.54f else 124.dp
     val pct = if (entry.durationMs > 0L)
         (entry.positionMs.toFloat() / entry.durationMs.toFloat()).coerceIn(0f, 1f)
     else 0f
@@ -2074,8 +2285,8 @@ private fun ContinueWatchingCard(
     }
     val cardModifier = modifier
         .onFocusChanged { onFocusChanged(it.isFocused || it.hasFocus) }
-        .width(320.dp)
-        .height(124.dp)
+        .width(cardWidth)
+        .height(cardHeight)
         .tvOkPress(onClick, onLongPress)
         .tvFocusBorder(RoundedCornerShape(14.dp))
         .clip(RoundedCornerShape(14.dp))
@@ -2400,6 +2611,7 @@ private fun CsHomePosterCard(
 private fun MidPoster(
     m: TmdbMovie,
     posterStyle: String = "portrait",
+    landscapeCardWidth: Dp = 220.dp,
     isWatched: Boolean = false,
     isTv: Boolean = false,
     titleLogoUrl: String? = null,
@@ -2413,7 +2625,7 @@ private fun MidPoster(
         (posterStyle == "auto" && m.backdropUrl != null)
     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
-    val width = if (useLandscape) 220.dp else 140.dp
+    val width = if (useLandscape) landscapeCardWidth else 140.dp
     val mediaType = if (m.title != null) "movie" else "tv"
     val showTitleOnThumbnail = useLandscape
     var isFocused by remember(m.id) { mutableStateOf(false) }

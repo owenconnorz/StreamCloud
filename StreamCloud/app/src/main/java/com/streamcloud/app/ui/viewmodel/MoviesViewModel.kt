@@ -79,6 +79,7 @@ data class HeroBannerItem(
     val title: String,
     val year: String = "",
     val rating: String = "",
+    val overview: String = "",
     val tmdbId: Long? = null,
     val mediaType: String = "movie",
     val stremioMeta: StremioMetaPreview? = null,
@@ -685,6 +686,7 @@ class MoviesViewModel(
                     title     = m.displayTitle,
                     year      = (m.releaseDate ?: m.firstAirDate)?.substringBefore('-') ?: "",
                     rating    = if (m.voteAverage > 0) String.format("%.1f ★", m.voteAverage) else "",
+                    overview  = m.overview.orEmpty(),
                     tmdbId    = m.id,
                     mediaType = if (m.name != null && m.title == null) "tv" else "movie",
                 )
@@ -740,6 +742,7 @@ class MoviesViewModel(
                         title       = meta.name,
                         year        = meta.releaseInfo ?: "",
                         rating      = meta.imdbRating?.let { "$it ★" } ?: "",
+                        overview    = meta.description.orEmpty(),
                         stremioMeta = meta,
                         mediaType   = if (meta.type == "series") "tv" else "movie",
                     )

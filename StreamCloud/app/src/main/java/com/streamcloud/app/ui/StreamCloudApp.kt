@@ -1,6 +1,7 @@
 package com.streamcloud.app.ui
 
 import android.app.Activity
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -45,6 +46,7 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Theaters
 import androidx.compose.material.icons.filled.Whatshot
+import androidx.compose.material.icons.Icons as MaterialIcons
 import androidx.compose.material3.Icon
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -79,6 +81,10 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.player.NativePlayerScreen
 import com.streamcloud.app.player.toAddonSubtitles
@@ -765,6 +771,8 @@ fun StreamCloudApp(
                         onOpenCollectionTabbed = { collectionId ->
                             nav.navigate("collection-tabbed/$collectionId")
                         },
+                        showAdultShortcut = nsfwEnabled,
+                        onAdultShortcutClick = { navigateToTab(nav, Tab.Adult.route) },
                     )
                         }
                 composable(
@@ -2372,6 +2380,20 @@ private fun TvNetflixTopNav(
     var downFocusAttempt by remember { mutableStateOf(0) }
     var searchActionFocused by remember { mutableStateOf(false) }
     var settingsActionFocused by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+    var activeTabLeftPx by remember { mutableStateOf(0f) }
+    var activeTabWidthPx by remember { mutableStateOf(0f) }
+    var activeTabMeasured by remember { mutableStateOf(false) }
+    val animatedActiveTabLeft by animateDpAsState(
+        targetValue = with(density) { activeTabLeftPx.toDp() },
+        animationSpec = tween(durationMillis = 320),
+        label = "tvNavSelectedPillPosition",
+    )
+    val animatedActiveTabWidth by animateDpAsState(
+        targetValue = with(density) { activeTabWidthPx.toDp() },
+        animationSpec = tween(durationMillis = 320),
+        label = "tvNavSelectedPillWidth",
+    )
     val clockFormatter = remember {
         java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
     }
@@ -2514,12 +2536,19 @@ private fun TvNetflixTopNav(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (showBranding) {
-                    Text(
-                        "StreamCloud",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Image(
+                            painter = painterResource(com.streamcloud.app.R.drawable.ic_launcher_foreground_vector),
+                            contentDescription = null,
+                            modifier = Modifier.size(32.dp),
+                        )
+                        Text(
+                            "StreamCloud",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White,
+                        )
+                    }
                 }
                 if (showMiniPlayer) {
                     miniPlayer?.invoke()
@@ -2528,40 +2557,74 @@ private fun TvNetflixTopNav(
 
             // Main destinations stay centred; Search and Settings sit with the
             // local clock at the right edge, matching the TV home layout.
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            Box(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .padding(horizontal = 208.dp),
+                    .padding(horizontal = 48.dp),
             ) {
-                tabs.filterNot { it.route == Tab.Settings.route }.forEach { tab ->
-                    val selected = currentRoute == tab.route
-                    var itemFocused by remember { mutableStateOf(false) }
+                if (activeTabMeasured) {
                     Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
+                        Modifier
+                            .offset(x = animatedActiveTabLeft)
+                            .width(animatedActiveTabWidth)
+                            .height(40.dp)
                             .clip(RoundedCornerShape(50))
                             .background(
-                                when {
-                                    selected -> Color.White.copy(alpha = 0.20f)
-                                    itemFocused -> Color.White.copy(alpha = 0.12f)
-                                    else -> Color.Transparent
-                                }
+                                Brush.horizontalGradient(
+                                    listOf(Color(0xFF6247FF), Color(0xFF9B33F5)),
+                                ),
+                            ),
+                    )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    tabs.filterNot { it.route == Tab.Settings.route }.forEach { tab ->
+                        val selected = currentRoute == tab.route
+                        var itemFocused by remember { mutableStateOf(false) }
+                        val label = if (tab.route == Tab.Movies.route) "Home" else tab.label
+                        val icon = if (tab.route == Tab.Movies.route) {
+                            MaterialIcons.Filled.Home
+                        } else {
+                            tab.icon
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                            modifier = Modifier
+                                .tvFocusBorder(RoundedCornerShape(50), showOutline = false)
+                                .onFocusChanged { itemFocused = it.isFocused }
+                                .clickable { onTabSelected(tab.route) }
+                                .padding(horizontal = 14.dp, vertical = 9.dp)
+                                .onGloballyPositioned { coordinates ->
+                                    if (selected) {
+                                        activeTabLeftPx = coordinates.positionInParent().x
+                                        activeTabWidthPx = coordinates.size.width.toFloat()
+                                        activeTabMeasured = true
+                                    }
+                                },
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = if (selected || itemFocused) {
+                                    Color.White
+                                } else {
+                                    Color.White.copy(alpha = 0.76f)
+                                },
+                                modifier = Modifier.size(18.dp),
                             )
-                            .tvFocusBorder(RoundedCornerShape(50), showOutline = false)
-                            .onFocusChanged { itemFocused = it.isFocused }
-                            .clickable { onTabSelected(tab.route) }
-                            .padding(horizontal = 20.dp, vertical = 8.dp),
-                    ) {
-                        Text(
-                            tab.label,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            color = when {
-                                selected || itemFocused -> Color.White
-                                else -> Color.White.copy(alpha = 0.60f)
-                            },
-                        )
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (selected || itemFocused) {
+                                    Color.White
+                                } else {
+                                    Color.White.copy(alpha = 0.76f)
+                                },
+                            )
+                        }
                     }
                 }
             }
