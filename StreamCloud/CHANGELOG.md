@@ -1,3 +1,9 @@
+## Hotfix — Changes since V2360
+
+### Android TV
+- **Fixed remote navigation between the top bar and Movies** — focus now hands back to the first Movies item reliably, including while content is still becoming ready.
+- **Fixed the 18+ genre being cut off** — the TV genre row now sizes itself to include all six tiles when Adult is enabled.
+
 ## Latest — Changes since V2357
 
 ### Movies home and personalization
