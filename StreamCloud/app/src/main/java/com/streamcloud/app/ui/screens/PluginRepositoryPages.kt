@@ -291,7 +291,7 @@ internal fun CloudStreamRepositoryPage(
             }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    filters.forEach { filter ->
+                    items(filters) { filter ->
                         FilterChip(
                             selected = selectedFilter == filter,
                             onClick = { selectedFilter = filter },
@@ -417,7 +417,7 @@ internal fun NuvioRepositoryPage(
             }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    filters.forEach { filter ->
+                    items(filters) { filter ->
                         FilterChip(
                             selected = selectedFilter == filter,
                             onClick = { selectedFilter = filter },

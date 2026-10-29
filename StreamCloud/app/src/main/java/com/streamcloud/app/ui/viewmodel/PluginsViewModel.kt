@@ -45,6 +45,18 @@ data class ProviderTestResult(
     val durationMs: Long = 0L,
 )
 
+private data class PluginSourcesSnapshot(
+    val repos: List<CloudStreamRepo>,
+    val installed: List<InstalledPlugin>,
+    val stremioAddons: List<InstalledStremioAddon>,
+    val stremioSavedRepos: List<StremioSavedRepo>,
+)
+
+private data class NuvioSourcesSnapshot(
+    val providers: List<InstalledNuvioProvider>,
+    val savedRepos: List<NuvioSavedRepo>,
+)
+
 data class PluginsState(
     val repos: List<CloudStreamRepo> = emptyList(),
     val installed: List<InstalledPlugin> = emptyList(),
@@ -81,19 +93,26 @@ class PluginsViewModel(
 
     init {
         viewModelScope.launch {
-            combine(repo.repos, repo.installed, stremio.addons, stremio.savedRepos, nuvio.installed, nuvio.savedRepos) { r, i, s, ssr, n, nr ->
-                arrayOf(r, i, s, ssr, n, nr)
-            }.collect { arr ->
-                @Suppress("UNCHECKED_CAST")
-                _state.update { it.copy(
-                    repos = arr[0] as List<CloudStreamRepo>,
-                    installed = arr[1] as List<InstalledPlugin>,
-                    stremioAddons = arr[2] as List<InstalledStremioAddon>,
-                    stremioSavedRepos = arr[3] as List<StremioSavedRepo>,
-                    nuvioProviders = arr[4] as List<InstalledNuvioProvider>,
-                    nuvioSavedRepos = arr[5] as List<NuvioSavedRepo>,
-                ) }
-            }
+            combine(
+                combine(repo.repos, repo.installed, stremio.addons, stremio.savedRepos) {
+                    repos, installed, addons, savedRepos ->
+                    PluginSourcesSnapshot(repos, installed, addons, savedRepos)
+                },
+                combine(nuvio.installed, nuvio.savedRepos) { providers, savedRepos ->
+                    NuvioSourcesSnapshot(providers, savedRepos)
+                },
+            ) { pluginSources, nuvioSources ->
+                _state.update {
+                    it.copy(
+                        repos = pluginSources.repos,
+                        installed = pluginSources.installed,
+                        stremioAddons = pluginSources.stremioAddons,
+                        stremioSavedRepos = pluginSources.stremioSavedRepos,
+                        nuvioProviders = nuvioSources.providers,
+                        nuvioSavedRepos = nuvioSources.savedRepos,
+                    )
+                }
+            }.collect { }
         }
     }
 
