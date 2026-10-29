@@ -1,3 +1,14 @@
+## Latest — Changes since V2357
+
+### Movies home and personalization
+- **Choose the home card layout** — select Portrait, Landscape, or Expanding in Settings → Home Layout; the choice applies to TMDB, Stremio, and CloudStream home rows.
+- **Genre cards use TMDB artwork** — Action, Comedy, Drama, Horror, and Sci-Fi use matching artwork, cached locally and refreshed after the initial screen appears.
+- **18+ shortcut follows Adult settings** — the Movies home shows an adult-sources entry only when Adult is enabled.
+
+### Android TV navigation
+- **Down from the navigation returns to Movies** — focus retries until the first Movies content target is ready.
+- **Selected navigation pill fits its item** — the animated highlight now matches the selected icon-and-label bounds.
+
 ## Latest — Changes since V2354
 
 ### Android TV Movies home
