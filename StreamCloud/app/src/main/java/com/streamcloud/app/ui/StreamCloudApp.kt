@@ -117,7 +117,11 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -183,6 +187,13 @@ private sealed class Tab(
     data object Settings : Tab("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
+private data class AppStartupPreferences(
+    val navOrderCsv: String?,
+    val nsfwEnabled: Boolean,
+    val hiddenTabsCsv: String?,
+    val nuvioUserId: String,
+)
+
 @OptIn(UnstableApi::class)
 @Composable
 fun StreamCloudApp(
@@ -241,10 +252,43 @@ fun StreamCloudApp(
     val nuvioUserId by sl.settings.nuvioUserId.collectAsState(initial = "")
     var libraryScopeReady by remember { mutableStateOf(false) }
     var hasStartedOnce by remember { mutableStateOf(false) }
+    var resolvedStartRoute by remember { mutableStateOf<String?>(null) }
+    var startupContentReady by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        val storedUserId = sl.settings.nuvioUserId.first().trim()
-        com.streamcloud.app.data.nuvio.NuvioAccountScopeStore
-            .setCurrentUserId(context.applicationContext, storedUserId)
+        val startup = combine(
+            sl.settings.navTabOrderCsv,
+            sl.settings.nsfwEnabled,
+            sl.settings.navHiddenTabsCsv,
+            sl.settings.nuvioUserId,
+        ) { orderCsv, adultEnabled, hiddenCsv, userId ->
+            AppStartupPreferences(orderCsv, adultEnabled, hiddenCsv, userId)
+        }.first()
+
+        withContext(Dispatchers.IO) {
+            com.streamcloud.app.data.nuvio.NuvioAccountScopeStore
+                .setCurrentUserId(context.applicationContext, startup.nuvioUserId.trim())
+        }
+
+        val hiddenRoutes = startup.hiddenTabsCsv
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?.toSet()
+            ?: setOf(Tab.LocalFiles.route, Tab.LiveTv.route)
+        val validRoutes = buildSet<String> {
+            add(Tab.Movies.route)
+            add(Tab.Music.route)
+            add(Tab.Library.route)
+            if (Tab.LocalFiles.route !in hiddenRoutes) add(Tab.LocalFiles.route)
+            if (Tab.LiveTv.route !in hiddenRoutes) add(Tab.LiveTv.route)
+            if (startup.nsfwEnabled && Tab.Adult.route !in hiddenRoutes) add(Tab.Adult.route)
+        }
+        resolvedStartRoute = startup.navOrderCsv
+            ?.takeIf { it.isNotBlank() }
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.firstOrNull { it in validRoutes }
+            ?: Tab.Movies.route
         libraryScopeReady = true
     }
     val miniNowPlayingId by com.streamcloud.app.audio.PlaybackBus.nowPlayingMediaId.collectAsState(initial = null)
@@ -261,7 +305,11 @@ fun StreamCloudApp(
 
         runCatching { com.streamcloud.app.ui.theme.AlbumArtThemeBus.attach(context) }
     }
-    LaunchedEffect(activeProfile?.id) {
+    LaunchedEffect(activeProfile?.id, startupContentReady) {
+        if (!startupContentReady) return@LaunchedEffect
+        // Let the first screen start rendering before cloud-library work competes
+        // for network and CPU during a cold launch.
+        delay(2_000L)
         val appContext = context.applicationContext
         val result = com.streamcloud.app.data.nuvio.NuvioAutoSync.syncNow(appContext)
         result.exceptionOrNull()?.let { failure ->
@@ -321,42 +369,9 @@ fun StreamCloudApp(
         middle + Tab.Settings
     }
 
-    // Resolve the correct start destination ONCE — before the NavHost is created.
-    // We read the saved order directly from DataStore (one fast suspend call) so the
-    // NavHost is created with the right startDestination from the very first frame it
-    // appears, rather than always opening on Movies.
-    var resolvedStartRoute by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) {
-        val csv  = sl.settings.navTabOrderCsv.first()
-        val nsfw = sl.settings.nsfwEnabled.first()
-        val hidden = sl.settings.navHiddenTabsCsv.first()
-            ?.split(",")
-            ?.map { it.trim() }
-            ?.filter { it.isNotBlank() }
-            ?.toSet()
-            ?: setOf(Tab.LocalFiles.route, Tab.LiveTv.route)
-
-        val validRoutes = buildSet<String> {
-            add(Tab.Movies.route)
-            add(Tab.Music.route)
-            add(Tab.Library.route)
-            if (Tab.LocalFiles.route !in hidden) add(Tab.LocalFiles.route)
-            if (Tab.LiveTv.route !in hidden) add(Tab.LiveTv.route)
-            if (nsfw && Tab.Adult.route !in hidden) add(Tab.Adult.route)
-        }
-
-        resolvedStartRoute = if (!csv.isNullOrBlank()) {
-            csv.split(",")
-                .map { it.trim() }
-                .firstOrNull { it in validRoutes }
-                ?: Tab.Movies.route
-        } else {
-            Tab.Movies.route
-        }
-    }
-
     LaunchedEffect(resolvedStartRoute, libraryScopeReady) {
         if (resolvedStartRoute != null && libraryScopeReady) {
+            startupContentReady = true
             onStartupContentReady()
         }
     }
