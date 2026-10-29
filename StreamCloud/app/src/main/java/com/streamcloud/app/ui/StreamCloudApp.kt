@@ -2412,6 +2412,8 @@ private fun TvNetflixTopNav(
     var activeTabLeftPx by remember { mutableStateOf(0f) }
     var activeTabWidthPx by remember { mutableStateOf(0f) }
     var activeTabMeasured by remember { mutableStateOf(false) }
+    val navTabShape = CircleShape
+    val remoteTabFocusColor = Color(0xFF62D8FF)
     val animatedActiveTabLeft by animateDpAsState(
         targetValue = with(density) { activeTabLeftPx.toDp() },
         animationSpec = tween(durationMillis = 320),
@@ -2644,7 +2646,7 @@ private fun TvNetflixTopNav(
                                 .offset(x = animatedActiveTabLeft)
                                 .width(animatedActiveTabWidth)
                                 .height(34.dp)
-                                .clip(RoundedCornerShape(50))
+                                .clip(navTabShape)
                                 .background(
                                     Brush.horizontalGradient(
                                         listOf(Color(0xFF6247FF), Color(0xFF9B33F5)),
@@ -2667,7 +2669,11 @@ private fun TvNetflixTopNav(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier
-                                    .tvFocusBorder(RoundedCornerShape(50), showOutline = false)
+                                    .tvFocusBorder(
+                                        navTabShape,
+                                        showOutline = false,
+                                        showFocusFill = false,
+                                    )
                                     .onFocusChanged { itemFocused = it.isFocused }
                                     .clickable { onTabSelected(tab.route) }
                                     .padding(horizontal = 10.dp, vertical = 7.dp)
@@ -2677,7 +2683,12 @@ private fun TvNetflixTopNav(
                                             activeTabWidthPx = coordinates.size.width.toFloat()
                                             activeTabMeasured = true
                                         }
-                                    },
+                                    }
+                                    .border(
+                                        width = if (itemFocused) 2.dp else 0.dp,
+                                        color = if (itemFocused) remoteTabFocusColor else Color.Transparent,
+                                        shape = navTabShape,
+                                    ),
                             ) {
                                 Icon(
                                     imageVector = tab.icon,
