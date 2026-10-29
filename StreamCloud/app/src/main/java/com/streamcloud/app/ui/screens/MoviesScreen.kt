@@ -104,14 +104,6 @@ private data class PosterSheetItem(
     val mediaType: String,
 )
 
-private data class TvHomeShortcut(
-    val title: String,
-    val icon: ImageVector,
-    val imageUrl: String?,
-    val tint: Color,
-    val onClick: () -> Unit,
-)
-
 private data class TvGenreShortcut(
     val id: String,
     val title: String,
@@ -222,8 +214,6 @@ fun MoviesScreen(
         { _, _, _ -> },
     onOpenCollectionFolder: (Long) -> Unit = {},
     onOpenCollectionTabbed: (Long) -> Unit = {},
-    showAdultShortcut: Boolean = false,
-    onAdultShortcutClick: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val sl = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
@@ -434,89 +424,6 @@ fun MoviesScreen(
             state.collections
         }
     }
-    val tvSeriesArtwork = state.stremioRows
-        .firstOrNull { it.type.equals("series", ignoreCase = true) }
-        ?.items
-        ?.firstOrNull()
-        ?.background
-        ?: state.trending.firstOrNull { it.name != null }?.backdropUrl
-    val animeArtwork = state.collections
-        .firstOrNull { it.id == "anime" }
-        ?.items
-        ?.firstOrNull()
-        ?.backdropUrl
-    val tvHomeShortcuts = if (isTv) {
-        buildList {
-            add(
-                TvHomeShortcut(
-                    title = "Movies",
-                    icon = Icons.Default.Movie,
-                    imageUrl = state.popular.firstOrNull()?.backdropUrl,
-                    tint = Color(0xFFE63946),
-                    onClick = {
-                        onOpenCatalog("tmdb:popular", "Popular Movies", "All-time fan favourites")
-                    },
-                ),
-            )
-            add(
-                TvHomeShortcut(
-                    title = "TV Shows",
-                    icon = Icons.Default.Tv,
-                    imageUrl = tvSeriesArtwork,
-                    tint = Color(0xFF277DA1),
-                    onClick = {
-                        onOpenCatalog("tmdb:tv_popular", "Popular TV Shows", "Popular series")
-                    },
-                ),
-            )
-            add(
-                TvHomeShortcut(
-                    title = "Anime",
-                    icon = Icons.Default.AutoAwesome,
-                    imageUrl = animeArtwork ?: state.popular.firstOrNull()?.backdropUrl,
-                    tint = Color(0xFF9B4DCA),
-                    onClick = {
-                        onOpenCatalog("tmdb:anime", "Anime Movies", "Anime feature films")
-                    },
-                ),
-            )
-            if (showAdultShortcut) {
-                add(
-                    TvHomeShortcut(
-                        title = "Adult",
-                        icon = Icons.Default.Whatshot,
-                        imageUrl = null,
-                        tint = Color(0xFF9B1B62),
-                        onClick = onAdultShortcutClick,
-                    ),
-                )
-            }
-            add(
-                TvHomeShortcut(
-                    title = "Trending",
-                    icon = Icons.Default.TrendingUp,
-                    imageUrl = state.trending.firstOrNull()?.backdropUrl,
-                    tint = Color(0xFF3155A5),
-                    onClick = {
-                        onOpenCatalog("tmdb:trending", "Trending This Week", "What everyone's watching right now")
-                    },
-                ),
-            )
-            add(
-                TvHomeShortcut(
-                    title = "New Releases",
-                    icon = Icons.Default.PlayCircle,
-                    imageUrl = state.nowPlaying.firstOrNull()?.backdropUrl,
-                    tint = Color(0xFFB65A24),
-                    onClick = {
-                        onOpenCatalog("tmdb:now_playing", "In Theatres", "Now playing in cinemas")
-                    },
-                ),
-            )
-        }
-    } else {
-        emptyList()
-    }
     val tvGenreArtworkPool = remember(
         state.collections,
         state.trending,
@@ -576,12 +483,12 @@ fun MoviesScreen(
         val genreCardWidth = ((screenWidth - 48.dp - 40.dp) / 5f).coerceIn(140.dp, 220.dp)
         val continueRowHeight = 30.dp + continueCardWidth * 0.54f + 8.dp
         val genreRowHeight = 30.dp + genreCardWidth * 9f / 16f + 8.dp
-        val shortcutRowHeight = 86.dp
+        val followingShelfHeight = 120.dp
         (
             if (visibleContinueWatching.isNotEmpty()) {
                 continueRowHeight + genreRowHeight
             } else {
-                genreRowHeight + shortcutRowHeight
+                genreRowHeight + followingShelfHeight
             }
         ).coerceIn(220.dp, 380.dp)
     }
@@ -933,11 +840,6 @@ fun MoviesScreen(
 
                             },
                         )
-                    }
-                }
-                if (isTv && tvHomeShortcuts.isNotEmpty()) {
-                    item(key = "tv_home_shortcuts") {
-                        TvHomeShortcutRow(shortcuts = tvHomeShortcuts)
                     }
                 }
                 state.pinnedCollections.forEach { pinnedRow ->
@@ -1532,90 +1434,6 @@ private fun MoviesHeader(
             }
         }
 
-    }
-}
-
-@Composable
-private fun TvHomeShortcutRow(shortcuts: List<TvHomeShortcut>) {
-    if (shortcuts.isEmpty()) return
-    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-    val horizontalPadding = 24.dp
-    val spacing = 10.dp
-    val cardWidth = (
-        screenWidth -
-            horizontalPadding * 2 -
-            spacing * (shortcuts.size - 1)
-        ) / shortcuts.size
-    LazyRow(
-        modifier = Modifier.tvFocusGroup(),
-        contentPadding = PaddingValues(horizontal = horizontalPadding, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(spacing),
-    ) {
-        items(shortcuts, key = { it.title }) { shortcut ->
-            val shape = RoundedCornerShape(12.dp)
-            val resolvedCardWidth = cardWidth.coerceIn(96.dp, 190.dp)
-            val compact = resolvedCardWidth < 124.dp
-            Box(
-                modifier = Modifier
-                    .width(resolvedCardWidth)
-                    .height(78.dp)
-                    .clip(shape)
-                    .background(
-                        Brush.linearGradient(
-                            listOf(shortcut.tint, shortcut.tint.copy(alpha = 0.55f), Color(0xFF15151B)),
-                        ),
-                    )
-                    .tvFocusBorder(shape)
-                    .clickable(onClick = shortcut.onClick),
-            ) {
-                if (!shortcut.imageUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = tvHighResolutionTmdbArtworkUrl(shortcut.imageUrl),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        shortcut.tint.copy(alpha = 0.82f),
-                                        Color.Black.copy(alpha = 0.28f),
-                                        Color.Black.copy(alpha = 0.58f),
-                                    ),
-                                ),
-                            ),
-                    )
-                }
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .padding(horizontal = if (compact) 8.dp else 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Icon(
-                        imageVector = shortcut.icon,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(if (compact) 17.dp else 20.dp),
-                    )
-                    Text(
-                        text = shortcut.title,
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleSmall.copy(
-                            fontSize = if (compact) 12.sp else 15.sp,
-                        ),
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
     }
 }
 

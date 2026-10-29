@@ -788,8 +788,6 @@ fun StreamCloudApp(
                         onOpenCollectionTabbed = { collectionId ->
                             nav.navigate("collection-tabbed/$collectionId")
                         },
-                        showAdultShortcut = nsfwEnabled,
-                        onAdultShortcutClick = { navigateToTab(nav, Tab.Adult.route) },
                     )
                         }
                 composable(
