@@ -95,6 +95,18 @@ object HomeCollections {
         ) { api, key, page -> api.discover(key, withGenres = "28", page = page).results },
 
         HomeCollection(
+            id = "comedy", title = "Comedy",
+            subtitle = "Movies that make you laugh",
+            emoji = "", defaultEnabled = false,
+        ) { api, key, page -> api.discover(key, withGenres = "35", page = page).results },
+
+        HomeCollection(
+            id = "drama", title = "Drama",
+            subtitle = "Stories and performances worth watching",
+            emoji = "", defaultEnabled = false,
+        ) { api, key, page -> api.discover(key, withGenres = "18", page = page).results },
+
+        HomeCollection(
             id = "horror", title = "Horror",
             subtitle = "Things that go bump in the night",
             emoji = "", defaultEnabled = false,

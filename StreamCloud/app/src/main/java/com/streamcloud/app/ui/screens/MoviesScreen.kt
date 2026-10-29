@@ -12,7 +12,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
@@ -106,6 +105,15 @@ private data class PosterSheetItem(
 )
 
 private data class TvHomeShortcut(
+    val title: String,
+    val icon: ImageVector,
+    val imageUrl: String?,
+    val tint: Color,
+    val onClick: () -> Unit,
+)
+
+private data class TvGenreShortcut(
+    val id: String,
     val title: String,
     val icon: ImageVector,
     val imageUrl: String?,
@@ -390,46 +398,8 @@ fun MoviesScreen(
     }
     val moviesListState = rememberLazyListState()
         val topBarVisibilityChanged by rememberUpdatedState(onTvTopBarVisibilityChanged)
-        val topBarScrollThresholdPx = with(LocalDensity.current) { 16.dp.roundToPx() }
-        LaunchedEffect(isTv, moviesListState, topBarScrollThresholdPx) {
-            if (!isTv) return@LaunchedEffect
-            var previousPosition: Pair<Int, Int>? = null
-            var accumulatedOffsetPx = 0
-            topBarVisibilityChanged(true)
-
-            androidx.compose.runtime.snapshotFlow {
-                moviesListState.firstVisibleItemIndex to
-                    moviesListState.firstVisibleItemScrollOffset
-            }.collect { position ->
-                val previous = previousPosition
-                previousPosition = position
-                if (previous == null) return@collect
-
-                when {
-                    position.first == 0 && position.second == 0 -> {
-                        accumulatedOffsetPx = 0
-                        topBarVisibilityChanged(true)
-                    }
-                    position.first > previous.first -> {
-                        accumulatedOffsetPx = 0
-                        topBarVisibilityChanged(false)
-                    }
-                    position.first < previous.first -> {
-                        accumulatedOffsetPx = 0
-                        topBarVisibilityChanged(true)
-                    }
-                    else -> {
-                        accumulatedOffsetPx += position.second - previous.second
-                        if (accumulatedOffsetPx >= topBarScrollThresholdPx) {
-                            accumulatedOffsetPx = 0
-                            topBarVisibilityChanged(false)
-                        } else if (accumulatedOffsetPx <= -topBarScrollThresholdPx) {
-                            accumulatedOffsetPx = 0
-                            topBarVisibilityChanged(true)
-                        }
-                    }
-                }
-            }
+        LaunchedEffect(isTv) {
+            if (isTv) topBarVisibilityChanged(true)
         }
         var tvNavHeroHasFocus by remember { mutableStateOf(false) }
         // When the TV nav bar regains focus, scroll back to the top so the hero is fully visible.
@@ -444,7 +414,7 @@ fun MoviesScreen(
     LaunchedEffect(isTv, tvNavDownFocusHandoffVersion) {
         if (!isTv || tvNavDownFocusHandoffVersion <= 0) return@LaunchedEffect
         moviesListState.scrollToItem(0)
-        if (!state.showHeroSection || state.heroBanner.isEmpty()) return@LaunchedEffect
+        if (query.isNotBlank()) return@LaunchedEffect
         repeat(16) {
             if (tvNavHeroHasFocus) return@LaunchedEffect
             kotlinx.coroutines.delay(100L)
@@ -547,6 +517,74 @@ fun MoviesScreen(
     } else {
         emptyList()
     }
+    val tvGenreArtworkPool = remember(
+        state.collections,
+        state.trending,
+        state.popular,
+        state.topRated,
+        state.nowPlaying,
+    ) {
+        (
+            state.collections.flatMap { it.items } +
+                state.trending +
+                state.popular +
+                state.topRated +
+                state.nowPlaying
+            )
+            .distinctBy { it.id }
+            .filter { !it.backdropUrl.isNullOrBlank() }
+    }
+    val tvGenres = if (isTv) {
+        listOf(
+            Triple("Action", "action", Icons.Default.Whatshot) to Color(0xFFEA8C2B),
+            Triple("Comedy", "comedy", Icons.Default.Star) to Color(0xFF5BA5E8),
+            Triple("Drama", "drama", Icons.Default.Theaters) to Color(0xFF5C86D6),
+            Triple("Horror", "horror", Icons.Default.Warning) to Color(0xFF596C9B),
+            Triple("Sci-Fi", "scifi", Icons.Default.AutoAwesome) to Color(0xFF7158D6),
+        ).mapIndexed { index, (definition, tint) ->
+            val (title, collectionId, icon) = definition
+            val categoryArtwork = state.collections
+                .firstOrNull { it.id == collectionId }
+                ?.items
+                ?.firstOrNull { !it.backdropUrl.isNullOrBlank() }
+                ?.backdropUrl
+            val artwork = categoryArtwork
+                ?: tvGenreArtworkPool.getOrNull(index)?.backdropUrl
+                ?: tvGenreArtworkPool.firstOrNull()?.backdropUrl
+            TvGenreShortcut(
+                id = collectionId,
+                title = title,
+                icon = icon,
+                imageUrl = artwork,
+                tint = tint,
+                onClick = {
+                    val collection = HomeCollections.byId(collectionId)
+                    onOpenCatalog(
+                        "tmdb:$collectionId",
+                        collection?.title ?: title,
+                        collection?.subtitle.orEmpty(),
+                    )
+                },
+            )
+        }
+    } else {
+        emptyList()
+    }
+    val tvHomeRowsViewportHeight = run {
+        val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+        val continueCardWidth = (screenWidth * 0.21f).coerceIn(176.dp, 272.dp)
+        val genreCardWidth = ((screenWidth - 48.dp - 40.dp) / 5f).coerceIn(140.dp, 220.dp)
+        val continueRowHeight = 30.dp + continueCardWidth * 0.54f + 8.dp
+        val genreRowHeight = 30.dp + genreCardWidth * 9f / 16f + 8.dp
+        val shortcutRowHeight = 86.dp
+        (
+            if (visibleContinueWatching.isNotEmpty()) {
+                continueRowHeight + genreRowHeight
+            } else {
+                genreRowHeight + shortcutRowHeight
+            }
+        ).coerceIn(220.dp, 380.dp)
+    }
     val hasBrowseContent = state.continueWatching.isNotEmpty() ||
         firstCollectionRowId != null ||
         firstStremioRowKey != null ||
@@ -555,10 +593,12 @@ fun MoviesScreen(
         state.csPluginRows.any { it.items.isNotEmpty() }
     val startupFocusTarget = when {
         state.error != null || !hasBrowseContent -> "recovery"
+        isTv && visibleContinueWatching.isEmpty() -> "genre"
         state.continueWatching.isNotEmpty() -> "continue"
+        isTv -> "genre"
         firstCollectionRowId != null -> "collection"
         firstStremioRowKey != null -> "stremio"
-        !state.loading && state.showHeroSection && state.heroBanner.isNotEmpty() -> "hero"
+        !isTv && !state.loading && state.showHeroSection && state.heroBanner.isNotEmpty() -> "hero"
         else -> null
     }
     var startupFocusRequested by remember { mutableStateOf(false) }
@@ -632,8 +672,27 @@ fun MoviesScreen(
             // letting the parent list scroll independently.
             .tvDpadRepeatThrottle(handleInitialPresses = true),
     ) {
+        if (
+            isTv &&
+            query.isBlank() &&
+            state.showHeroSection &&
+            state.heroBanner.isNotEmpty()
+        ) {
+            TvHeroBackdrop(
+                items = state.heroBanner,
+                onCurrentItemChanged = { activeHeroBanner = it },
+            )
+        }
+        val moviesListModifier = if (isTv && query.isBlank()) {
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(tvHomeRowsViewportHeight)
+        } else {
+            Modifier.fillMaxSize()
+        }
         LazyColumn(
-            Modifier.fillMaxSize(),
+            moviesListModifier,
             state = moviesListState,
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
@@ -659,7 +718,7 @@ fun MoviesScreen(
                     )
                 }
             } else {
-                if (state.heroBanner.isNotEmpty() && state.showHeroSection) {
+                if (!isTv && state.heroBanner.isNotEmpty() && state.showHeroSection) {
                     item(key = "hero_pager") {
                         HeroPager(
                             items = state.heroBanner,
@@ -699,8 +758,7 @@ fun MoviesScreen(
                             } else {
                                 null
                             },
-                            navFocusRequester = tvNavHeroFocus,
-                            onInitialItemFocusChanged = { focused ->
+                                                        onInitialItemFocusChanged = { focused ->
                                  tvNavHeroHasFocus = focused
                                  onFirstMovieFocusedChanged(focused)
                              },
@@ -718,10 +776,10 @@ fun MoviesScreen(
                             },
                         )
                     }
-                } else {
+                } else if (!isTv) {
                     // On TV the transparent top nav bar overlays the content — give enough
                     // clearance so the first row isn't hidden behind it.
-                    item { Spacer(Modifier.statusBarsPadding().height(if (isTv) 90.dp else 56.dp)) }
+                    item { Spacer(Modifier.statusBarsPadding().height(56.dp)) }
                 }
 
                 state.notice?.let {
@@ -768,62 +826,113 @@ fun MoviesScreen(
                     }
                 }
                 if (visibleContinueWatching.isNotEmpty()) {
-                    item(key = "continue_watching_t") { SectionTitle("Continue Watching") }
                     item(key = "continue_watching") {
-                        val continueRowState = rememberLazyListState()
-                        var focusedContinueIndex by remember { mutableIntStateOf(-1) }
-                        KeepTvFocusedItemAtStart(
-                            listState = continueRowState,
-                            focusedIndex = focusedContinueIndex,
-                            isTv = isTv,
-                        )
-                        LazyRow(
-                            state = continueRowState,
-                            modifier = Modifier.tvFocusGroup(),
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            itemsIndexed(
-                                visibleContinueWatching,
-                                key = { _, entry -> "cw_${cwIdentity(entry)}" },
-                            ) { index, entry ->
-                                val backdropCacheKey = "${entry.mediaType}:${entry.tmdbId}"
-                                ContinueWatchingCard(
-                                    entry = entry,
-                                    isTv = isTv,
-                                    tmdbApi = sl.tmdb,
-                                    tmdbApiKey = sl.tmdbApiKey,
-                                    cachedBackdropUrl = continueWatchingBackdropCache[backdropCacheKey],
-                                    onBackdropResolved = { url ->
-                                        continueWatchingBackdropCache[backdropCacheKey] = url
-                                    },
-                                    onFocusChanged = { hasFocus ->
-                                        if (hasFocus) {
-                                            focusedContinueIndex = index
-                                            focusedCwEntry = entry
-        }
-                                        else if (focusedCwEntry?.let { cwIdentity(it) == cwIdentity(entry) } == true) {
-                                            focusedCwEntry = null
-                                        }
-                                    },
-                                    modifier = if (
-                                        index == 0 &&
-                                        startupFocusTarget == "continue" &&
-                                        initialFocusRequester != null
-                                    ) {
-                                        Modifier
-                                            .focusRequester(initialFocusRequester)
-                                            .onFocusChanged {
-                                                onFirstMovieFocusedChanged(it.isFocused || it.hasFocus)
-                                            }
-                                    } else {
-                                        Modifier
-                                    },
-                                    onClick = { openCwEntry(entry) },
-                                    onLongPress = { cwSheetEntry = entry },
-                                )
+                        Column {
+                            if (isTv) {
+                                TvHomeSectionTitle("Continue Watching")
+                            } else {
+                                SectionTitle("Continue Watching")
                             }
+                            val continueRowState = rememberLazyListState()
+                            var focusedContinueIndex by remember { mutableIntStateOf(-1) }
+                            KeepTvFocusedItemAtStart(
+                                listState = continueRowState,
+                                focusedIndex = focusedContinueIndex,
+                                isTv = isTv,
+                            )
+                            LazyRow(
+                                state = continueRowState,
+                                modifier = Modifier.tvFocusGroup(),
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                itemsIndexed(
+                                    visibleContinueWatching,
+                                    key = { _, entry -> "cw_${cwIdentity(entry)}" },
+                                ) { index, entry ->
+                                    val backdropCacheKey = "${entry.mediaType}:${entry.tmdbId}"
+                                    val focusModifier = Modifier
+                                        .then(
+                                            if (
+                                                isTv &&
+                                                index == 0 &&
+                                                startupFocusTarget != "recovery" &&
+                                                tvNavHeroFocus != null
+                                            ) {
+                                                Modifier.focusRequester(tvNavHeroFocus)
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
+                                        .then(
+                                            if (
+                                                index == 0 &&
+                                                startupFocusTarget == "continue" &&
+                                                initialFocusRequester != null
+                                            ) {
+                                                Modifier.focusRequester(initialFocusRequester)
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
+                                    ContinueWatchingCard(
+                                        entry = entry,
+                                        isTv = isTv,
+                                        tmdbApi = sl.tmdb,
+                                        tmdbApiKey = sl.tmdbApiKey,
+                                        cachedBackdropUrl = continueWatchingBackdropCache[backdropCacheKey],
+                                        onBackdropResolved = { url ->
+                                            continueWatchingBackdropCache[backdropCacheKey] = url
+                                        },
+                                        onFocusChanged = { hasFocus ->
+                                            if (isTv && index == 0) {tvNavHeroHasFocus = hasFocus
+
+                                                onFirstMovieFocusedChanged(hasFocus)
+                                            }
+                                            if (hasFocus) {
+                                                focusedContinueIndex = index
+                                                focusedCwEntry = entry
+                                            } else if (
+                                                focusedCwEntry?.let { cwIdentity(it) == cwIdentity(entry) } == true
+                                            ) {
+                                                focusedCwEntry = null
+                                            }
+                                        },
+                                        modifier = focusModifier,
+                                        onClick = { openCwEntry(entry) },
+                                        onLongPress = { cwSheetEntry = entry },
+                                    )
+                                }
+                            }
+                            if (isTv) Spacer(Modifier.height(8.dp))
                         }
+                    }
+                }
+                if (isTv && tvGenres.isNotEmpty()) {
+                    item(key = "tv_home_genres") {
+                        TvGenresRow(
+                            genres = tvGenres,
+                            initialFocusRequester = if (startupFocusTarget == "genre") {
+                                initialFocusRequester
+                            } else {
+                                null
+                            },
+                            navFocusRequester = if (
+                                visibleContinueWatching.isEmpty() &&
+                                startupFocusTarget == "genre"
+                            ) {
+                                tvNavHeroFocus
+                            } else {
+                                null
+                            },
+                            onFirstItemFocusChanged = { focused ->
+
+                                tvNavHeroHasFocus = focused
+
+                                onFirstMovieFocusedChanged(focused)
+
+                            },
+                        )
                     }
                 }
                 if (isTv && tvHomeShortcuts.isNotEmpty()) {
@@ -967,9 +1076,6 @@ fun MoviesScreen(
                                     ) {
                                         Modifier
                                             .focusRequester(initialFocusRequester)
-                                            .onFocusChanged {
-                                                onFirstMovieFocusedChanged(it.isFocused || it.hasFocus)
-                                            }
                                     } else {
                                         Modifier
                                     },
@@ -1062,9 +1168,6 @@ fun MoviesScreen(
                                     ) {
                                         Modifier
                                             .focusRequester(initialFocusRequester)
-                                            .onFocusChanged {
-                                                onFirstMovieFocusedChanged(it.isFocused)
-                                            }
                                     } else {
                                         Modifier
                                     },
@@ -1513,6 +1616,171 @@ private fun TvHomeShortcutRow(shortcuts: List<TvHomeShortcut>) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TvHomeSectionTitle(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
+        color = Color.White,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+    )
+}
+
+@Composable
+private fun TvGenresRow(
+    genres: List<TvGenreShortcut>,
+    initialFocusRequester: FocusRequester? = null,
+    navFocusRequester: FocusRequester? = null,
+    onFirstItemFocusChanged: (Boolean) -> Unit = {},
+) {
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val cardWidth = ((screenWidth - 48.dp - 40.dp) / 5f).coerceIn(140.dp, 220.dp)
+    Column {
+        TvHomeSectionTitle("Genres")
+        LazyRow(
+            modifier = Modifier.tvFocusGroup(),
+            contentPadding = PaddingValues(horizontal = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            itemsIndexed(genres, key = { _, genre -> genre.id }) { index, genre ->
+                val shape = RoundedCornerShape(12.dp)
+                val focusModifier = Modifier
+                    .then(
+                        if (index == 0 && navFocusRequester != null) {
+                            Modifier.focusRequester(navFocusRequester)
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .then(
+                        if (index == 0 && initialFocusRequester != null) {
+                            Modifier.focusRequester(initialFocusRequester)
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .onFocusChanged {
+                        if (index == 0) {
+                            onFirstItemFocusChanged(it.isFocused || it.hasFocus)
+                        }
+                    }
+                Box(
+                    modifier = focusModifier
+                        .width(cardWidth)
+                        .height(cardWidth * 9f / 16f)
+                        .clip(shape)
+                        .background(
+                            Brush.linearGradient(
+                                listOf(genre.tint, genre.tint.copy(alpha = 0.52f), Color(0xFF171823)),
+                            ),
+                        )
+                        .tvFocusBorder(shape)
+                        .clickable(onClick = genre.onClick),
+                ) {
+                    if (!genre.imageUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = tvHighResolutionTmdbArtworkUrl(genre.imageUrl),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.Black.copy(alpha = 0.04f),
+                                        Color.Black.copy(alpha = 0.18f),
+                                        Color.Black.copy(alpha = 0.78f),
+                                    ),
+                                ),
+                            ),
+                    )
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        Icon(
+                            genre.icon,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(19.dp),
+                        )
+                        Text(
+                            genre.title,
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun TvHeroBackdrop(
+    items: List<HeroBannerItem>,
+    onCurrentItemChanged: (HeroBannerItem) -> Unit,
+) {
+    var currentPage by remember(items.size) { mutableIntStateOf(0) }
+    LaunchedEffect(currentPage, items) {
+        items.getOrNull(currentPage)?.let(onCurrentItemChanged)
+    }
+    LaunchedEffect(items.size) {
+        if (items.size <= 1) return@LaunchedEffect
+        while (true) {
+            kotlinx.coroutines.delay(15_000L)
+            currentPage = (currentPage + 1) % items.size
+        }
+    }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0xFF07080D)),
+    ) {
+        Crossfade(
+            targetState = currentPage,
+            modifier = Modifier.fillMaxSize(),
+            label = "tvPinnedHeroBackdrop",
+        ) { page ->
+            val item = items.getOrNull(page) ?: return@Crossfade
+            AsyncImage(
+                model = tvHighResolutionTmdbArtworkUrl(item.imageUrl),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Black.copy(alpha = 0.28f),
+                            0.16f to Color.Transparent,
+                            0.62f to Color.Transparent,
+                            0.82f to Color.Black.copy(alpha = 0.18f),
+                            1f to Color(0xFF07080D).copy(alpha = 0.78f),
+                        ),
+                    ),
+                ),
+        )
     }
 }
 
