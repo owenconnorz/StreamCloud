@@ -1,3 +1,8 @@
+## Latest — Changes since V2347
+
+### Android TV
+- **Refined the TV Movies home to match the supplied reference** — updated the wide-screen navigation and dark background while keeping the live movie content and TV focus behavior.
+
 ## Latest — Changes since V2324
 
 ### Music and Android Auto
