@@ -608,7 +608,9 @@ fun MoviesScreen(
     Box(
         Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(
+                if (isTv) Color(0xFF07080D) else MaterialTheme.colorScheme.background,
+            )
             .onPreviewKeyEvent { event ->
                 if (isTv && event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN) {
                     lastTvInteractionAt = SystemClock.elapsedRealtime()
