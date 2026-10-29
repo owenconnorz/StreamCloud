@@ -8,18 +8,32 @@ import android.view.KeyEvent
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import com.streamcloud.app.data.sonos.SonosRepository
 import com.streamcloud.app.ui.StreamCloudApp
+import com.streamcloud.app.ui.StartupSplashScreen
 import com.streamcloud.app.ui.theme.StreamCloudTheme
 import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.detectFormFactor
 import java.io.File
+import kotlinx.coroutines.delay
 
 class MainActivity : AppCompatActivity() {
 
@@ -55,7 +69,33 @@ class MainActivity : AppCompatActivity() {
         }
         setContent {
             StreamCloudTheme {
-                StreamCloudApp()
+                var appReady by remember { mutableStateOf(false) }
+                var splashVisible by remember { mutableStateOf(true) }
+
+                LaunchedEffect(appReady) {
+                    if (appReady) {
+                        delay(650)
+                        splashVisible = false
+                    }
+                }
+                LaunchedEffect(Unit) {
+                    delay(12_000)
+                    splashVisible = false
+                }
+
+                Box(Modifier.fillMaxSize()) {
+                    StreamCloudApp(
+                        onStartupContentReady = { appReady = true },
+                    )
+                    AnimatedVisibility(
+                        visible = splashVisible,
+                        modifier = Modifier.fillMaxSize(),
+                        enter = fadeIn(tween(durationMillis = 120)),
+                        exit = fadeOut(tween(durationMillis = 320)),
+                    ) {
+                        StartupSplashScreen()
+                    }
+                }
             }
         }
     }

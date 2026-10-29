@@ -5,4 +5,9 @@
             <solid android:color="@color/splash_background" />
         </shape>
     </item>
+    <item
+        android:drawable="@drawable/ic_launcher_foreground_vector"
+        android:width="108dp"
+        android:height="108dp"
+        android:gravity="center" />
 </layer-list>

@@ -179,7 +179,9 @@ private sealed class Tab(
 
 @OptIn(UnstableApi::class)
 @Composable
-fun StreamCloudApp() {
+fun StreamCloudApp(
+    onStartupContentReady: () -> Unit = {},
+) {
     val nav = rememberNavController()
     val playerSurfaceState = com.streamcloud.app.ui.player.rememberPlayerSurfaceState()
     val backStack by nav.currentBackStackEntryAsState()
@@ -344,6 +346,12 @@ fun StreamCloudApp() {
                 ?: Tab.Movies.route
         } else {
             Tab.Movies.route
+        }
+    }
+
+    LaunchedEffect(resolvedStartRoute, libraryScopeReady) {
+        if (resolvedStartRoute != null && libraryScopeReady) {
+            onStartupContentReady()
         }
     }
 
