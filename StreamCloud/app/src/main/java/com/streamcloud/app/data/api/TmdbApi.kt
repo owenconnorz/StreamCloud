@@ -137,6 +137,7 @@ data class TmdbMovie(
     @SerialName("vote_count") val voteCount: Int = 0,
     @SerialName("release_date") val releaseDate: String? = null,
     @SerialName("first_air_date") val firstAirDate: String? = null,
+    @SerialName("genre_ids") val genreIds: List<Int> = emptyList(),
     @SerialName("last_air_date") val lastAirDate: String? = null,
     val overview: String? = null,
     val tagline: String? = null,

@@ -737,6 +737,8 @@ fun StreamCloudApp(
                             hideTvTopNav = !visible
                         },
                         onFirstMovieFocusedChanged = { firstMovieFocused = it },
+                        adultContentEnabled = nsfwEnabled,
+                        onOpenAdultContent = { navigateToTab(nav, Tab.Adult.route) },
                         onMovieClick = { id -> nav.navigate("movie/$id") },
                         onTvClick = { id -> nav.navigate("tv/$id") },
                         onOpenCloudStreamPlugin = { internalName ->
@@ -2408,7 +2410,9 @@ private fun TvNetflixTopNav(
     var profileActionFocused by remember { mutableStateOf(false) }
     val density = LocalDensity.current
     var activeTabLeftPx by remember { mutableStateOf(0f) }
+    var activeTabTopPx by remember { mutableStateOf(0f) }
     var activeTabWidthPx by remember { mutableStateOf(0f) }
+    var activeTabHeightPx by remember { mutableStateOf(0f) }
     var activeTabMeasured by remember { mutableStateOf(false) }
     val navTabShape = CircleShape
     val remoteTabFocusColor = Color(0xFF62D8FF)
@@ -2421,6 +2425,16 @@ private fun TvNetflixTopNav(
         targetValue = with(density) { activeTabWidthPx.toDp() },
         animationSpec = tween(durationMillis = 320),
         label = "tvNavSelectedPillWidth",
+    )
+    val animatedActiveTabTop by animateDpAsState(
+        targetValue = with(density) { activeTabTopPx.toDp() },
+        animationSpec = tween(durationMillis = 320),
+        label = "tvNavSelectedPillTop",
+    )
+    val animatedActiveTabHeight by animateDpAsState(
+        targetValue = with(density) { activeTabHeightPx.toDp() },
+        animationSpec = tween(durationMillis = 320),
+        label = "tvNavSelectedPillHeight",
     )
     val clockFormatter = remember {
         java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
@@ -2450,7 +2464,7 @@ private fun TvNetflixTopNav(
         }
 
         repeat(16) {
-            kotlinx.coroutines.delay(100L)
+            kotlinx.coroutines.delay(160L)
             if (!pendingDownFocusHandoff) return@LaunchedEffect
 
             // The destination requester is exact. Try it before spatial search,
@@ -2524,9 +2538,10 @@ private fun TvNetflixTopNav(
                             downFocusAttempt++
                             onDownFocusHandoffRequested()
                         }
-                        // Let Compose apply the nav item's explicit Down target;
-                        // the retry loop remains a fallback while content composes.
-                        false
+                        // The target can be lazily composed while Movies scrolls
+                        // to its top. Consume this key and let the exact requester
+                        // retry instead of stranding focus in spatial search.
+                        true
                     }
                     // Nothing focusable above the nav bar — consume Up.
                     Key.DirectionUp -> true
@@ -2642,8 +2657,9 @@ private fun TvNetflixTopNav(
                         Box(
                             Modifier
                                 .offset(x = animatedActiveTabLeft)
+                                .offset(y = animatedActiveTabTop)
                                 .width(animatedActiveTabWidth)
-                                .height(34.dp)
+                                .height(animatedActiveTabHeight)
                                 .clip(navTabShape)
                                 .background(
                                     Brush.horizontalGradient(
@@ -2678,7 +2694,9 @@ private fun TvNetflixTopNav(
                                     .onGloballyPositioned { coordinates ->
                                         if (selected) {
                                             activeTabLeftPx = coordinates.positionInParent().x
+                                            activeTabTopPx = coordinates.positionInParent().y
                                             activeTabWidthPx = coordinates.size.width.toFloat()
+                                            activeTabHeightPx = coordinates.size.height.toFloat()
                                             activeTabMeasured = true
                                         }
                                     }

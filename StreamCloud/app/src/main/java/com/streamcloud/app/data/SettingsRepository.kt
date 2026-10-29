@@ -179,6 +179,7 @@ object SettingsKeys {
     val HOME_SHOW_HERO       = booleanPreferencesKey("home_show_hero")
     val HOME_HIDE_UNRELEASED = booleanPreferencesKey("home_hide_unreleased")
     val HOME_HIDE_UNDERLINE  = booleanPreferencesKey("home_hide_underline")
+    val HOME_CARD_STYLE      = stringPreferencesKey("home_card_style")
 
     val SMART_TRIMMER          = booleanPreferencesKey("smart_trimmer")
     val VIDEO_CACHE_MAX_MB     = stringPreferencesKey("video_cache_max_mb")
@@ -377,6 +378,11 @@ class SettingsRepository(private val context: Context) {
     val showHeroSection:       Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HOME_SHOW_HERO]       ?: true  }
     val hideUnreleasedContent: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HOME_HIDE_UNRELEASED] ?: false }
     val hideCatalogUnderline:  Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.HOME_HIDE_UNDERLINE]  ?: false }
+    val homeCardStyle: Flow<String> = context.dataStore.data.map {
+        it[SettingsKeys.HOME_CARD_STYLE]?.takeIf { style ->
+            style in setOf("portrait", "landscape", "expanding")
+        } ?: "expanding"
+    }
 
     suspend fun setShowHeroSection(v: Boolean) =
         updateHomeCatalogSetting { it[SettingsKeys.HOME_SHOW_HERO] = v }
@@ -386,6 +392,13 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setHideCatalogUnderline(v: Boolean) =
         updateHomeCatalogSetting { it[SettingsKeys.HOME_HIDE_UNDERLINE] = v }
+
+    suspend fun setHomeCardStyle(style: String) {
+        require(style in setOf("portrait", "landscape", "expanding")) {
+            "Home card style must be portrait, landscape, or expanding."
+        }
+        context.dataStore.edit { it[SettingsKeys.HOME_CARD_STYLE] = style }
+    }
 
     private fun homeCatalogSyncBaselineKey(scope: NuvioStorageScope) =
         stringPreferencesKey("home_catalog_sync_baseline_v1_${scope.storageKey}")

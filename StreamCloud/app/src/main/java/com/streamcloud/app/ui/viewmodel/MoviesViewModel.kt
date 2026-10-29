@@ -61,6 +61,8 @@ import kotlinx.serialization.json.Json
 const val SOURCE_BUILTIN = "builtin"
 private const val HOME_COLLECTION_TIMEOUT_MS = 30_000L
 private const val HOME_COLLECTION_STALE_AFTER_MS = 15 * 60 * 1000L
+private const val GENRE_ARTWORK_STALE_AFTER_MS = 7L * 24 * 60 * 60 * 1000L
+private val TV_HOME_GENRE_COLLECTION_IDS = listOf("action", "comedy", "drama", "horror", "scifi")
 
 internal fun isPersistedHomeCollectionCacheFresh(
     savedAtMillis: Long,
@@ -125,6 +127,7 @@ data class MoviesState(
     val topRated: List<TmdbMovie> = emptyList(),
     val nowPlaying: List<TmdbMovie> = emptyList(),
     val collections: List<CollectionRow> = emptyList(),
+    val genreArtwork: Map<String, String> = emptyMap(),
     val heroBanner: List<HeroBannerItem> = emptyList(),
     val continueWatching: List<WatchProgressEntity> = emptyList(),
     val searchResults: List<TmdbMovie> = emptyList(),
@@ -298,6 +301,7 @@ class MoviesViewModel(
     private val requestedCsHomeTmdbMovies = mutableSetOf<String>()
     private val requestedTitleLogoKeys = mutableSetOf<String>()
     private var discoverJob: Job? = null
+    private var genreArtworkJob: Job? = null
     private var activeDiscoverConfig: HomeCollectionConfig? = null
     private var lastSuccessfulDiscoverConfig: HomeCollectionConfig? = null
     private var lastSuccessfulDiscoverAt: Long? = null
@@ -309,6 +313,9 @@ class MoviesViewModel(
 
     private fun homeCollectionCachePreferences() =
         appContext.getSharedPreferences("tmdb_home_collection_cache_v1", Context.MODE_PRIVATE)
+
+    private fun genreArtworkPreferences() =
+        appContext.getSharedPreferences("tmdb_home_genre_artwork_v1", Context.MODE_PRIVATE)
 
     init {
         viewModelScope.launch {
@@ -510,6 +517,7 @@ class MoviesViewModel(
                         cachedRows.any { it.items.isNotEmpty() },
                     ),
                 )
+                refreshGenreArtwork()
 
                 if (!force && isDiscoverConfigFresh(config)) {
                     applyCollectionRows(config.ids.mapNotNull(rowsById::get), loading = false)
@@ -646,6 +654,63 @@ class MoviesViewModel(
 
     private fun homeCollectionFreshnessKey(config: HomeCollectionConfig): String =
         "freshness:${config.ids.sorted().joinToString(",")}"
+
+    private fun refreshGenreArtwork() {
+        val preferences = genreArtworkPreferences()
+        val cachedArtwork = preferences.getString("items", null)?.let { serialized ->
+            runCatching {
+                homeCollectionCacheJson.decodeFromString<Map<String, String>>(serialized)
+            }.getOrNull()
+        }.orEmpty()
+        if (cachedArtwork.isNotEmpty()) {
+            _state.update { it.copy(genreArtwork = cachedArtwork) }
+        }
+
+        val savedAt = preferences.getLong("saved_at", 0L)
+        if (
+            cachedArtwork.keys.containsAll(TV_HOME_GENRE_COLLECTION_IDS) &&
+            System.currentTimeMillis() - savedAt in 0..GENRE_ARTWORK_STALE_AFTER_MS
+        ) {
+            return
+        }
+        if (genreArtworkJob?.isActive == true) return
+
+        genreArtworkJob = viewModelScope.launch {
+            // These images are decorative. Give cached movie rows time to render
+            // before their discovery requests compete for bandwidth on cold start.
+            delay(1_500L)
+            val fetchedArtwork = coroutineScope {
+                TV_HOME_GENRE_COLLECTION_IDS.map { collectionId ->
+                    async {
+                        val collection = HomeCollections.byId(collectionId)
+                            ?: return@async collectionId to null
+                        val items = runCatching {
+                            withTimeoutOrNull(HOME_COLLECTION_TIMEOUT_MS) {
+                                homeCollectionFetchSemaphore.withPermit {
+                                    collection.fetch(sl.tmdb, sl.tmdbApiKey)
+                                }
+                            }.orEmpty()
+                        }.getOrNull().orEmpty()
+                        val imageUrl = items.firstNotNullOfOrNull { movie ->
+                            movie.backdropUrl?.takeIf { it.isNotBlank() }
+                                ?: movie.posterUrl?.takeIf { it.isNotBlank() }
+                        }
+                        collectionId to imageUrl
+                    }
+                }.awaitAll().mapNotNull { (id, url) -> url?.let { id to it } }.toMap()
+            }
+            if (fetchedArtwork.isEmpty()) return@launch
+
+            val mergedArtwork = cachedArtwork + fetchedArtwork
+            _state.update { it.copy(genreArtwork = mergedArtwork) }
+            withContext(Dispatchers.IO) {
+                preferences.edit()
+                    .putString("items", homeCollectionCacheJson.encodeToString(mergedArtwork))
+                    .putLong("saved_at", System.currentTimeMillis())
+                    .apply()
+            }
+        }
+    }
 
     private fun loadPersistedHomeCollectionRows(): Map<String, CollectionRow> =
         HomeCollections.ALL.mapNotNull { collection ->

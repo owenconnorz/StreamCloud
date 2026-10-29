@@ -113,6 +113,14 @@ private data class TvGenreShortcut(
     val onClick: () -> Unit,
 )
 
+private data class TvGenreDefinition(
+    val title: String,
+    val collectionId: String,
+    val tmdbGenreId: Int,
+    val icon: ImageVector,
+    val tint: Color,
+)
+
 private const val TV_IDLE_RECOMMENDATION_DELAY_MS = 2 * 60_000L
 private const val TV_IDLE_RECOMMENDATION_ROTATE_MS = 25_000L
 
@@ -197,6 +205,8 @@ fun MoviesScreen(
     tvNavDownFocusHandoffVersion: Int = 0,
     onTvTopBarVisibilityChanged: (Boolean) -> Unit = {},
     onFirstMovieFocusedChanged: (Boolean) -> Unit = {},
+    adultContentEnabled: Boolean = false,
+    onOpenAdultContent: () -> Unit = {},
     onMovieClick: (Long) -> Unit,
     onTvClick: (Long) -> Unit = {},
     onOpenCloudStreamPlugin: (internalName: String) -> Unit = {},
@@ -247,6 +257,7 @@ fun MoviesScreen(
     val settingsRepo = remember { SettingsRepository(context) }
     val appearancePalette by settingsRepo.colorPalette.collectAsState(initial = "modern_blue")
     val posterStyle by settingsRepo.posterStyle.collectAsState(initial = "portrait")
+    val homeCardStyle by settingsRepo.homeCardStyle.collectAsState(initial = "expanding")
     var query by remember { mutableStateOf("") }
     var searchExpanded by remember { mutableStateOf(false) }
     val tvIdleRecommendations = remember(
@@ -442,22 +453,24 @@ fun MoviesScreen(
             .filter { !it.backdropUrl.isNullOrBlank() }
     }
     val tvGenres = if (isTv) {
-        listOf(
-            Triple("Action", "action", Icons.Default.Whatshot) to Color(0xFFEA8C2B),
-            Triple("Comedy", "comedy", Icons.Default.Star) to Color(0xFF5BA5E8),
-            Triple("Drama", "drama", Icons.Default.Theaters) to Color(0xFF5C86D6),
-            Triple("Horror", "horror", Icons.Default.Warning) to Color(0xFF596C9B),
-            Triple("Sci-Fi", "scifi", Icons.Default.AutoAwesome) to Color(0xFF7158D6),
-        ).mapIndexed { index, (definition, tint) ->
-            val (title, collectionId, icon) = definition
+        val definitions = listOf(
+            TvGenreDefinition("Action", "action", 28, Icons.Default.Whatshot, Color(0xFFEA8C2B)),
+            TvGenreDefinition("Comedy", "comedy", 35, Icons.Default.Star, Color(0xFF5BA5E8)),
+            TvGenreDefinition("Drama", "drama", 18, Icons.Default.Theaters, Color(0xFF5C86D6)),
+            TvGenreDefinition("Horror", "horror", 27, Icons.Default.Warning, Color(0xFF596C9B)),
+            TvGenreDefinition("Sci-Fi", "scifi", 878, Icons.Default.AutoAwesome, Color(0xFF7158D6)),
+        )
+        val genreShortcuts = definitions.map { definition ->
+            val (title, collectionId, genreId, icon, tint) = definition
             val categoryArtwork = state.collections
                 .firstOrNull { it.id == collectionId }
                 ?.items
                 ?.firstOrNull { !it.backdropUrl.isNullOrBlank() }
                 ?.backdropUrl
-            val artwork = categoryArtwork
-                ?: tvGenreArtworkPool.getOrNull(index)?.backdropUrl
-                ?: tvGenreArtworkPool.firstOrNull()?.backdropUrl
+            val matchingArtwork = tvGenreArtworkPool.firstOrNull {
+                genreId in it.genreIds && !it.backdropUrl.isNullOrBlank()
+            }?.backdropUrl
+            val artwork = state.genreArtwork[collectionId] ?: categoryArtwork ?: matchingArtwork
             TvGenreShortcut(
                 id = collectionId,
                 title = title,
@@ -473,6 +486,18 @@ fun MoviesScreen(
                     )
                 },
             )
+        }
+        if (adultContentEnabled) {
+            genreShortcuts + TvGenreShortcut(
+                id = "adult",
+                title = "18+",
+                icon = Icons.Default.Warning,
+                imageUrl = null,
+                tint = Color(0xFFB53962),
+                onClick = onOpenAdultContent,
+            )
+        } else {
+            genreShortcuts
         }
     } else {
         emptyList()
@@ -842,6 +867,11 @@ fun MoviesScreen(
                         )
                     }
                 }
+                if (!isTv && adultContentEnabled) {
+                    item(key = "mobile_adult_home_genre") {
+                        AdultHomeGenreCard(onClick = onOpenAdultContent)
+                    }
+                }
                 state.pinnedCollections.forEach { pinnedRow ->
                     item(key = "pinned_t_${pinnedRow.collectionId}") {
                         if (pinnedRow.viewMode == "tabbed_grid") {
@@ -957,12 +987,8 @@ fun MoviesScreen(
                                 val mediaType = if (m.title != null) "movie" else "tv"
                                 MidPoster(
                                     m = m,
-                                    posterStyle = if (isTv && row.id == "popular") {
-                                        "landscape"
-                                    } else {
-                                        posterStyle
-                                    },
-                                    landscapeCardWidth = if (isTv && row.id == "popular") 150.dp else 220.dp,
+                                    posterStyle = homeCardStyle,
+                                    landscapeCardWidth = 220.dp,
                                     isWatched = m.id in watchedTmdbIds,
                                     isTv = isTv,
                                     titleLogoUrl = state.tmdbTitleLogos["$mediaType:${m.id}"],
@@ -997,7 +1023,7 @@ fun MoviesScreen(
                             if (isTv) {
                                 item(key = "${row.id}_viewall") {
                                     ViewAllCard(
-                                        posterStyle = posterStyle,
+                                        posterStyle = homeCardStyle,
                                         onClick = {
                                             onOpenCatalog(
                                                 "tmdb:${row.id}",
@@ -1052,7 +1078,7 @@ fun MoviesScreen(
                                 val resolvedTmdbId = state.stremioTmdbIds[stremioKey]
                                 StremioPoster(
                                     meta = meta,
-                                    posterStyle = posterStyle,
+                                    posterStyle = homeCardStyle,
                                     resolvedTmdbId = resolvedTmdbId,
                                     onRequestTmdbId = { vm.requestStremioTmdbId(meta) },
                                     titleLogoUrl = resolvedTmdbId?.let {
@@ -1106,7 +1132,7 @@ fun MoviesScreen(
                             if (isTv) {
                                 item(key = "${row.rowKey}_viewall") {
                                     ViewAllCard(
-                                        posterStyle = posterStyle,
+                                        posterStyle = homeCardStyle,
                                         onClick = {
                                             onOpenCatalog(
                                                 "stremio:${row.addonId}:${row.type}:${row.catalogId}",
@@ -1158,7 +1184,7 @@ fun MoviesScreen(
                         }
                     }
                     item(key = "cshome_${row.pluginInternalName}_${row.sectionName}") {
-                        val csLandscape = posterStyle == "landscape"
+                        val csLandscape = homeCardStyle == "landscape"
                         val csAspect = if (csLandscape) 16f / 9f else 2f / 3f
                         val csRowState = rememberLazyListState()
                         var focusedPosterIndex by remember { mutableIntStateOf(-1) }
@@ -1186,13 +1212,12 @@ fun MoviesScreen(
                                 )
                                 val csTmdbMovie = state.csHomeTmdbMovies[tmdbKey]
                                 val csMediaType = if (csTmdbMovie?.title != null) "movie" else "tv"
-                                val csCardLandscape = posterStyle == "landscape" ||
-                                    (posterStyle == "auto" &&
-                                        !csTmdbMovie?.backdropUrl.isNullOrBlank())
+                                val csCardLandscape = homeCardStyle == "landscape"
                                 val csCardWidth = if (csCardLandscape) 200.dp else 120.dp
                                 CsHomePosterCard(
                                     item = sr,
                                     defaultWidth = csCardWidth,
+                                    homeCardStyle = homeCardStyle,
                                     isTv = isTv,
                                     tmdbPrefetchDelayMillis = index * 120L,
                                     tmdbMovie = csTmdbMovie,
@@ -1219,7 +1244,7 @@ fun MoviesScreen(
                             if (isTv) {
                                 item(key = "${row.pluginInternalName}_${row.sectionName}_viewall") {
                                     ViewAllCard(
-                                        posterStyle = if (csAspect > 1f) "landscape" else "portrait",
+                                        posterStyle = homeCardStyle,
                                         onClick = {
                                             onViewAllCsSection(
                                                 row.pluginInternalName,
@@ -1547,6 +1572,48 @@ private fun TvGenresRow(
             }
         }
         Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun AdultHomeGenreCard(onClick: () -> Unit) {
+    val shape = RoundedCornerShape(14.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(shape)
+            .background(Color(0xFF34202C))
+            .tvFocusBorder(shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(
+            Icons.Default.Warning,
+            contentDescription = null,
+            tint = Color(0xFFFF7EAA),
+            modifier = Modifier.size(24.dp),
+        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                "18+ · Adult sources",
+                style = MaterialTheme.typography.titleSmall,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                "Browse your enabled adult providers",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.72f),
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.ArrowForward,
+            contentDescription = "Open adult sources",
+            tint = Color.White.copy(alpha = 0.84f),
+        )
     }
 }
 
@@ -2575,6 +2642,7 @@ private fun CsHomePosterCard(
     defaultWidth: Dp,
     isTv: Boolean,
     tmdbPrefetchDelayMillis: Long,
+    homeCardStyle: String,
     tmdbMovie: TmdbMovie?,
     onRequestTmdbMovie: () -> Unit,
     titleLogoUrl: String?,
@@ -2583,17 +2651,17 @@ private fun CsHomePosterCard(
     onClick: () -> Unit,
 ) {
     var isFocused by remember(item.url) { mutableStateOf(false) }
-    val isExpanded = isTv && isFocused
-    val useLandscape = defaultWidth >= 180.dp
+    val isExpanded = isTv && homeCardStyle == "expanding" && isFocused
+    val useLandscape = homeCardStyle == "landscape"
     val imageRatio = if (useLandscape) 16f / 9f else 2f / 3f
-    val expandedWidth = if (useLandscape) 320.dp else 160.dp
+    val expandedWidth = if (homeCardStyle == "expanding" || useLandscape) 320.dp else 160.dp
     val animatedWidth by animateDpAsState(
         targetValue = if (isExpanded) expandedWidth else defaultWidth,
         animationSpec = tween(durationMillis = 260),
         label = "cloudstream-home-card-width",
     )
     val animatedImageHeight by animateDpAsState(
-        targetValue = if (isExpanded) expandedWidth / imageRatio else defaultWidth / imageRatio,
+        targetValue = if (isExpanded) 180.dp else defaultWidth / imageRatio,
         animationSpec = tween(durationMillis = 260),
         label = "cloudstream-home-card-image-height",
     )
@@ -2630,7 +2698,7 @@ private fun CsHomePosterCard(
                 .clip(posterShape)
                 .background(MaterialTheme.colorScheme.surface),
         ) {
-            val artworkUrl = if (isTv && useLandscape) {
+            val artworkUrl = if (isTv && (useLandscape || isExpanded)) {
                 tmdbMovie?.backdropUrl?.takeIf { it.isNotBlank() } ?: item.posterUrl
             } else {
                 item.posterUrl
@@ -2717,7 +2785,7 @@ private fun MidPoster(
     val mediaType = if (m.title != null) "movie" else "tv"
     val showTitleOnThumbnail = useLandscape
     var isFocused by remember(m.id) { mutableStateOf(false) }
-    val isExpanded = isTv && isFocused
+    val isExpanded = isTv && posterStyle == "expanding" && isFocused
     LaunchedEffect(useLandscape, isExpanded, m.id, mediaType, titleLogoUrl) {
         if ((!useLandscape && !isExpanded) || titleLogoUrl != null) return@LaunchedEffect
         onRequestTitleLogo()
@@ -2847,7 +2915,7 @@ private fun StremioPoster(
             (!meta.background.isNullOrBlank() ||
                 meta.posterShape.equals("landscape", ignoreCase = true)))
     var isFocused by remember(meta.type, meta.id) { mutableStateOf(false) }
-    val isExpanded = isTv && isFocused
+    val isExpanded = isTv && posterStyle == "expanding" && isFocused
     val focusColor = LocalTvFocusColor.current.takeUnless { it == Color.White }
         ?: MaterialTheme.colorScheme.primary
     val posterShape = RoundedCornerShape(12.dp)

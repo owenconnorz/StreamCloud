@@ -5175,10 +5175,12 @@ private fun HomeLayoutPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
     var showHero       by remember { mutableStateOf(true) }
     var hideUnreleased by remember { mutableStateOf(false) }
     var hideUnderline  by remember { mutableStateOf(false) }
+    var homeCardStyle  by remember { mutableStateOf("expanding") }
     LaunchedEffect(Unit) {
         showHero       = sl.settings.showHeroSection.first()
         hideUnreleased = sl.settings.hideUnreleasedContent.first()
         hideUnderline  = sl.settings.hideCatalogUnderline.first()
+        homeCardStyle  = sl.settings.homeCardStyle.first()
     }
 
     // ── TMDB reorder state ─────────────────────────────────────────────────
@@ -5362,6 +5364,39 @@ private fun HomeLayoutPage(sl: ServiceLocator, pluginRepo: PluginRepository) {
     // ══ HOME LAYOUT toggles ════════════════════════════════════════════════
     SectionHeader("HOME LAYOUT")
     SettingsGroup {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+        ) {
+            Text(
+                "Home card style",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Choose portrait posters, landscape cards, or cards that expand when focused on TV.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "portrait" to "Portrait",
+                    "landscape" to "Landscape",
+                    "expanding" to "Expanding",
+                ).forEach { (id, label) ->
+                    FilterChip(
+                        selected = homeCardStyle == id,
+                        onClick = {
+                            homeCardStyle = id
+                            scope.launch { sl.settings.setHomeCardStyle(id) }
+                        },
+                        label = { Text(label, style = MaterialTheme.typography.labelMedium) },
+                    )
+                }
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
         SettingToggle(
             icon     = Icons.Default.PlayCircle,
             tint     = MaterialTheme.colorScheme.secondary,
