@@ -1,3 +1,9 @@
+## Latest — Changes since V2354
+
+### Android TV Movies home
+- **Pinned the hero and top navigation while browsing** — the banner stays in place while lower content scrolls, with the TV viewport sized for two visible shelves.
+- **Replaced the shortcut row with genre discovery** — Action, Comedy, Drama, Horror, and Sci-Fi cards replace the Movies, TV Shows, Anime, Trending, and New Releases tiles; Comedy and Drama catalogues are now available.
+
 ## Latest — Changes since V2350
 
 ### Android TV
