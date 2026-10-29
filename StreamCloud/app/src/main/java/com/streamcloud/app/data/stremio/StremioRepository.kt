@@ -39,6 +39,7 @@ import java.util.concurrent.TimeUnit
 
 private val Context.stremioStore by preferencesDataStore("streamcloud_stremio")
 private val KEY_ADDONS = stringPreferencesKey("addons_json")
+private val KEY_SAVED_REPOS = stringPreferencesKey("saved_repos_json")
 private val KEY_LEGACY_SCOPE_OWNER = stringPreferencesKey("legacy_scope_owner")
 
 internal fun reorderInstalledStremioAddons(
@@ -125,8 +126,15 @@ class StremioRepository(
         if (scope.userId.isBlank()) KEY_ADDONS
         else stringPreferencesKey("addons_${scope.storageKey}")
 
+    private fun savedReposKey(scope: NuvioStorageScope) =
+        if (scope.userId.isBlank()) KEY_SAVED_REPOS
+        else stringPreferencesKey("saved_repos_${scope.storageKey}")
+
     val addons: Flow<List<InstalledStremioAddon>> =
         scopeFlow.flatMapLatest(::addonsFor).distinctUntilChanged()
+
+    val savedRepos: Flow<List<StremioSavedRepo>> =
+        scopeFlow.flatMapLatest(::savedReposFor).distinctUntilChanged()
 
     suspend fun addonsFor(scope: NuvioStorageScope): Flow<List<InstalledStremioAddon>> = flow {
         migrateLegacyAddons(scope)
@@ -135,6 +143,19 @@ class StremioRepository(
                 prefs[addonsKey(scope)]?.let {
                     runCatching {
                         Net.json.decodeFromString(ListSerializer(InstalledStremioAddon.serializer()), it)
+                    }.getOrDefault(emptyList())
+                } ?: emptyList()
+            },
+        )
+    }
+
+    suspend fun savedReposFor(scope: NuvioStorageScope): Flow<List<StremioSavedRepo>> = flow {
+        migrateLegacyAddons(scope)
+        emitAll(
+            context.stremioStore.data.map { prefs ->
+                prefs[savedReposKey(scope)]?.let {
+                    runCatching {
+                        Net.json.decodeFromString(ListSerializer(StremioSavedRepo.serializer()), it)
                     }.getOrDefault(emptyList())
                 } ?: emptyList()
             },
@@ -181,6 +202,42 @@ class StremioRepository(
     private suspend fun saveAddons(list: List<InstalledStremioAddon>, scope: NuvioStorageScope) {
         val text = Net.json.encodeToString(ListSerializer(InstalledStremioAddon.serializer()), list)
         context.stremioStore.edit { it[addonsKey(scope)] = text }
+    }
+
+    suspend fun addSavedRepo(
+        name: String,
+        manifestUrl: String,
+        manifest: StremioManifest,
+        scope: NuvioStorageScope? = null,
+    ): StremioSavedRepo {
+        require(name.isNotBlank()) { "Repository name is required" }
+        val targetScope = scope ?: scopeFlow.first()
+        val normalizedUrl = normalizeStremioManifestUrl(manifestUrl)
+        val current = savedReposFor(targetScope).first()
+        val saved = StremioSavedRepo(
+            id = normalizedUrl.hashCode().toString(),
+            name = name.trim(),
+            manifestUrl = normalizedUrl,
+            logo = manifest.logo ?: manifest.icon,
+            version = manifest.version,
+            addedAt = current.firstOrNull { it.manifestUrl == normalizedUrl }?.addedAt
+                ?: System.currentTimeMillis(),
+        )
+        val updated = current.filterNot { it.manifestUrl == normalizedUrl } + saved
+        context.stremioStore.edit {
+            it[savedReposKey(targetScope)] =
+                Net.json.encodeToString(ListSerializer(StremioSavedRepo.serializer()), updated)
+        }
+        return saved
+    }
+
+    suspend fun removeSavedRepo(id: String, scope: NuvioStorageScope? = null) {
+        val targetScope = scope ?: scopeFlow.first()
+        val updated = savedReposFor(targetScope).first().filterNot { it.id == id }
+        context.stremioStore.edit {
+            it[savedReposKey(targetScope)] =
+                Net.json.encodeToString(ListSerializer(StremioSavedRepo.serializer()), updated)
+        }
     }
 
     suspend fun reorderAddons(orderedUrls: List<String>, scope: NuvioStorageScope? = null) {

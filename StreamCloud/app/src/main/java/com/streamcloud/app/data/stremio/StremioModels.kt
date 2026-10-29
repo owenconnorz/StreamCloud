@@ -132,6 +132,16 @@ data class InstalledStremioAddon(
 )
 
 @Serializable
+data class StremioSavedRepo(
+    val id: String,
+    val name: String,
+    val manifestUrl: String,
+    val logo: String? = null,
+    val version: String? = null,
+    val addedAt: Long = 0L,
+)
+
+@Serializable
 data class StremioHomeRow(
     val addonId: String,
     val addonName: String,

@@ -43,8 +43,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
-import com.streamcloud.app.ui.theme.LocalUiFormFactor
-import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.data.plugins.CloudStreamPlugin
 import com.streamcloud.app.data.plugins.CloudStreamRepo
 import com.streamcloud.app.data.plugins.InstalledPlugin
@@ -54,7 +52,15 @@ import com.streamcloud.app.ui.viewmodel.PluginsViewModel
 import com.streamcloud.app.ui.viewmodel.ProviderTestResult
 import com.streamcloud.app.ui.viewmodel.TestStatus
 
-private enum class PluginsPage { CloudStream, Stremio, Nuvio, Tester }
+private enum class PluginsPage {
+    CloudStream,
+    CloudStreamRepository,
+    Stremio,
+    StremioRepository,
+    Nuvio,
+    NuvioRepository,
+    Tester,
+}
 
 private val ColourCloudStream = Color(0xFF5B8DEF)
 private val ColourStremio     = Color(0xFF9B6CE0)
@@ -69,7 +75,21 @@ fun PluginsScreen(onBack: () -> Unit) {
     val state by vm.state.collectAsState()
 
     var currentPage by remember { mutableStateOf<PluginsPage?>(null) }
-    BackHandler(enabled = currentPage != null) { currentPage = null }
+    var selectedCloudStreamRepo by remember { mutableStateOf<CloudStreamRepo?>(null) }
+    var selectedStremioRepo by remember {
+        mutableStateOf<com.streamcloud.app.data.stremio.StremioSavedRepo?>(null)
+    }
+    var selectedNuvioRepo by remember {
+        mutableStateOf<com.streamcloud.app.data.nuvio.NuvioSavedRepo?>(null)
+    }
+    BackHandler(enabled = currentPage != null) {
+        currentPage = when (currentPage) {
+            PluginsPage.CloudStreamRepository -> PluginsPage.CloudStream
+            PluginsPage.StremioRepository -> PluginsPage.Stremio
+            PluginsPage.NuvioRepository -> PluginsPage.Nuvio
+            else -> null
+        }
+    }
 
     AnimatedContent(
         targetState = currentPage,
@@ -96,17 +116,53 @@ fun PluginsScreen(onBack: () -> Unit) {
                 vm     = vm,
                 state  = state,
                 onBack = { currentPage = null },
+                onOpenRepository = { repo ->
+                    selectedCloudStreamRepo = repo
+                    currentPage = PluginsPage.CloudStreamRepository
+                },
             )
+            PluginsPage.CloudStreamRepository -> selectedCloudStreamRepo?.let { repo ->
+                CloudStreamRepositoryPage(
+                    repo = repo,
+                    state = state,
+                    vm = vm,
+                    onBack = { currentPage = PluginsPage.CloudStream },
+                )
+            } ?: Text("Repository unavailable")
             PluginsPage.Stremio -> StremioAddonsPage(
                 vm     = vm,
                 state  = state,
                 onBack = { currentPage = null },
+                onOpenRepository = { repo ->
+                    selectedStremioRepo = repo
+                    currentPage = PluginsPage.StremioRepository
+                },
             )
+            PluginsPage.StremioRepository -> selectedStremioRepo?.let { repo ->
+                StremioRepositoryPage(
+                    repo = repo,
+                    state = state,
+                    vm = vm,
+                    onBack = { currentPage = PluginsPage.Stremio },
+                )
+            } ?: Text("Add-on unavailable")
             PluginsPage.Nuvio -> NuvioProvidersPage(
                 vm     = vm,
                 state  = state,
                 onBack = { currentPage = null },
+                onOpenRepository = { repo ->
+                    selectedNuvioRepo = repo
+                    currentPage = PluginsPage.NuvioRepository
+                },
             )
+            PluginsPage.NuvioRepository -> selectedNuvioRepo?.let { repo ->
+                NuvioRepositoryPage(
+                    repo = repo,
+                    state = state,
+                    vm = vm,
+                    onBack = { currentPage = PluginsPage.Nuvio },
+                )
+            } ?: Text("Repository unavailable")
             PluginsPage.Tester -> ProviderTesterPage(
                 vm     = vm,
                 state  = state,
@@ -302,13 +358,13 @@ private fun CloudStreamPluginsPage(
     vm: PluginsViewModel,
     state: PluginsState,
     onBack: () -> Unit,
+    onOpenRepository: (CloudStreamRepo) -> Unit,
 ) {
     val context = LocalContext.current
     val scope   = rememberCoroutineScope()
 
     var addName    by remember { mutableStateOf("") }
     var addUrl     by remember { mutableStateOf("") }
-    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     var showRepoDialog by remember { mutableStateOf(false) }
 
     var pluginHasSettings by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
@@ -325,56 +381,25 @@ private fun CloudStreamPluginsPage(
         }
     }
 
-    // On TV: keep text fields out of the scrolling page so D-pad navigation
-    // does not focus an input and open the keyboard unexpectedly.
     if (showRepoDialog) {
-        AlertDialog(
-            onDismissRequest = { showRepoDialog = false },
-            title = { Text("Add CloudStream Repository") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(
-                        value = addName,
-                        onValueChange = { addName = it },
-                        label = { Text("Display name") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                    )
-                    OutlinedTextField(
-                        value = addUrl,
-                        onValueChange = { addUrl = it },
-                        label = { Text("repo.json URL") },
-                        placeholder = { Text("https://example.com/repo.json") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                    )
-                }
+        AddNamedRepositoryDialog(
+            title = "Add CloudStream Repository",
+            urlLabel = "repo.json URL",
+            urlPlaceholder = "https://example.com/repo.json",
+            saveLabel = "Save Repository",
+            accent = ColourCloudStream,
+            name = addName,
+            url = addUrl,
+            busy = false,
+            onNameChange = { addName = it },
+            onUrlChange = { addUrl = it },
+            onSave = {
+                vm.addRepo(addName, addUrl)
+                addName = ""
+                addUrl = ""
+                showRepoDialog = false
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        vm.addRepo(addName, addUrl)
-                        addName = ""
-                        addUrl = ""
-                        showRepoDialog = false
-                    },
-                    enabled = addName.isNotBlank() && addUrl.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.White,
-                        contentColor = Color.Black,
-                        disabledContainerColor = Color.White.copy(alpha = 0.42f),
-                        disabledContentColor = Color.Black.copy(alpha = 0.45f),
-                    ),
-                ) {
-                    Text("Add Repository")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRepoDialog = false }) { Text("Cancel") }
-            },
+            onDismiss = { showRepoDialog = false },
         )
     }
 
@@ -387,6 +412,11 @@ private fun CloudStreamPluginsPage(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showRepoDialog = true }) {
+                        Icon(Icons.Default.Add, "Add repository")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -421,76 +451,6 @@ private fun CloudStreamPluginsPage(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
                 )
-            }
-
-            // Add repository section
-            item {
-                SectionLabel("Add CloudStream Repository")
-            }
-            item {
-                if (isTv) {
-                    Button(
-                        onClick = { showRepoDialog = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.White,
-                            contentColor = Color.Black,
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                    ) {
-                        Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Add Repository")
-                    }
-                } else {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        OutlinedTextField(
-                            value = addName,
-                            onValueChange = { addName = it },
-                            label = { Text("Display name") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                        )
-                        OutlinedTextField(
-                            value = addUrl,
-                            onValueChange = { addUrl = it },
-                            label = { Text("repo.json URL") },
-                            placeholder = { Text("https://example.com/repo.json") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                        )
-                        Button(
-                            onClick = {
-                                vm.addRepo(addName, addUrl)
-                                addName = ""
-                                addUrl = ""
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = addName.isNotBlank() && addUrl.isNotBlank(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White,
-                                contentColor = Color.Black,
-                                disabledContainerColor = Color.White.copy(alpha = 0.42f),
-                                disabledContentColor = Color.Black.copy(alpha = 0.45f),
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                        ) {
-                            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Add Repository")
-                        }
-                    }
-                }
             }
 
             // Installed plugins section
@@ -546,17 +506,11 @@ private fun CloudStreamPluginsPage(
             items(state.repos, key = { it.id }) { repo ->
                 RepoCard(
                     repo             = repo,
-                    plugins          = state.pluginsByRepo[repo.id].orEmpty(),
+                    pluginCount      = state.pluginsByRepo[repo.id]?.size ?: repo.pluginCount,
                     isLoading        = state.loadingRepoIds.contains(repo.id),
-                    installingNames  = state.installingNames,
-                    installedNames   = state.installed.map { it.internalName }.toSet(),
+                    onOpen           = { onOpenRepository(repo) },
                     onFetch          = { vm.fetchRepo(repo) },
                     onRemove         = { vm.removeRepo(repo.id) },
-                    onInstall        = { vm.install(repo, it) },
-                    onUninstall      = { plugin ->
-                        val key = plugin.internalName ?: plugin.name
-                        state.installed.firstOrNull { it.internalName == key }?.let(vm::uninstall)
-                    },
                 )
             }
         }
@@ -571,60 +525,33 @@ private fun StremioAddonsPage(
     vm: PluginsViewModel,
     state: PluginsState,
     onBack: () -> Unit,
+    onOpenRepository: (com.streamcloud.app.data.stremio.StremioSavedRepo) -> Unit,
 ) {
+    var stremioName by remember { mutableStateOf("") }
     var stremioUrl by remember { mutableStateOf("") }
-    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     var showAddonDialog by remember { mutableStateOf(false) }
 
     // On TV: keep the manifest field inside a dialog so scrolling the page
     // never focuses it and opens the keyboard unexpectedly.
     if (showAddonDialog) {
-        AlertDialog(
-            onDismissRequest = { showAddonDialog = false },
-            title = { Text("Add Stremio Addon") },
-            text = {
-                OutlinedTextField(
-                    value = stremioUrl,
-                    onValueChange = { stremioUrl = it },
-                    label = { Text("Manifest URL") },
-                    placeholder = { Text("https://your-addon.com/manifest.json") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                )
+        AddNamedRepositoryDialog(
+            title = "Add Stremio Add-on",
+            urlLabel = "Manifest URL",
+            urlPlaceholder = "https://your-addon.com/manifest.json",
+            saveLabel = "Save Add-on",
+            accent = ColourStremio,
+            name = stremioName,
+            url = stremioUrl,
+            busy = state.addingStremioRepo,
+            onNameChange = { stremioName = it },
+            onUrlChange = { stremioUrl = it },
+            onSave = {
+                vm.addStremioRepo(stremioName, stremioUrl)
+                stremioName = ""
+                stremioUrl = ""
+                showAddonDialog = false
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        vm.addStremioAddon(stremioUrl)
-                        stremioUrl = ""
-                        showAddonDialog = false
-                    },
-                    enabled = stremioUrl.isNotBlank() && !state.addingStremio,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.White,
-                        contentColor = Color.Black,
-                        disabledContainerColor = Color.White.copy(alpha = 0.42f),
-                        disabledContentColor = Color.Black.copy(alpha = 0.45f),
-                    ),
-                ) {
-                    if (state.addingStremio) {
-                        CircularProgressIndicator(
-                            Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = Color.Black,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("Installing…")
-                    } else {
-                        Text("Install Addon")
-                    }
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddonDialog = false }) { Text("Cancel") }
-            },
+            onDismiss = { showAddonDialog = false },
         )
     }
 
@@ -632,10 +559,15 @@ private fun StremioAddonsPage(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Addons") },
+                title = { Text("Stremio") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showAddonDialog = true }) {
+                        Icon(Icons.Default.Add, "Add Stremio add-on")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -653,86 +585,29 @@ private fun StremioAddonsPage(
             state.info?.let  { item { StatusBanner(it, isError = false) { vm.clearMessages() } } }
             state.error?.let { item { StatusBanner(it, isError = true)  { vm.clearMessages() } } }
 
-            // Overview chips
-            if (state.stremioAddons.isNotEmpty()) {
-                item {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        item { StatChip("${state.stremioAddons.size} addons", ColourStremio) }
-                        item { StatChip("${state.stremioAddons.size} active", ColourStremio) }
-                        item { StatChip("Stremio", MaterialTheme.colorScheme.onSurfaceVariant) }
-                    }
-                }
-            }
-
-            // Add Addon section
-            item { SectionLabel("Add Addon") }
             item {
-                if (isTv) {
-                    Button(
-                        onClick = { showAddonDialog = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.White,
-                            contentColor = Color.Black,
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                    ) {
-                        Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Install Addon")
-                    }
-                } else {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        OutlinedTextField(
-                            value = stremioUrl,
-                            onValueChange = { stremioUrl = it },
-                            label = { Text("Manifest URL") },
-                            placeholder = { Text("https://your-addon.com/manifest.json") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                        )
-                        Text(
-                            "Paste any Stremio addon manifest URL, e.g. torrentio.strem.fun/manifest.json",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Button(
-                            onClick = { vm.addStremioAddon(stremioUrl); stremioUrl = "" },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = stremioUrl.isNotBlank() && !state.addingStremio,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White,
-                                contentColor = Color.Black,
-                                disabledContainerColor = Color.White.copy(alpha = 0.42f),
-                                disabledContentColor = Color.Black.copy(alpha = 0.45f),
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                        ) {
-                            if (state.addingStremio) {
-                                CircularProgressIndicator(
-                                    Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = Color.Black,
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text("Installing…")
-                            } else {
-                                Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Install Addon")
-                            }
-                        }
-                    }
-                }
+                Text(
+                    "Save an add-on manifest here, then open it to review its details and install it.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+            }
+            item { SectionLabel("Stremio Add-ons (${state.stremioSavedRepos.size})") }
+            if (state.stremioSavedRepos.isEmpty()) {
+                item { RepositoryEmptyCard("No add-ons saved yet", "Select + to add a display name and manifest URL.") }
+            }
+            items(state.stremioSavedRepos, key = { "stremio_repo_${it.id}" }) { repo ->
+                SavedRepositoryRow(
+                    name = repo.name,
+                    url = repo.manifestUrl,
+                    detail = "Open to review and install",
+                    logoUrl = repo.logo,
+                    icon = Icons.Default.Extension,
+                    accent = ColourStremio,
+                    onClick = { onOpenRepository(repo) },
+                    onDelete = { vm.removeStremioRepo(repo.id) },
+                )
             }
 
             // Installed Addons section
@@ -784,60 +659,47 @@ private fun NuvioProvidersPage(
     vm: PluginsViewModel,
     state: PluginsState,
     onBack: () -> Unit,
+    onOpenRepository: (com.streamcloud.app.data.nuvio.NuvioSavedRepo) -> Unit,
 ) {
+    var nuvioRepoName by remember { mutableStateOf("") }
     var nuvioRepoInput by remember { mutableStateOf("") }
-    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     var showRepoDialog by remember { mutableStateOf(false) }
 
-    // On TV: show a dialog for URL input so it doesn't trap D-pad scroll
     if (showRepoDialog) {
-        AlertDialog(
-            onDismissRequest = { showRepoDialog = false },
-            title = { Text("Add Repository") },
-            text = {
-                OutlinedTextField(
-                    value = nuvioRepoInput,
-                    onValueChange = { nuvioRepoInput = it },
-                    label = { Text("Repository URL") },
-                    placeholder = { Text("https://raw.githubusercontent.com/…/main/") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                )
+        AddNamedRepositoryDialog(
+            title = "Add Nuvio Repository",
+            urlLabel = "Repository URL",
+            urlPlaceholder = "https://raw.githubusercontent.com/…/main/",
+            saveLabel = "Save Repository",
+            accent = ColourNuvio,
+            name = nuvioRepoName,
+            url = nuvioRepoInput,
+            busy = state.loadingNuvioRepo,
+            onNameChange = { nuvioRepoName = it },
+            onUrlChange = { nuvioRepoInput = it },
+            onSave = {
+                vm.loadNuvioRepo(nuvioRepoInput, nuvioRepoName)
+                nuvioRepoName = ""
+                nuvioRepoInput = ""
+                showRepoDialog = false
             },
-            confirmButton = {
-                Button(
-                    onClick = { vm.loadNuvioRepo(nuvioRepoInput); showRepoDialog = false },
-                    enabled = nuvioRepoInput.isNotBlank() && !state.loadingNuvioRepo,
-                    colors = ButtonDefaults.buttonColors(containerColor = ColourNuvio),
-                ) {
-                    if (state.loadingNuvioRepo) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
-                    } else {
-                        Text("Load Repository")
-                    }
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRepoDialog = false }) { Text("Cancel") }
-            },
+            onDismiss = { showRepoDialog = false },
         )
-    }
-
-    // Group providers by repo URL for the installed repos section
-    val providersByRepo = remember(state.nuvioProviders) {
-        state.nuvioProviders.groupBy { it.repoUrl }
     }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Plugins") },
+                title = { Text("Nuvio Providers") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showRepoDialog = true }) {
+                        Icon(Icons.Default.Add, "Add Nuvio repository")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -870,229 +732,46 @@ private fun NuvioProvidersPage(
                 }
             }
 
-            // Install repo section
-            item { SectionLabel("Install Plugin Repository") }
             item {
-                if (isTv) {
-                    // On TV: single focusable button — URL entry is in the dialog above
-                    Button(
-                        onClick = { showRepoDialog = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = ColourNuvio),
-                        shape = RoundedCornerShape(12.dp),
-                    ) {
-                        Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Add Repository")
-                    }
-                } else {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        OutlinedTextField(
-                            value = nuvioRepoInput,
-                            onValueChange = { nuvioRepoInput = it },
-                            label = { Text("Repository URL") },
-                            placeholder = { Text("https://raw.githubusercontent.com/…/main/") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                        )
-                        Button(
-                            onClick = { vm.loadNuvioRepo(nuvioRepoInput) },
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = nuvioRepoInput.isNotBlank() && !state.loadingNuvioRepo,
-                            colors = ButtonDefaults.buttonColors(containerColor = ColourNuvio),
-                            shape = RoundedCornerShape(12.dp),
-                        ) {
-                            if (state.loadingNuvioRepo) {
-                                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
-                                Spacer(Modifier.width(8.dp))
-                                Text("Loading…")
-                            } else {
-                                Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Load Repository")
-                            }
-                        }
-                    }
-                }
+                Text(
+                    "Add a provider repository with +, then open it to browse and install providers.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+            }
+            item { SectionLabel("Repositories (${state.nuvioSavedRepos.size})") }
+            if (state.nuvioSavedRepos.isEmpty()) {
+                item { RepositoryEmptyCard("No repositories saved yet", "Select + to add a display name and repository URL.") }
+            }
+            items(state.nuvioSavedRepos, key = { "repo_${it.id}" }) { savedRepo ->
+                val count = state.nuvioProviders.count { it.repoUrl == savedRepo.url }
+                SavedRepositoryRow(
+                    name = savedRepo.name ?: "Nuvio repository",
+                    url = savedRepo.url,
+                    detail = if (count > 0) "$count providers installed · Open to browse" else "Open to browse and install providers",
+                    logoUrl = null,
+                    icon = Icons.Default.Cloud,
+                    accent = ColourNuvio,
+                    onClick = { onOpenRepository(savedRepo) },
+                    onDelete = { vm.removeNuvioSavedRepo(savedRepo.id) },
+                )
             }
 
-            // Loaded manifest: show repo + providers
-            val mf = state.nuvioRepoManifest
-            if (mf != null) {
-                item {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                Modifier
-                                    .size(40.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(ColourNuvio.copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(Icons.Default.CloudDownload, null, tint = ColourNuvio, modifier = Modifier.size(22.dp))
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    mf.name ?: "Repository",
-                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                                )
-                                Text(
-                                    "${mf.allProviders.size} providers available",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        mf.allProviders.forEach { entry ->
-                            val installing = entry.id in state.installingNuvioIds
-                            val already    = state.nuvioProviders.any { it.id == entry.id }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(MaterialTheme.colorScheme.surface)
-                                    .padding(10.dp),
-                            ) {
-                                if (!entry.logo.isNullOrBlank() || !entry.icon.isNullOrBlank()) {
-                                    coil.compose.AsyncImage(
-                                        model = entry.logo ?: entry.icon,
-                                        contentDescription = null,
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                                    )
-                                } else {
-                                    Box(
-                                        Modifier
-                                            .size(32.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(ColourNuvio.copy(alpha = 0.12f)),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Text(
-                                            entry.name.firstOrNull()?.uppercaseChar()?.toString() ?: "N",
-                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                            color = ColourNuvio,
-                                        )
-                                    }
-                                }
-                                Spacer(Modifier.width(10.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        entry.name,
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    if (!entry.description.isNullOrBlank()) {
-                                        Text(
-                                            entry.description,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                    if (!entry.version.isNullOrBlank()) {
-                                        Text(
-                                            "v${entry.version}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = ColourNuvio,
-                                        )
-                                    }
-                                }
-                                when {
-                                    installing -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                                    already -> Icon(
-                                        Icons.Default.CheckCircle, "Installed",
-                                        tint = ColourNuvio,
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                    else -> TextButton(
-                                        onClick = { vm.installNuvioProvider(entry) },
-                                        colors = ButtonDefaults.textButtonColors(contentColor = ColourNuvio),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                    ) { Text("Install", style = MaterialTheme.typography.labelMedium) }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Installed Repositories section
+            // Installed providers section
             if (state.nuvioSavedRepos.isNotEmpty()) {
                 item { Spacer(Modifier.height(4.dp)) }
-                item { SectionLabel("Installed Repositories (${state.nuvioSavedRepos.size})") }
-                items(state.nuvioSavedRepos, key = { "repo_${it.id}" }) { savedRepo ->
-                    val repoProviderCount = providersByRepo[savedRepo.url]?.size ?: 0
-                    NuvioSavedRepoRow(
-                        repo     = savedRepo,
-                        providerCount = repoProviderCount,
-                        onBrowse = {
-                            nuvioRepoInput = savedRepo.url
-                            vm.loadNuvioRepo(savedRepo.url)
-                        },
-                        onDelete = { vm.removeNuvioSavedRepo(savedRepo.id) },
-                    )
-                }
             }
-
-            // Installed Providers section
+            item { SectionLabel("Installed Providers (${state.nuvioProviders.size})") }
             if (state.nuvioProviders.isNotEmpty()) {
-                item { Spacer(Modifier.height(4.dp)) }
-                item { SectionLabel("Providers (${state.nuvioProviders.size})") }
                 items(state.nuvioProviders, key = { it.id }) { p ->
                     NuvioProviderRow(
                         p        = p,
                         onRemove = { vm.uninstallNuvioProvider(p.id) },
                     )
                 }
-            } else if (state.nuvioSavedRepos.isEmpty()) {
-                item {
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .padding(20.dp),
-                    ) {
-                        Text(
-                            "No Nuvio providers installed",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "Load a Nuvio provider repository URL above to browse and install providers.\n\n" +
-                                "Popular repos:\n" +
-                                "• https://raw.githubusercontent.com/yoruix/nuvio-providers/main/\n" +
-                                "• https://raw.githubusercontent.com/phisher98/phisher-nuvio-providers/main/",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+            } else {
+                item { RepositoryEmptyCard("No providers installed", "Open a repository and choose Install on a provider.") }
             }
         }
     }
@@ -1319,75 +998,6 @@ private fun NuvioProviderRow(
 }
 
 @Composable
-private fun NuvioSavedRepoRow(
-    repo: com.streamcloud.app.data.nuvio.NuvioSavedRepo,
-    providerCount: Int,
-    onBrowse: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    val host = remember(repo.url) {
-        runCatching { java.net.URI(repo.url).host }.getOrElse { repo.url }
-    }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable(onClick = onBrowse)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-    ) {
-        Box(
-            Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(ColourNuvio.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.Default.CloudDownload, null,
-                tint = ColourNuvio,
-                modifier = Modifier.size(22.dp),
-            )
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                repo.name ?: host ?: repo.url,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                host ?: repo.url,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (providerCount > 0) {
-                Text(
-                    "$providerCount providers installed",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = ColourNuvio,
-                )
-            }
-        }
-        IconButton(onClick = onBrowse) {
-            Icon(Icons.Default.Refresh, "Browse repo", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-        }
-        IconButton(onClick = onDelete) {
-            Icon(
-                Icons.Default.Delete, "Remove repo",
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-    }
-}
-
-@Composable
 private fun StremioAddonRow(
     addon: com.streamcloud.app.data.stremio.InstalledStremioAddon,
     onRemove: () -> Unit,
@@ -1475,102 +1085,64 @@ private fun EcosystemChip(label: String, color: Color) {
 @Composable
 private fun RepoCard(
     repo: CloudStreamRepo,
-    plugins: List<CloudStreamPlugin>,
+    pluginCount: Int,
     isLoading: Boolean,
-    installingNames: Set<String>,
-    installedNames: Set<String>,
+    onOpen: () -> Unit,
     onFetch: () -> Unit,
     onRemove: () -> Unit,
-    onInstall: (CloudStreamPlugin) -> Unit,
-    onUninstall: (CloudStreamPlugin) -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    Column(
-        Modifier
+    Row(
+        modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .padding(14.dp),
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(ColourCloudStream.copy(alpha = 0.14f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Default.Cloud, null, tint = ColourCloudStream, modifier = Modifier.size(22.dp))
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    repo.name,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                )
-                Text(
-                    repo.url,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (isLoading) {
-                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-            } else {
-                IconButton(onClick = onFetch) {
-                    Icon(Icons.Default.Refresh, "Fetch", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
-                }
-            }
-            IconButton(onClick = onRemove) {
-                Icon(Icons.Default.Delete, "Remove repo", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+        Box(
+            Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(ColourCloudStream.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Default.Cloud, null, tint = ColourCloudStream, modifier = Modifier.size(24.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                repo.name,
+                color = MaterialTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                repo.url,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                if (pluginCount > 0) "$pluginCount plugins · Tap to browse and install"
+                else "Tap to browse and load plugins",
+                style = MaterialTheme.typography.labelSmall,
+                color = ColourCloudStream,
+            )
+        }
+        if (isLoading) {
+            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+        } else {
+            IconButton(onClick = onFetch) {
+                Icon(Icons.Default.Refresh, "Refresh", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
             }
         }
-        if (plugins.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .clickable { expanded = !expanded }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "${plugins.size} plugins",
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = ColourCloudStream,
-                    modifier = Modifier.weight(1f),
-                )
-                Icon(
-                    if (expanded) Icons.Default.Tune else Icons.Default.ChevronRight,
-                    null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-            if (expanded) {
-                Spacer(Modifier.height(6.dp))
-                plugins.forEach { plugin ->
-                    val internalKey = plugin.internalName ?: plugin.name
-                    PluginRow(
-                        plugin      = plugin,
-                        installing  = plugin.name in installingNames,
-                        installed   = internalKey in installedNames,
-                        onInstall   = { onInstall(plugin) },
-                        onUninstall = { onUninstall(plugin) },
-                    )
-                }
-            }
-        } else if (!isLoading) {
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                EcosystemChip("Tap refresh to load plugins", ColourCloudStream)
-            }
+        IconButton(onClick = onRemove) {
+            Icon(Icons.Default.Delete, "Remove repository", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
         }
+        Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

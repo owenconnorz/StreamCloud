@@ -161,6 +161,7 @@ private data class TvSettingsNavEntry(
     val icon: ImageVector,
     val page: SettingsPage? = null,
     val opensProfiles: Boolean = false,
+    val opensPlugins: Boolean = false,
 )
 
 private val tvSettingsNavEntries = listOf(
@@ -173,6 +174,7 @@ private val tvSettingsNavEntries = listOf(
     TvSettingsNavEntry("content", "Content & discovery", Icons.Default.Movie, SettingsPage.Content),
     TvSettingsNavEntry("playback", "Playback", Icons.Default.PlayArrow, SettingsPage.Playback),
     TvSettingsNavEntry("integrations", "Integrations", Icons.Default.Extension, SettingsPage.Account),
+    TvSettingsNavEntry("plugins", "Plugins & Addons", Icons.Default.Extension, opensPlugins = true),
     TvSettingsNavEntry("tracking", "Tracking", Icons.Default.History, SettingsPage.Privacy),
     TvSettingsNavEntry("advanced", "Advanced", Icons.Default.Settings, SettingsPage.Storage),
     TvSettingsNavEntry("about", "About", Icons.Default.Info, SettingsPage.About),
@@ -469,7 +471,9 @@ fun SettingsHubScreen(
     }
     LaunchedEffect(currentPage, isTv) {
         if (!isTv || currentPage == null) return@LaunchedEffect
-        if (currentPage == SettingsPage.Account && tvSelectedNavKey == "integrations") return@LaunchedEffect
+        if (currentPage == SettingsPage.Account && tvSelectedNavKey in setOf("integrations", "plugins")) {
+            return@LaunchedEffect
+        }
         tvSettingsNavEntries.firstOrNull { it.page == currentPage && !it.opensProfiles }
             ?.let { tvSelectedNavKey = it.key }
     }
@@ -499,6 +503,8 @@ fun SettingsHubScreen(
                 tvSelectedNavKey = entry.key
                 if (entry.opensProfiles) {
                     onSwitchProfile()
+                } else if (entry.opensPlugins) {
+                    onOpenPlugins()
                 } else {
                     entry.page?.let { destination ->
                         streamPriorityReturnPage = null

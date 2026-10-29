@@ -169,7 +169,19 @@ class NuvioRepository(
         val targetScope = scope ?: currentScope()
         val normalised = normaliseRepoUrl(url)
         val existing = savedReposFor(targetScope).first()
-        if (existing.any { it.url == normalised }) return
+        val alreadySaved = existing.firstOrNull { it.url == normalised }
+        if (alreadySaved != null) {
+            if (!name.isNullOrBlank() && alreadySaved.name != name.trim()) {
+                val updated = existing.map {
+                    if (it.id == alreadySaved.id) it.copy(name = name.trim()) else it
+                }
+                context.nuvioStore.edit {
+                    it[savedReposKey(targetScope)] =
+                        Net.json.encodeToString(ListSerializer(NuvioSavedRepo.serializer()), updated)
+                }
+            }
+            return
+        }
         val repo = NuvioSavedRepo(
             id = normalised.hashCode().toString(),
             url = normalised,

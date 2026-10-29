@@ -16,7 +16,10 @@ import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.plugins.PluginRepository
 import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
+import com.streamcloud.app.data.stremio.StremioManifest
 import com.streamcloud.app.data.stremio.StremioRepository
+import com.streamcloud.app.data.stremio.StremioSavedRepo
+import com.streamcloud.app.data.stremio.normalizeStremioManifestUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -49,7 +52,12 @@ data class PluginsState(
     val loadingRepoIds: Set<String> = emptySet(),
     val installingNames: Set<String> = emptySet(),
     val stremioAddons: List<InstalledStremioAddon> = emptyList(),
+    val stremioSavedRepos: List<StremioSavedRepo> = emptyList(),
     val addingStremio: Boolean = false,
+    val addingStremioRepo: Boolean = false,
+    val loadingStremioRepo: Boolean = false,
+    val stremioRepoManifest: StremioManifest? = null,
+    val stremioRepoManifestUrl: String = "",
     val nuvioProviders: List<InstalledNuvioProvider> = emptyList(),
     val nuvioSavedRepos: List<NuvioSavedRepo> = emptyList(),
     val nuvioRepoUrl: String = "",
@@ -73,16 +81,17 @@ class PluginsViewModel(
 
     init {
         viewModelScope.launch {
-            combine(repo.repos, repo.installed, stremio.addons, nuvio.installed, nuvio.savedRepos) { r, i, s, n, sr ->
-                arrayOf(r, i, s, n, sr)
+            combine(repo.repos, repo.installed, stremio.addons, stremio.savedRepos, nuvio.installed, nuvio.savedRepos) { r, i, s, ssr, n, nr ->
+                arrayOf(r, i, s, ssr, n, nr)
             }.collect { arr ->
                 @Suppress("UNCHECKED_CAST")
                 _state.update { it.copy(
                     repos = arr[0] as List<CloudStreamRepo>,
                     installed = arr[1] as List<InstalledPlugin>,
                     stremioAddons = arr[2] as List<InstalledStremioAddon>,
-                    nuvioProviders = arr[3] as List<InstalledNuvioProvider>,
-                    nuvioSavedRepos = arr[4] as List<NuvioSavedRepo>,
+                    stremioSavedRepos = arr[3] as List<StremioSavedRepo>,
+                    nuvioProviders = arr[4] as List<InstalledNuvioProvider>,
+                    nuvioSavedRepos = arr[5] as List<NuvioSavedRepo>,
                 ) }
             }
         }
@@ -173,6 +182,52 @@ class PluginsViewModel(
         }
     }
 
+    fun addStremioRepo(name: String, url: String) = viewModelScope.launch {
+        if (name.isBlank() || url.isBlank()) {
+            _state.update { it.copy(error = "Repository name and manifest URL are required") }
+            return@launch
+        }
+        _state.update { it.copy(addingStremioRepo = true, error = null, info = null) }
+        try {
+            val normalizedUrl = normalizeStremioManifestUrl(url)
+            val manifest = stremio.fetchManifest(normalizedUrl)
+            stremio.addSavedRepo(name, normalizedUrl, manifest)
+            _state.update {
+                it.copy(
+                    addingStremioRepo = false,
+                    info = "Saved Stremio repository: ${name.trim()}",
+                )
+            }
+        } catch (e: Exception) {
+            _state.update {
+                it.copy(addingStremioRepo = false, error = "Stremio repository: ${e.message}")
+            }
+        }
+    }
+
+    fun fetchStremioRepo(repo: StremioSavedRepo) = viewModelScope.launch {
+        _state.update {
+            it.copy(
+                loadingStremioRepo = true,
+                stremioRepoManifest = null,
+                stremioRepoManifestUrl = repo.manifestUrl,
+                error = null,
+            )
+        }
+        try {
+            val manifest = stremio.fetchManifest(repo.manifestUrl)
+            _state.update { it.copy(loadingStremioRepo = false, stremioRepoManifest = manifest) }
+        } catch (e: Exception) {
+            _state.update {
+                it.copy(loadingStremioRepo = false, error = "Could not load ${repo.name}: ${e.message}")
+            }
+        }
+    }
+
+    fun removeStremioRepo(id: String) = viewModelScope.launch {
+        stremio.removeSavedRepo(id)
+    }
+
     fun removeStremioAddon(manifestUrl: String) = viewModelScope.launch {
         com.streamcloud.app.data.nuvio.NuvioAutoSync.recordAddonDelete(appContext, manifestUrl)
         stremio.removeAddon(manifestUrl)
@@ -190,7 +245,7 @@ class PluginsViewModel(
     }
 
 
-    fun loadNuvioRepo(url: String) = viewModelScope.launch {
+    fun loadNuvioRepo(url: String, displayName: String? = null) = viewModelScope.launch {
         if (url.isBlank()) {
             _state.update { it.copy(error = "Nuvio repo URL is required") }
             return@launch
@@ -198,8 +253,10 @@ class PluginsViewModel(
         _state.update { it.copy(loadingNuvioRepo = true, nuvioRepoUrl = url, nuvioRepoManifest = null, error = null) }
         try {
             val mf = nuvio.fetchManifest(url)
-            nuvio.addSavedRepo(url, mf.name)
-            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
+            if (!displayName.isNullOrBlank()) {
+                nuvio.addSavedRepo(url, displayName)
+                com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
+            }
             _state.update { it.copy(loadingNuvioRepo = false, nuvioRepoManifest = mf) }
         } catch (e: Exception) {
             _state.update { it.copy(loadingNuvioRepo = false, error = "Nuvio: ${e.message}") }
