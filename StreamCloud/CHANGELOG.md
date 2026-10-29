@@ -1,3 +1,29 @@
+## Latest — Changes since V2324
+
+### Music and Android Auto
+- **Spotify search and discovery** — added a dedicated search and discovery experience, with broader browsing across Spotify content.
+- **Spotify playlists are easier to manage** — add tracks, edit playlist details, sort tracks, and use playlist actions from StreamCloud.
+- **Android Auto follows the selected music source** — source selection and playlist or artist queues stay consistent when browsing and playing in the car.
+
+### Casting
+- **More reliable Sonos track changes** — improved stream checks and cast-session handling to reduce disconnects between songs.
+
+### Adult sources
+- **XNXX now uses native playback** — browse and play through StreamCloud, with sign-in sessions retained on the device and provider verification preserved.
+- **Refreshed adult-provider home feeds** — improved the mobile and TV browsing layouts for the supported adult sources.
+
+### Startup, TV, and navigation
+- **Fixed startup black screens on older Fire TV devices** — startup now avoids display handling that can leave older devices blank.
+- **Matching branded startup screens** — mobile and TV now use the new StreamCloud splash screen.
+- **Redesigned the TV Movies home and navigation** — updated the home layout and added animated navigation movement.
+- **Faster cold-start readiness** — prioritize showing the first screen instead of starting all nonessential loading at once.
+- **Smoother returns between pages** — reduced crossfading and preserved the selected source and page state while navigating back.
+
+### Plugins and add-ons
+- **Improved the CloudStream source picker** — added clearer source browsing and category filters.
+- **Repository browsing and installation** — browse repositories, filter available plugins, and install from their repository pages.
+- **Consistent plugin management across platforms** — refreshed CloudStream, Nuvio, and Stremio management pages and add-repository dialogs for mobile and TV.
+
 ## Latest — Changes since V2320
 
 ### Android TV display
