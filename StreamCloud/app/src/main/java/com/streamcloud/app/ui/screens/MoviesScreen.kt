@@ -505,7 +505,7 @@ fun MoviesScreen(
     val tvHomeRowsViewportHeight = run {
         val screenWidth = LocalConfiguration.current.screenWidthDp.dp
         val continueCardWidth = (screenWidth * 0.21f).coerceIn(176.dp, 272.dp)
-        val genreCardWidth = ((screenWidth - 48.dp - 40.dp) / 5f).coerceIn(140.dp, 220.dp)
+        val genreCardWidth = calculateTvGenreCardWidth(screenWidth, tvGenres.size)
         val continueRowHeight = 30.dp + continueCardWidth * 0.54f + 8.dp
         val genreRowHeight = 30.dp + genreCardWidth * 9f / 16f + 8.dp
         val followingShelfHeight = 120.dp
@@ -1473,6 +1473,13 @@ private fun TvHomeSectionTitle(text: String) {
     )
 }
 
+internal fun calculateTvGenreCardWidth(screenWidth: Dp, genreCount: Int): Dp {
+    val itemCount = genreCount.coerceAtLeast(1)
+    val horizontalGaps = 10.dp * (itemCount - 1).toFloat()
+    val availableWidth = (screenWidth - 48.dp - horizontalGaps).coerceAtLeast(0.dp)
+    return (availableWidth / itemCount.toFloat()).coerceIn(72.dp, 220.dp)
+}
+
 @Composable
 private fun TvGenresRow(
     genres: List<TvGenreShortcut>,
@@ -1481,7 +1488,13 @@ private fun TvGenresRow(
     onFirstItemFocusChanged: (Boolean) -> Unit = {},
 ) {
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-    val cardWidth = ((screenWidth - 48.dp - 40.dp) / 5f).coerceIn(140.dp, 220.dp)
+    val cardWidth = calculateTvGenreCardWidth(screenWidth, genres.size)
+    val compactCards = cardWidth < 136.dp
+    val labelHorizontalPadding = if (compactCards) 7.dp else 10.dp
+    val labelVerticalPadding = if (compactCards) 6.dp else 8.dp
+    val iconSize = if (compactCards) 16.dp else 19.dp
+    val labelSpacing = if (compactCards) 5.dp else 7.dp
+    val labelFontSize = if (compactCards) 12.sp else 14.sp
     Column {
         TvHomeSectionTitle("Genres")
         LazyRow(
@@ -1549,20 +1562,23 @@ private fun TvGenresRow(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .fillMaxWidth()
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                            .padding(
+                                horizontal = labelHorizontalPadding,
+                                vertical = labelVerticalPadding,
+                            ),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        horizontalArrangement = Arrangement.spacedBy(labelSpacing),
                     ) {
                         Icon(
                             genre.icon,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(19.dp),
+                            modifier = Modifier.size(iconSize),
                         )
                         Text(
                             genre.title,
                             color = Color.White,
-                            style = MaterialTheme.typography.titleSmall.copy(fontSize = 14.sp),
+                            style = MaterialTheme.typography.titleSmall.copy(fontSize = labelFontSize),
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,

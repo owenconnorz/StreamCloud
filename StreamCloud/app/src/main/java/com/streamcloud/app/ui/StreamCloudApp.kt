@@ -541,6 +541,7 @@ fun StreamCloudApp(
         // Netflix-style TV nav: track which item last had startup focus so Up-from-hero focuses nav
         var firstMovieFocused by remember { mutableStateOf(false) }
         var tvNavHasFocus by remember { mutableStateOf(false) }
+        var tvNavFocusHandoffPending by remember { mutableStateOf(false) }
         var hideTvTopNav by remember { mutableStateOf(false) }
         val tvTopNavOffset by animateDpAsState(
             targetValue = if (hideTvTopNav && !tvNavHasFocus) (-190).dp else 0.dp,
@@ -550,6 +551,7 @@ fun StreamCloudApp(
         LaunchedEffect(currentRoute) {
             firstMovieFocused = false
             hideTvTopNav = false
+            tvNavFocusHandoffPending = false
         }
         var tvMusicPlayerWasExpanded by remember { mutableStateOf(false) }
         LaunchedEffect(isTv, currentRoute, playerSurfaceState.progress) {
@@ -575,6 +577,23 @@ fun StreamCloudApp(
         // can reveal the hero before the next Down handoff.
         var navScrollToTopVersion by remember { mutableStateOf(0) }
         var moviesNavDownFocusHandoffVersion by remember { mutableStateOf(0) }
+        LaunchedEffect(isTv, showRail, tvNavFocusHandoffPending, tvNavHasFocus) {
+            if (!isTv || !showRail || !tvNavFocusHandoffPending) return@LaunchedEffect
+            if (tvNavHasFocus) {
+                tvNavFocusHandoffPending = false
+                return@LaunchedEffect
+            }
+
+            repeat(12) {
+                if (tvNavHasFocus) {
+                    tvNavFocusHandoffPending = false
+                    return@LaunchedEffect
+                }
+                kotlinx.coroutines.delay(120L)
+                runCatching { firstTvNavFocus.requestFocus() }
+            }
+            tvNavFocusHandoffPending = false
+        }
         Row(
             Modifier
                 .fillMaxSize()
@@ -585,16 +604,12 @@ fun StreamCloudApp(
                         when {
                             event.key == Key.Menu -> {
                                 hideTvTopNav = false
-                                runCatching {
-                                    firstTvNavFocus.requestFocus()
-                                }
+                                tvNavFocusHandoffPending = true
                                 true
                             }
                             event.key == Key.DirectionUp && firstMovieFocused -> {
                                 hideTvTopNav = false
-                                runCatching {
-                                    firstTvNavFocus.requestFocus()
-                                }
+                                tvNavFocusHandoffPending = true
                                 true
                             }
                             else -> false
@@ -2211,7 +2226,10 @@ fun StreamCloudApp(
                         contentFocusReceived  = firstMovieFocused,
                         onNavFocusChanged     = {
                             tvNavHasFocus = it
-                            if (it) hideTvTopNav = false
+                            if (it) {
+                                tvNavFocusHandoffPending = false
+                                hideTvTopNav = false
+                            }
                         },
                         onNavFocusGained      = {
                             hideTvTopNav = false
@@ -2516,6 +2534,7 @@ private fun TvNetflixTopNav(
     )
     Box(
         modifier = modifier
+            .tvFocusGroup()
             .onFocusChanged {
                 val gainedFocus = it.hasFocus && !navHasFocus
                 navHasFocus = it.hasFocus
@@ -2523,7 +2542,6 @@ private fun TvNetflixTopNav(
                 if (gainedFocus) onNavFocusGained()
                 if (!it.hasFocus) pendingDownFocusHandoff = false
             }
-            .tvFocusGroup()
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
 
@@ -2538,10 +2556,9 @@ private fun TvNetflixTopNav(
                             downFocusAttempt++
                             onDownFocusHandoffRequested()
                         }
-                        // The target can be lazily composed while Movies scrolls
-                        // to its top. Consume this key and let the exact requester
-                        // retry instead of stranding focus in spatial search.
-                        true
+                        // Let Compose use the explicit down target on Movies tabs.
+                        // The bounded requester retry handles the lazy-list reset.
+                        currentRoute != Tab.Movies.route
                     }
                     // Nothing focusable above the nav bar — consume Up.
                     Key.DirectionUp -> true
@@ -2588,6 +2605,7 @@ private fun TvNetflixTopNav(
                                     if (overflowTabs.isNotEmpty()) {
                                         Modifier
                                             .clip(RoundedCornerShape(10.dp))
+                                            .focusProperties { down = contentFocusRequester }
                                             .tvFocusBorder(RoundedCornerShape(10.dp), showOutline = false)
                                             .clickable { overflowExpanded = true }
                                     } else {
@@ -2676,13 +2694,18 @@ private fun TvNetflixTopNav(
                             add(Tab.LiveTv)
                             if (adultTabEnabled) add(Tab.Adult)
                         }
-                        primaryTabs.forEach { tab ->
+                        primaryTabs.forEachIndexed { index, tab ->
                             val selected = currentRoute == tab.route
                             var itemFocused by remember { mutableStateOf(false) }
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier
+                                    .then(
+                                        if (index == 0) Modifier.focusRequester(firstTabFocus)
+                                        else Modifier,
+                                    )
+                                    .focusProperties { down = contentFocusRequester }
                                     .tvFocusBorder(
                                         navTabShape,
                                         showOutline = false,
@@ -2746,7 +2769,7 @@ private fun TvNetflixTopNav(
                             if (searchActionFocused) Color.White.copy(alpha = 0.16f)
                             else Color.Transparent,
                         )
-                        .focusRequester(firstTabFocus)
+                        .focusProperties { down = contentFocusRequester }
                         .onFocusChanged { searchActionFocused = it.isFocused }
                         .tvFocusBorder(CircleShape, showOutline = false)
                         .clickable(onClick = onSearchClick),
@@ -2773,6 +2796,7 @@ private fun TvNetflixTopNav(
                                 else -> Color.Transparent
                             },
                         )
+                        .focusProperties { down = contentFocusRequester }
                         .onFocusChanged { settingsActionFocused = it.isFocused }
                         .tvFocusBorder(CircleShape, showOutline = false)
                         .clickable { onTabSelected(Tab.Settings.route) },
@@ -2794,6 +2818,7 @@ private fun TvNetflixTopNav(
                             if (profileActionFocused) Color.White.copy(alpha = 0.16f)
                             else Color.Transparent,
                         )
+                        .focusProperties { down = contentFocusRequester }
                         .onFocusChanged { profileActionFocused = it.isFocused }
                         .tvFocusBorder(CircleShape, showOutline = false)
                         .clickable(onClick = onProfileClick),
