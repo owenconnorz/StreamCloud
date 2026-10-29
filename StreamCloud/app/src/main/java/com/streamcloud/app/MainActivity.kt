@@ -47,9 +47,6 @@ class MainActivity : AppCompatActivity() {
 
         showPreviousCrashIfAny()
 
-        com.streamcloud.app.cast.initCast(applicationContext)
-
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PermissionChecker.PERMISSION_GRANTED

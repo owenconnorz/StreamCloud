@@ -101,7 +101,6 @@ import com.streamcloud.app.ui.screens.StremioUnifiedDetailScreen
 import com.streamcloud.app.ui.screens.YtMusicAccountSheet
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
-import com.streamcloud.app.ui.theme.findAutomaticTvDisplayModeId
 import com.streamcloud.app.ui.viewmodel.AdultViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.runtime.LaunchedEffect
@@ -212,33 +211,6 @@ fun StreamCloudApp() {
 
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
-    DisposableEffect(context, isTvFormFactor) {
-        val activity = context as? Activity
-        if (
-            activity == null ||
-            !isTvFormFactor ||
-            !activity.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
-        ) {
-            return@DisposableEffect onDispose {}
-        }
-
-        val window = activity.window
-        val originalModeId = window.attributes.preferredDisplayModeId
-        val preferredModeId = findAutomaticTvDisplayModeId(activity)
-        if (preferredModeId != null) {
-            window.attributes = window.attributes.apply {
-                preferredDisplayModeId = preferredModeId
-            }
-        }
-
-        onDispose {
-            if (preferredModeId != null) {
-                window.attributes = window.attributes.apply {
-                    preferredDisplayModeId = originalModeId
-                }
-            }
-        }
-    }
     val musicHomeProvider by sl.settings.musicHomeProvider.collectAsState(
         initial = com.streamcloud.app.data.music.MusicProvider.YouTubeMusic,
     )
@@ -464,6 +436,14 @@ fun StreamCloudApp() {
 
     // Open the profile chooser as the first app screen, before showing the home page.
     var showProfilePicker by remember { mutableStateOf(true) }
+
+    // Avoid binding the music playback service during cold start on low-powered TVs.
+    // Warm it when the user reaches Music, while keeping first-screen rendering unblocked.
+    LaunchedEffect(currentRoute, showProfilePicker) {
+        if (!showProfilePicker && currentRoute == Tab.Music.route) {
+            com.streamcloud.app.audio.MusicController.prewarm(context)
+        }
+    }
 
     val isAppRoot = currentRoute != null &&
         tabs.any { it.route == currentRoute } &&

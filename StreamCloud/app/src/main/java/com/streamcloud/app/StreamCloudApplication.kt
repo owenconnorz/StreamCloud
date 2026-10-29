@@ -67,7 +67,6 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
         // context the service uses so web-client fallback and PoToken resolution are available.
         com.streamcloud.app.data.ytmusic.YtPlayerUtils.appContext = applicationContext
         com.streamcloud.app.data.ytmusic.StreamUrlCache.initialize(applicationContext)
-        com.streamcloud.app.audio.MusicController.prewarm(applicationContext)
 
         com.streamcloud.app.data.plugins.CloudStreamExtractorBootstrap.start(applicationContext)
 

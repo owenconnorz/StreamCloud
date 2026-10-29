@@ -6,22 +6,22 @@ import org.junit.Test
 
 class TvDisplayModesTest {
     @Test
-    fun selectsHighestRefreshUpTo120AtCurrentHdResolution() {
+    fun selects60HzAtCurrentResolutionInsteadOf120HzOrUpscaling() {
         val current = TvDisplayModeCandidate(
-            modeId = 1,
+            modeId = 4,
             physicalWidth = 3840,
             physicalHeight = 2160,
-            refreshRate = 60f,
+            refreshRate = 120f,
         )
         val modes = listOf(
             TvDisplayModeCandidate(2, 3840, 2160, 60f),
             TvDisplayModeCandidate(3, 3840, 2160, 119.88f),
-            TvDisplayModeCandidate(4, 3840, 2160, 120f),
+            current,
             TvDisplayModeCandidate(5, 3840, 2160, 144f),
-            TvDisplayModeCandidate(6, 1920, 1080, 120f),
+            TvDisplayModeCandidate(6, 1920, 1080, 60f),
         )
 
-        assertEquals(4, selectAutomaticTvDisplayModeId(current, modes))
+        assertEquals(2, selectAutomaticTvDisplayModeId(current, modes))
     }
 
     @Test
@@ -36,20 +36,42 @@ class TvDisplayModesTest {
     }
 
     @Test
-    fun upgradesBelowHdResolutionToHighestSupportedHdResolution() {
-        val current = TvDisplayModeCandidate(1, 1280, 720, 60f)
-        val modes = listOf(
-            current,
-            TvDisplayModeCandidate(2, 1920, 1080, 120f),
-            TvDisplayModeCandidate(3, 3840, 2160, 60f),
-        )
+    fun keepsAlreadySafeRefreshRateWithoutSwitchingModeIds() {
+        val current = TvDisplayModeCandidate(1, 1920, 1080, 60f)
+        val duplicateMode = TvDisplayModeCandidate(2, 1920, 1080, 60f)
 
-        assertEquals(3, selectAutomaticTvDisplayModeId(current, modes))
+        assertNull(selectAutomaticTvDisplayModeId(current, listOf(current, duplicateMode)))
     }
 
     @Test
-    fun leavesDisplayUnchangedWhenNoHdModeIsAdvertised() {
-        val current = TvDisplayModeCandidate(1, 1280, 720, 60f)
+    fun skipsAutomaticModeChangesOnLowRamDevices() {
+        val current = TvDisplayModeCandidate(1, 1920, 1080, 120f)
+        val safeMode = TvDisplayModeCandidate(2, 1920, 1080, 60f)
+
+        assertNull(
+            selectAutomaticTvDisplayModeId(
+                current = current,
+                supportedModes = listOf(current, safeMode),
+                isLowRamDevice = true,
+            ),
+        )
+    }
+
+    @Test
+    fun doesNotChangeResolutionWhenHdModesAreAdvertised() {
+        val current = TvDisplayModeCandidate(1, 1280, 720, 120f)
+        val modes = listOf(
+            current,
+            TvDisplayModeCandidate(2, 1920, 1080, 60f),
+            TvDisplayModeCandidate(3, 3840, 2160, 60f),
+        )
+
+        assertNull(selectAutomaticTvDisplayModeId(current, modes))
+    }
+
+    @Test
+    fun leavesDisplayUnchangedWhenNoCompatibleRefreshModeIsAdvertised() {
+        val current = TvDisplayModeCandidate(1, 1280, 720, 120f)
 
         assertNull(selectAutomaticTvDisplayModeId(current, listOf(current)))
     }

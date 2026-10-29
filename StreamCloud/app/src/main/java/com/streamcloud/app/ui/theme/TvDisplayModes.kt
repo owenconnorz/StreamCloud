@@ -1,6 +1,8 @@
 package com.streamcloud.app.ui.theme
 
 import android.app.Activity
+import android.app.ActivityManager
+import android.content.Context
 import android.os.Build
 import android.view.Display
 
@@ -14,37 +16,29 @@ internal data class TvDisplayModeCandidate(
 internal fun selectAutomaticTvDisplayModeId(
     current: TvDisplayModeCandidate,
     supportedModes: Iterable<TvDisplayModeCandidate>,
+    isLowRamDevice: Boolean = false,
 ): Int? {
-    val hdModes = supportedModes
+    if (isLowRamDevice) return null
+    if (current.refreshRate.isFinite() && current.refreshRate in 48f..60.5f) return null
+
+    // Keep the system-selected resolution; older TV firmware may black-screen on output changes.
+    // Use only modes Android reports at that resolution and cap automatic changes at 60 Hz.
+    val safeModes = supportedModes
         .asSequence()
         .filter {
-            it.physicalWidth >= 1920 &&
-                it.physicalHeight >= 1080 &&
+            it.physicalWidth == current.physicalWidth &&
+                it.physicalHeight == current.physicalHeight &&
                 it.refreshRate.isFinite() &&
-                it.refreshRate in 48f..122f
+                it.refreshRate in 48f..60.5f
         }
         .toList()
-    if (hdModes.isEmpty()) return null
-
-    val currentIsHd = current.physicalWidth >= 1920 && current.physicalHeight >= 1080
-    if (currentIsHd && current.refreshRate > 122f) return null
-    val resolutionModes = if (currentIsHd) {
-        hdModes.filter {
-            it.physicalWidth == current.physicalWidth &&
-                it.physicalHeight == current.physicalHeight
-        }
-    } else {
-        val bestPixelCount = hdModes.maxOf { it.physicalWidth.toLong() * it.physicalHeight }
-        hdModes.filter { it.physicalWidth.toLong() * it.physicalHeight == bestPixelCount }
-    }
-
-    val candidate = resolutionModes.maxByOrNull { it.refreshRate } ?: return null
+    val candidate = safeModes.maxByOrNull { it.refreshRate } ?: return null
     return candidate.modeId.takeIf { it != current.modeId }
 }
 
 @Suppress("DEPRECATION")
 internal fun findAutomaticTvDisplayModeId(activity: Activity): Int? {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return null
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || !allowsTvModeSwitch(activity)) return null
 
     val display = activity.windowManager.defaultDisplay
     fun Display.Mode.toCandidate() = TvDisplayModeCandidate(
@@ -57,12 +51,17 @@ internal fun findAutomaticTvDisplayModeId(activity: Activity): Int? {
     return selectAutomaticTvDisplayModeId(
         current = current,
         supportedModes = display.supportedModes.map { it.toCandidate() },
+        isLowRamDevice = isLowRamDevice(activity),
     )
 }
 
 @Suppress("DEPRECATION")
 internal fun findMatchingTvDisplayModeId(activity: Activity, frameRate: Float): Int? {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || !frameRate.isFinite() || frameRate <= 0f) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+        !allowsTvModeSwitch(activity) ||
+        !frameRate.isFinite() ||
+        frameRate <= 0f
+    ) {
         return null
     }
 
@@ -72,7 +71,9 @@ internal fun findMatchingTvDisplayModeId(activity: Activity, frameRate: Float): 
         .asSequence()
         .filter { mode ->
             mode.physicalWidth == activeMode.physicalWidth &&
-                mode.physicalHeight == activeMode.physicalHeight
+                mode.physicalHeight == activeMode.physicalHeight &&
+                mode.refreshRate.isFinite() &&
+                mode.refreshRate <= 60.5f
         }
         .filter { mode ->
             (1..5).any { multiple ->
@@ -82,3 +83,10 @@ internal fun findMatchingTvDisplayModeId(activity: Activity, frameRate: Float): 
         .maxByOrNull { it.refreshRate }
         ?.modeId
 }
+
+private fun isLowRamDevice(activity: Activity): Boolean =
+    (activity.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)
+        ?.isLowRamDevice
+        ?: true
+
+private fun allowsTvModeSwitch(activity: Activity): Boolean = !isLowRamDevice(activity)

@@ -30,3 +30,4 @@
 - [App palette scope](app-palette-scope.md) — Apply reference palettes to Movies home, Library, and Settings; keep Music and detail-page theming unchanged.
 - [Spotify private library actions](spotify-private-library-actions.md) — Spotube-style regular playlist creation; collaborative creation stays on Spotify REST, with separate cooldowns and verified mutations.
 - [XNXX login sessions](xnxx-login-session.md) — Keep provider verification intact and scope persistent sign-in cookies to on-device XNXX page requests.
+- [TV display mode safety](tv-display-mode-safety.md) — Avoid app-start mode switches; use Android-reported same-resolution modes capped at 60Hz.
