@@ -2225,13 +2225,7 @@ fun StreamCloudApp(
                             }
                         },
                         onTabSelected         = { route -> navigateToTab(nav, route) },
-                        onOpenCatalog        = { source, title, subtitle ->
-                            val s = URLEncoder.encode(source, "UTF-8")
-                            val t = URLEncoder.encode(title, "UTF-8")
-                            val sub = URLEncoder.encode(subtitle.ifBlank { " " }, "UTF-8")
-                            nav.navigate("catalog/$s/$t/$sub")
-                        },
-                        onOpenCategories     = { nav.navigate("collections") },
+                        adultTabEnabled      = nsfwEnabled,
                         onProfileClick       = { showProfilePicker = true },
                         profileAvatarSeed    = activeProfile?.avatarSeed.orEmpty()
                             .ifBlank { activeProfile?.name.orEmpty() },
@@ -2243,7 +2237,7 @@ fun StreamCloudApp(
                                 nav.navigate("movie-search")
                             }
                         },
-                        showBranding          = !isMusicRoute && currentRoute != Tab.Library.route,
+                        showBranding          = true,
                         showMiniPlayer        = showMiniPlayer && navExpanded,
                         miniPlayer            = {
                             com.streamcloud.app.ui.player.TvMiniPlayer(
@@ -2398,8 +2392,7 @@ private fun TvNetflixTopNav(
     onDownFocusHandoffRequested: () -> Unit = {},
     onTabSelected: (String) -> Unit,
     onSearchClick: () -> Unit,
-    onOpenCatalog: (String, String, String) -> Unit = { _, _, _ -> },
-    onOpenCategories: () -> Unit = {},
+    adultTabEnabled: Boolean = false,
     onProfileClick: () -> Unit = {},
     profileAvatarSeed: String = "",
     profileAvatarUrl: String = "",
@@ -2570,46 +2563,58 @@ private fun TvNetflixTopNav(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (showBranding) {
+                    val overflowTabs = tabs.filter { it.route == Tab.LocalFiles.route }
                     Box {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(0.dp),
                             modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .tvFocusBorder(RoundedCornerShape(10.dp), showOutline = false)
-                                .clickable { overflowExpanded = true }
+                                .then(
+                                    if (overflowTabs.isNotEmpty()) {
+                                        Modifier
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .tvFocusBorder(RoundedCornerShape(10.dp), showOutline = false)
+                                            .clickable { overflowExpanded = true }
+                                    } else {
+                                        Modifier
+                                    },
+                                )
                                 .padding(horizontal = 4.dp, vertical = 3.dp),
                         ) {
                             Image(
-                                painter = painterResource(com.streamcloud.app.R.drawable.ic_launcher_foreground_vector),
+                                painter = painterResource(com.streamcloud.app.R.drawable.ic_streamcloud_brand),
                                 contentDescription = null,
-                                modifier = Modifier.size(34.dp),
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.size(width = 40.dp, height = 32.dp),
                             )
                             Text(
-                                "StreamCloud",
+                                text = "Stream",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = Color.White,
                             )
+                            Text(
+                                text = "Cloud",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF9B6BFF),
+                            )
                         }
-                        val overflowTabs = tabs.filter {
-                            it.route == Tab.Music.route ||
-                                it.route == Tab.Library.route ||
-                                it.route == Tab.LiveTv.route ||
-                                it.route == Tab.LocalFiles.route
-                        }
-                        androidx.compose.material3.DropdownMenu(
-                            expanded = overflowExpanded,
-                            onDismissRequest = { overflowExpanded = false },
-                        ) {
-                            overflowTabs.forEach { tab ->
-                                androidx.compose.material3.DropdownMenuItem(
-                                    text = { Text(tab.label) },
-                                    leadingIcon = { Icon(tab.icon, contentDescription = null) },
-                                    onClick = {
-                                        overflowExpanded = false
-                                        onTabSelected(tab.route)
-                                    },
-                                )
+                        if (overflowTabs.isNotEmpty()) {
+                            androidx.compose.material3.DropdownMenu(
+                                expanded = overflowExpanded,
+                                onDismissRequest = { overflowExpanded = false },
+                            ) {
+                                overflowTabs.forEach { tab ->
+                                    androidx.compose.material3.DropdownMenuItem(
+                                        text = { Text(tab.label) },
+                                        leadingIcon = { Icon(tab.icon, contentDescription = null) },
+                                        onClick = {
+                                            overflowExpanded = false
+                                            onTabSelected(tab.route)
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -2648,16 +2653,16 @@ private fun TvNetflixTopNav(
                         )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        val primaryTabs = listOf(Tab.Movies)
+                        val primaryTabs = buildList {
+                            add(Tab.Movies)
+                            add(Tab.Library)
+                            add(Tab.Music)
+                            add(Tab.LiveTv)
+                            if (adultTabEnabled) add(Tab.Adult)
+                        }
                         primaryTabs.forEach { tab ->
                             val selected = currentRoute == tab.route
                             var itemFocused by remember { mutableStateOf(false) }
-                            val label = if (tab.route == Tab.Movies.route) "Home" else tab.label
-                            val icon = if (tab.route == Tab.Movies.route) {
-                                MaterialIcons.Filled.Home
-                            } else {
-                                tab.icon
-                            }
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -2675,7 +2680,7 @@ private fun TvNetflixTopNav(
                                     },
                             ) {
                                 Icon(
-                                    imageVector = icon,
+                                    imageVector = tab.icon,
                                     contentDescription = null,
                                     tint = if (selected || itemFocused) {
                                         Color.White
@@ -2685,7 +2690,7 @@ private fun TvNetflixTopNav(
                                     modifier = Modifier.size(16.dp),
                                 )
                                 Text(
-                                    label,
+                                    tab.label,
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                                     color = if (selected || itemFocused) {
@@ -2696,46 +2701,6 @@ private fun TvNetflixTopNav(
                                 )
                             }
                         }
-                        @Composable
-                        fun BrowseAction(label: String, icon: ImageVector, onClick: () -> Unit) {
-                            var focused by remember { mutableStateOf(false) }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier
-                                    .tvFocusBorder(RoundedCornerShape(50), showOutline = false)
-                                    .onFocusChanged { focused = it.isFocused }
-                                    .clickable(onClick = onClick)
-                                    .padding(horizontal = 10.dp, vertical = 7.dp),
-                            ) {
-                                Icon(
-                                    icon,
-                                    contentDescription = null,
-                                    tint = if (focused) Color.White else Color.White.copy(alpha = .78f),
-                                    modifier = Modifier.size(16.dp),
-                                )
-                                Text(
-                                    label,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color.White.copy(alpha = if (focused) 1f else .82f),
-                                )
-                            }
-                        }
-                        BrowseAction("Movies", MaterialIcons.Filled.Theaters) {
-                            onOpenCatalog("tmdb:popular", "Popular Movies", "All-time fan favourites")
-                        }
-                        BrowseAction("TV Shows", MaterialIcons.Filled.LiveTv) {
-                            onOpenCatalog("tmdb:tv_popular", "Popular TV Shows", "Popular series")
-                        }
-                        BrowseAction("Anime", Icons.Default.AutoAwesome) {
-                            onOpenCatalog("tmdb:anime", "Anime Movies", "Anime feature films")
-                        }
-                        if (tabs.any { it.route == Tab.Adult.route }) {
-                            BrowseAction("Adult", Icons.Default.Whatshot) {
-                                onTabSelected(Tab.Adult.route)
-                            }
-                        }
-                        BrowseAction("Categories", Icons.Default.Category, onOpenCategories)
                     }
                 }
             }

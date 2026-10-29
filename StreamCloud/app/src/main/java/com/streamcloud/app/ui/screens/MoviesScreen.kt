@@ -1531,8 +1531,8 @@ private fun HeroPager(
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val tvHeroHeight = (LocalConfiguration.current.screenHeightDp.dp * 0.46f)
-        .coerceIn(220.dp, 360.dp)
+    val tvHeroHeight = (LocalConfiguration.current.screenHeightDp.dp * 0.55f)
+        .coerceIn(270.dp, 420.dp)
 
     if (isTv) {
         // HorizontalPager intercepts every D-pad left/right at the input level and permanently
@@ -2242,7 +2242,7 @@ private fun ContinueWatchingCard(
     onLongPress: () -> Unit,
 ) {
     val cardWidth = if (isTv) {
-        (LocalConfiguration.current.screenWidthDp.dp * 0.19f).coerceIn(168.dp, 248.dp)
+        (LocalConfiguration.current.screenWidthDp.dp * 0.21f).coerceIn(176.dp, 272.dp)
     } else {
         320.dp
     }
