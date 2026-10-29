@@ -88,6 +88,14 @@ import com.streamcloud.app.ui.viewmodel.AdultViewModel
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 
+private val cinematicAdultSources = setOf(
+    AdultSource.Eporner,
+    AdultSource.Xnxx,
+    AdultSource.XHamster,
+    AdultSource.Beeg,
+    AdultSource.PornMz,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdultScreen(
@@ -113,12 +121,14 @@ fun AdultScreen(
     val state by vm.state.collectAsState()
     val scope = rememberCoroutineScope()
     val isTvLayout = LocalUiFormFactor.current == UiFormFactor.Tv
+    val cinematicHomeStyle = state.source in cinematicAdultSources
 
     var detailItem by remember { mutableStateOf<AdultItem?>(null) }
     var query by remember { mutableStateOf("") }
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showAllPornhubCategories by remember { mutableStateOf(false) }
     var showAllXHamsterCategories by remember { mutableStateOf(false) }
+    var showProviderCategoriesUnavailable by remember { mutableStateOf(false) }
     var showProviderPicker by remember { mutableStateOf(false) }
     var xFreeHeaderVisible by remember { mutableStateOf(true) }
     var showPornhubShorties by remember { mutableStateOf(false) }
@@ -131,6 +141,7 @@ fun AdultScreen(
             !showAllPornhubCategories &&
             !showAllXHamsterCategories &&
             !showProviderPicker &&
+            !showProviderCategoriesUnavailable &&
             !showPornhubShorties &&
             detailItem == null &&
             when (state.source) {
@@ -185,6 +196,10 @@ fun AdultScreen(
             onSelect = { source ->
                 vm.setSource(source)
                 query = ""
+                showCategoryPicker = false
+                showAllPornhubCategories = false
+                showAllXHamsterCategories = false
+                showProviderCategoriesUnavailable = false
                 showProviderPicker = false
             },
         )
@@ -274,17 +289,57 @@ fun AdultScreen(
                 .padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    screenTitle,
-                    style = MaterialTheme.typography.displayLarge,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-                Text(
-                    screenSubtitle.ifBlank { "18+ \u00b7 ${state.source.label}" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (cinematicHomeStyle) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f))
+                        .tvFocusBorder(RoundedCornerShape(18.dp))
+                        .clickable(
+                            onClickLabel = "Choose adult source",
+                            onClick = { showProviderPicker = true },
+                        )
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ProviderBadge(state.source)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            state.source.label,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            "Choose source",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
+                    Icon(
+                        Icons.Default.ArrowDropDown,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        screenTitle,
+                        style = MaterialTheme.typography.displayLarge,
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                    Text(
+                        screenSubtitle.ifBlank { "18+ \u00b7 ${state.source.label}" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (state.source in setOf(
                     AdultSource.Eporner,
@@ -311,18 +366,47 @@ fun AdultScreen(
                 }
                 Spacer(Modifier.width(8.dp))
             }
-            IconButton(
-                onClick = { showProviderPicker = true },
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-            ) {
-                Icon(
-                    Icons.Default.Extension,
-                    contentDescription = "Plugins",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (cinematicHomeStyle) {
+                IconButton(
+                    onClick = {
+                        when (state.source) {
+                            AdultSource.Eporner -> {
+                                vm.loadCategories()
+                                showCategoryPicker = true
+                            }
+                            AdultSource.XHamster -> {
+                                vm.loadXHamsterCategories()
+                                showAllXHamsterCategories = true
+                            }
+                            else -> showProviderCategoriesUnavailable = true
+                        }
+                    },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .tvFocusBorder(RoundedCornerShape(14.dp)),
+                ) {
+                    Icon(
+                        Icons.Default.Category,
+                        contentDescription = "Change ${state.source.label} categories",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                IconButton(
+                    onClick = { showProviderPicker = true },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    Icon(
+                        Icons.Default.Extension,
+                        contentDescription = "Plugins",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (state.source in setOf(
                     AdultSource.Eporner,
@@ -439,9 +523,11 @@ fun AdultScreen(
             }
 
             // Provider categories and the active category.
-            if (state.source == AdultSource.Eporner ||
-                (state.source == AdultSource.XHamster &&
-                    (query.isNotBlank() || state.selectedXHamsterCategory != null))
+            if (!cinematicHomeStyle && (
+                state.source == AdultSource.Eporner ||
+                    (state.source == AdultSource.XHamster &&
+                        (query.isNotBlank() || state.selectedXHamsterCategory != null))
+                )
             ) Row(
                 Modifier
                     .fillMaxWidth()
@@ -486,6 +572,33 @@ fun AdultScreen(
                 }
             }
 
+            val activeProviderCategory =
+                state.selectedCategory?.takeIf { state.source == AdultSource.Eporner }?.title
+                    ?: state.selectedXHamsterCategory?.title
+            if (cinematicHomeStyle && activeProviderCategory != null) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    InputChip(
+                        selected = true,
+                        onClick = {
+                            if (state.source == AdultSource.XHamster) vm.selectXHamsterCategory(null)
+                            else vm.selectCategory(null)
+                            query = ""
+                        },
+                        label = {
+                            Text(activeProviderCategory, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        },
+                        trailingIcon = {
+                            Icon(Icons.Default.Close, "Clear category", Modifier.size(16.dp))
+                        },
+                    )
+                }
+            }
+
             Spacer(Modifier.height(4.dp))
 
             state.error?.let {
@@ -494,15 +607,18 @@ fun AdultScreen(
 
             LazyVerticalGrid(
                 state = gridState,
-                columns = if (state.source == AdultSource.Pornhub) {
-                    GridCells.Adaptive(300.dp)
-                } else {
-                    GridCells.Fixed(2)
+                columns = when {
+                    state.source == AdultSource.Pornhub -> GridCells.Adaptive(300.dp)
+                    cinematicHomeStyle && isTvLayout -> GridCells.Adaptive(320.dp)
+                    cinematicHomeStyle -> GridCells.Fixed(1)
+                    else -> GridCells.Fixed(2)
                 },
                 modifier = Modifier.tvFocusGroup(),
-                contentPadding = PaddingValues(16.dp),
+                contentPadding = if (cinematicHomeStyle && isTvLayout) {
+                    PaddingValues(horizontal = 32.dp, vertical = 20.dp)
+                } else PaddingValues(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement   = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(if (cinematicHomeStyle) 16.dp else 12.dp),
             ) {
                 if (
                     state.source == AdultSource.XHamster &&
@@ -594,6 +710,19 @@ fun AdultScreen(
         )
     }
 
+    if (showProviderCategoriesUnavailable) {
+        AlertDialog(
+            onDismissRequest = { showProviderCategoriesUnavailable = false },
+            title = { Text("${state.source.label} categories") },
+            text = { Text("This provider does not expose a category list in StreamCloud yet.") },
+            confirmButton = {
+                TextButton(onClick = { showProviderCategoriesUnavailable = false }) {
+                    Text("OK")
+                }
+            },
+        )
+    }
+
     detailItem?.let { item ->
         val playItem = {
             vm.recordHistory(item)
@@ -681,7 +810,16 @@ private fun AdultProviderPicker(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Plugins") },
+                title = {
+                    Column {
+                        Text("Sources", fontWeight = FontWeight.Bold)
+                        Text(
+                            "Browse and manage providers",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -860,21 +998,12 @@ private data class ProviderBrand(
 
 @Composable
 private fun ProviderFallbackBadge(brand: ProviderBrand) {
-    if (brand.fallbackLabel == "E") {
-        Icon(
-            Icons.Default.Extension,
-            contentDescription = null,
-            tint = brand.fallbackForeground,
-            modifier = Modifier.size(24.dp),
-        )
-    } else {
-        Text(
-            brand.fallbackLabel,
-            color = brand.fallbackForeground,
-            fontWeight = FontWeight.Bold,
-            fontSize = if (brand.fallbackLabel.length > 1) 13.sp else 18.sp,
-        )
-    }
+    Text(
+        brand.fallbackLabel,
+        color = brand.fallbackForeground,
+        fontWeight = FontWeight.Bold,
+        fontSize = if (brand.fallbackLabel.length > 1) 13.sp else 18.sp,
+    )
 }
 
 @Composable
@@ -2214,6 +2343,8 @@ private fun PinLockScreen(onUnlock: (String) -> Boolean) {
 
 @Composable
 private fun AdultCard(v: AdultItem, onClick: () -> Unit) {
+    val cinematicCardStyle = v.source in cinematicAdultSources
+    val cardShape = RoundedCornerShape(if (cinematicCardStyle) 16.dp else 12.dp)
     val cardBg  = MaterialTheme.colorScheme.surface
     val textFg  = MaterialTheme.colorScheme.onSurface
     val context = LocalContext.current
@@ -2238,8 +2369,8 @@ private fun AdultCard(v: AdultItem, onClick: () -> Unit) {
 
     Column(
         Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .tvFocusBorder(RoundedCornerShape(12.dp))
+            .clip(cardShape)
+            .tvFocusBorder(cardShape)
             .background(cardBg)
             .clickable(onClick = onClick)
     ) {
@@ -2265,7 +2396,7 @@ private fun AdultCard(v: AdultItem, onClick: () -> Unit) {
                         )
                     )
             )
-            v.durationLabel?.let {
+            if (!cinematicCardStyle) v.durationLabel?.let {
                 Text(
                     it,
                     color    = Color.White,
@@ -2277,6 +2408,32 @@ private fun AdultCard(v: AdultItem, onClick: () -> Unit) {
                         .background(Color.Black.copy(alpha = 0.6f))
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
+            }
+            if (cinematicCardStyle) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth(0.82f)
+                        .padding(start = 12.dp, bottom = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        v.title,
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    v.durationLabel?.let { duration ->
+                        Text(
+                            duration,
+                            color = Color.White.copy(alpha = 0.84f),
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                        )
+                    }
+                }
             }
             if (v.source != AdultSource.Pornhub &&
                 v.source != AdultSource.Eporner &&
@@ -2296,13 +2453,15 @@ private fun AdultCard(v: AdultItem, onClick: () -> Unit) {
                 )
             }
         }
-        Text(
-            v.title,
-            style    = MaterialTheme.typography.bodyMedium,
-            color    = textFg,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-        )
+        if (!cinematicCardStyle) {
+            Text(
+                v.title,
+                style    = MaterialTheme.typography.bodyMedium,
+                color    = textFg,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            )
+        }
     }
 }
