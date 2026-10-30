@@ -961,9 +961,9 @@ class MoviesViewModel(
             return
         }
 
-        // Manifest metadata is much lighter than catalog contents. Discover adult
-        // catalog references immediately so the 18+ genre does not wait for Movies
-        // home or the delayed supplementary catalog fetch.
+        // Discover clearly adult add-ons first so the 18+ shortcut can appear early.
+        // Scanning unrelated manifests is supplementary work; wait until primary
+        // Movies shelves are available before starting those requests.
         stremioAdultDiscoveryJob = viewModelScope.launch {
             try {
                 // Check clearly adult-named add-ons first, so those references are
@@ -977,6 +977,7 @@ class MoviesViewModel(
                     applyStremioFilter()
                 }
                 if (otherAddons.isNotEmpty()) {
+                    waitForPrimaryHomeStartup()
                     val additionalRefs =
                         stremioRepo.fetchAdultCatalogReferences(otherAddons)
                     allDiscoveredAdultCatalogs =

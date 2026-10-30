@@ -51,6 +51,16 @@ repeat(10) {
 
 **Fix:** On TV, replace `HorizontalPager` with a plain `Crossfade` that auto-cycles on a timer. Make **only the action button** inside the banner focusable. Keep `HorizontalPager` for non-TV. Only attach a startup `FocusRequester` to page 0's button — `Crossfade` composes both old and new content during animation, so attaching the same requester to every page causes a duplicate-requester error.
 
+## Avoid uninitialized directional focus targets
+
+A reported Fire TV crash during D-pad dispatch says `FocusRequester is not initialized`. The top navigation's native `focusProperties.down` target can point to a lazy Movies hero before that target has been composed and attached.
+
+**Fix:** Intercept Down on the TV navigation and use its bounded `requestFocus()` retry plus spatial fallback. Do not give native focus search a directional requester that may be detached during loading or route changes.
+
+**Why:** Native focus search resolves the target synchronously and can throw before the asynchronous page target is ready.
+
+**How to apply:** For navigation-to-content handoffs across lazy screens, consume the D-pad event at the navigation boundary and retry the exact target safely; preserve a spatial fallback for screens without that target.
+
 ## Kotlin scope collision: key-event lambda inside LazyListScope
 
 Placing an `onPreviewKeyEvent { event -> ... }` lambda inside the content block of a `LazyColumn` causes Kotlin to resolve `type` and `key` against the `LazyListScope` DSL, not the `KeyEvent` receiver.

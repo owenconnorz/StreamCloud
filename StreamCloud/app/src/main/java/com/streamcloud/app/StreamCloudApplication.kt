@@ -122,9 +122,8 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
                     }
                 }
             }
-            // Start the one shared resolver warm-up only after the initial account state is known.
-            // Playback and the service can await this same work instead of racing another copy.
-            com.streamcloud.app.data.ytmusic.YtPlayerUtils.warmUp()
+            // MusicPlaybackService warms the resolver when music playback is opened.
+            // Avoid network, JavaScript, and token work on every Movies cold start.
         }
 
         scope.launch {

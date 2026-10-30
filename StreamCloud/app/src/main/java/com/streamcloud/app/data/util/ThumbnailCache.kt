@@ -2,6 +2,7 @@ package com.streamcloud.app.data.util
 
 import android.content.Context
 import android.os.Build
+import com.streamcloud.app.BuildConfig
 import coil.ImageLoader
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
@@ -144,7 +145,9 @@ object ThumbnailCache {
         }
         .memoryCachePolicy(CachePolicy.ENABLED)
         .diskCachePolicy(CachePolicy.ENABLED)
-        .crossfade(true)
+        // Skip per-thumbnail fade animations on TV hardware to reduce repeated
+        // rendering work as large poster rows populate. Keep the transition on mobile.
+        .crossfade(!BuildConfig.TV_BUILD)
         .components {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 add(ImageDecoderDecoder.Factory())

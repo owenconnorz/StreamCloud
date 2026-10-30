@@ -151,7 +151,6 @@ import com.streamcloud.app.data.util.GoogleAccountHelper
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -2564,9 +2563,10 @@ private fun TvNetflixTopNav(
                             downFocusAttempt++
                             onDownFocusHandoffRequested()
                         }
-                        // Let Compose use the explicit down target on Movies tabs.
-                        // The bounded requester retry handles the lazy-list reset.
-                        currentRoute != Tab.Movies.route
+                        // Use the bounded handoff below for every route. Compose's
+                        // native focus search can crash when this target is not
+                        // attached yet (for example, while the Movies hero loads).
+                        true
                     }
                     // Nothing focusable above the nav bar — consume Up.
                     Key.DirectionUp -> true
@@ -2713,7 +2713,6 @@ private fun TvNetflixTopNav(
                                         if (index == 0) Modifier.focusRequester(firstTabFocus)
                                         else Modifier,
                                     )
-                                    .focusProperties { down = contentFocusRequester }
                                     .tvFocusBorder(
                                         navTabShape,
                                         showOutline = false,
@@ -2777,7 +2776,6 @@ private fun TvNetflixTopNav(
                             if (searchActionFocused) Color.White.copy(alpha = 0.16f)
                             else Color.Transparent,
                         )
-                        .focusProperties { down = contentFocusRequester }
                         .onFocusChanged { searchActionFocused = it.isFocused }
                         .tvFocusBorder(CircleShape, showOutline = false)
                         .clickable(onClick = onSearchClick),
