@@ -1414,14 +1414,22 @@ private suspend fun applyMovieWatchlistMutation(
     when (mutation) {
         is MovieWatchlistMutation.Remove -> {
             if (mutation.listId == null) {
-                db.watchlist().remove(mutation.entry.tmdbId)
-                com.streamcloud.app.data.nuvio.NuvioAutoSync.requestLibraryDelete(
-                    context.applicationContext,
-                    mutation.entry.tmdbId,
-                    mutation.entry.mediaType,
-                    userId = userId,
-                    localProfileId = profileId,
-                )
+                val result = com.streamcloud.app.data.nuvio.NuvioAutoSync
+                    .deleteLibraryItemAndSyncNow(
+                        context = context.applicationContext,
+                        db = db,
+                        tmdbId = mutation.entry.tmdbId,
+                        mediaType = mutation.entry.mediaType,
+                        userId = userId,
+                        localProfileId = profileId,
+                    )
+                if (result.isFailure && userId.isNotBlank()) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Removed locally; Nuvio sync will retry when available.",
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                }
             } else {
                 db.movieWatchlists().removeItem(mutation.listId, mutation.entry.tmdbId)
                 com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
@@ -1429,20 +1437,36 @@ private suspend fun applyMovieWatchlistMutation(
         }
 
         is MovieWatchlistMutation.Move -> {
-            db.moveMovieWatchlistItems(
-                entries = listOf(mutation.entry),
-                sourceListId = mutation.sourceListId,
-                destinationListId = mutation.destinationListId,
-            )
             if (mutation.sourceListId == null && mutation.destinationListId != null) {
-                com.streamcloud.app.data.nuvio.NuvioAutoSync.requestLibraryDelete(
-                    context.applicationContext,
-                    mutation.entry.tmdbId,
-                    mutation.entry.mediaType,
-                    userId = userId,
-                    localProfileId = profileId,
-                )
+                val result = com.streamcloud.app.data.nuvio.NuvioAutoSync
+                    .deleteLibraryItemAndSyncNow(
+                        context = context.applicationContext,
+                        db = db,
+                        tmdbId = mutation.entry.tmdbId,
+                        mediaType = mutation.entry.mediaType,
+                        userId = userId,
+                        localProfileId = profileId,
+                        localMutation = {
+                            db.moveMovieWatchlistItems(
+                                entries = listOf(mutation.entry),
+                                sourceListId = mutation.sourceListId,
+                                destinationListId = mutation.destinationListId,
+                            )
+                        },
+                    )
+                if (result.isFailure && userId.isNotBlank()) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "Moved locally; Nuvio sync will retry when available.",
+                        android.widget.Toast.LENGTH_LONG,
+                    ).show()
+                }
             } else {
+                db.moveMovieWatchlistItems(
+                    entries = listOf(mutation.entry),
+                    sourceListId = mutation.sourceListId,
+                    destinationListId = mutation.destinationListId,
+                )
                 com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
             }
         }

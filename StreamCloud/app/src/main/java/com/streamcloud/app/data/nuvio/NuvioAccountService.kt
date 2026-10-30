@@ -121,6 +121,40 @@ data class NuvioLibraryDeleteKey(
     val contentType: String,
 )
 
+internal fun parseNuvioLibraryTmdbId(contentId: String): Long? {
+    val raw = contentId.trim()
+    return when {
+        raw.matches(Regex("tmdb:(?:(?:movie|series|tv):)?\\d+")) ->
+            raw.substringAfterLast(':').toLongOrNull()
+        raw.matches(Regex("(?:movie|series|tv):\\d+")) ->
+            raw.substringAfterLast(':').toLongOrNull()
+        raw.all { it.isDigit() } -> raw.toLongOrNull()
+        else -> null
+    }
+}
+
+internal fun NuvioLibraryDeleteKey.matchesLibraryItem(
+    remoteContentId: String,
+    remoteContentType: String,
+    resolvedTmdbId: Long?,
+): Boolean {
+    if (isNuvioSeriesType(contentType) != isNuvioSeriesType(remoteContentType)) return false
+    val deletedTmdbId = parseNuvioLibraryTmdbId(contentId)
+    val remoteTmdbId = resolvedTmdbId ?: parseNuvioLibraryTmdbId(remoteContentId)
+    if (deletedTmdbId != null && remoteTmdbId != null) {
+        return deletedTmdbId == remoteTmdbId
+    }
+    return contentId.trim().equals(remoteContentId.trim(), ignoreCase = true)
+}
+
+internal fun confirmedNuvioLibraryDeletes(
+    pending: Collection<NuvioLibraryDeleteKey>,
+    stillPresent: Collection<NuvioLibraryDeleteKey>,
+): List<NuvioLibraryDeleteKey> {
+    val present = stillPresent.toSet()
+    return pending.filterNot { it in present }
+}
+
 @Serializable
 private data class PullAddon(
     val url: String = "",
@@ -997,7 +1031,20 @@ class NuvioAccountService(private val context: Context) {
         // ── Library / watchlist ─────────────────────────────────────────────
         runCatching {
             val watchlistDao = db.watchlist()
+            val pendingDeletes = NuvioAutoSync.pendingLibraryDeleteKeys(
+                context,
+                syncUserId,
+                syncLocalProfileId,
+            )
+            pendingDeletes.forEach { deletion ->
+                val tmdbId = parseTmdbId(deletion.contentId) ?: return@forEach
+                val local = watchlistDao.byId(tmdbId) ?: return@forEach
+                if (isNuvioSeriesType(local.mediaType) == isNuvioSeriesType(deletion.contentType)) {
+                    watchlistDao.remove(tmdbId)
+                }
+            }
             val existingIds = watchlistDao.all().first().map { it.tmdbId }.toMutableSet()
+            val stillPresentDeletes = linkedSetOf<NuvioLibraryDeleteKey>()
             val pageSize = 500
             var offset = 0
             var page: List<PullLibraryItem>
@@ -1013,13 +1060,25 @@ class NuvioAccountService(private val context: Context) {
                 ).getOrThrow()
                 page = json.decodeFromString(ListSerializer(PullLibraryItem.serializer()), text)
                 page.forEach { item ->
-                    val tmdbId = resolveTmdbId(item.content_id, item.content_type) ?: return@forEach
-                    if (existingIds.add(tmdbId)) {
+                    val tmdbId = resolveTmdbId(item.content_id, item.content_type)
+                    val matchingDeletes = pendingDeletes.filter {
+                        it.matchesLibraryItem(
+                            remoteContentId = item.content_id,
+                            remoteContentType = item.content_type,
+                            resolvedTmdbId = tmdbId,
+                        )
+                    }
+                    if (matchingDeletes.isNotEmpty()) {
+                        stillPresentDeletes += matchingDeletes
+                        return@forEach
+                    }
+                    val resolvedId = tmdbId ?: return@forEach
+                    if (existingIds.add(resolvedId)) {
                         val mediaType = if (isNuvioSeriesType(item.content_type)) "tv" else "movie"
                         val addedAt = item.added_at.takeIf { it > 0 } ?: System.currentTimeMillis()
                         watchlistDao.add(
                             WatchlistEntity(
-                                tmdbId = tmdbId,
+                                tmdbId = resolvedId,
                                 title = item.name,
                                 posterUrl = item.poster,
                                 mediaType = mediaType,
@@ -1031,6 +1090,22 @@ class NuvioAccountService(private val context: Context) {
                 }
                 offset += page.size
             } while (page.size == pageSize)
+            val confirmedDeletes = confirmedNuvioLibraryDeletes(
+                pending = pendingDeletes,
+                stillPresent = stillPresentDeletes,
+            )
+            NuvioAutoSync.confirmLibraryDeletes(
+                context = context,
+                deletes = confirmedDeletes,
+                userId = syncUserId,
+                localProfileId = syncLocalProfileId,
+            )
+            if (stillPresentDeletes.isNotEmpty()) {
+                val message =
+                    "Nuvio still returned ${stillPresentDeletes.size} library item(s) marked for deletion"
+                errors += "library deletion: $message"
+                Log.w(TAG, "$message; keeping the delete tombstone for retry")
+            }
         }.onFailure {
             errors += "library pull: ${it.message ?: "unknown error"}"
             Log.w(TAG, "pull library: ${it.message}")
@@ -1960,15 +2035,7 @@ class NuvioAccountService(private val context: Context) {
     }
 
     private fun parseTmdbId(contentId: String): Long? {
-        val raw = contentId.trim()
-        return when {
-            raw.matches(Regex("tmdb:(?:(?:movie|series|tv):)?\\d+")) ->
-                raw.substringAfterLast(':').toLongOrNull()
-            raw.matches(Regex("(?:movie|series|tv):\\d+")) ->
-                raw.substringAfterLast(':').toLongOrNull()
-            raw.all { it.isDigit() } -> raw.toLongOrNull()
-            else -> null
-        }
+        return parseNuvioLibraryTmdbId(contentId)
     }
 
     private suspend fun resolveTmdbIdFromNuvio(

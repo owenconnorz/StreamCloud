@@ -211,6 +211,47 @@ class NuvioSyncContractTest : NuvioProgressInteropTest() {
     }
 
     @Test
+    fun pendingLibraryDeleteMatchesOnlyTheSameTmdbTitleAndMediaType() {
+        val deletedSeries = NuvioLibraryDeleteKey("tmdb:123", "series")
+
+        assertTrue(
+            deletedSeries.matchesLibraryItem(
+                remoteContentId = "imdb:tt1234567",
+                remoteContentType = "series",
+                resolvedTmdbId = 123L,
+            ),
+        )
+        assertFalse(
+            deletedSeries.matchesLibraryItem(
+                remoteContentId = "tmdb:123",
+                remoteContentType = "movie",
+                resolvedTmdbId = 123L,
+            ),
+        )
+        assertFalse(
+            deletedSeries.matchesLibraryItem(
+                remoteContentId = "tmdb:456",
+                remoteContentType = "series",
+                resolvedTmdbId = 456L,
+            ),
+        )
+    }
+
+    @Test
+    fun onlyConfirmedLibraryDeletesAreCleared() {
+        val movie = NuvioLibraryDeleteKey("tmdb:123", "movie")
+        val series = NuvioLibraryDeleteKey("tmdb:456", "series")
+
+        assertEquals(
+            listOf(movie),
+            confirmedNuvioLibraryDeletes(
+                pending = listOf(movie, series),
+                stillPresent = listOf(series),
+            ),
+        )
+    }
+
+    @Test
     fun deleteTombstoneMatchesTheSameEpisodeButNotItsNeighbor() {
         val key = NuvioWatchProgressDeleteKey(
             tmdbId = 123L,

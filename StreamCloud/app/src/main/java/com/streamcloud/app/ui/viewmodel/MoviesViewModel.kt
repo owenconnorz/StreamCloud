@@ -425,20 +425,50 @@ class MoviesViewModel(
         }
         viewModelScope.launch {
             combine(
-                LibraryDb.get(appContext).watchProgress().continueWatching(),
-                hiddenWatchProgressKeys,
-            ) { rows, hidden ->
-                latestContinueWatchingByTitle(
-                    rows.filterNot { watchProgressIdentity(it) in hidden },
-                )
-            }.collect { rows ->
-                _state.update { it.copy(continueWatching = rows) }
+                sl.settings.nuvioUserId,
+                sl.profiles.activeProfile,
+            ) { userId, profile ->
+                userId to (profile?.id ?: "default")
             }
+                .distinctUntilChanged()
+                .collectLatest { (userId, profileId) ->
+                    hiddenWatchProgressKeys.update { emptySet() }
+                    _state.update { it.copy(continueWatching = emptyList()) }
+                    val db = LibraryDb.getForProfile(
+                        context = appContext,
+                        profileId = profileId,
+                        userId = userId,
+                    )
+                    combine(
+                        db.watchProgress().continueWatching(),
+                        hiddenWatchProgressKeys,
+                    ) { rows, hidden ->
+                        latestContinueWatchingByTitle(
+                            rows.filterNot { watchProgressIdentity(it) in hidden },
+                        )
+                    }.collect { rows ->
+                        _state.update { it.copy(continueWatching = rows) }
+                    }
+                }
         }
         viewModelScope.launch {
-            LibraryDb.get(appContext).watchlist().all().collect { rows ->
-                _state.update { it.copy(watchlist = rows) }
+            combine(
+                sl.settings.nuvioUserId,
+                sl.profiles.activeProfile,
+            ) { userId, profile ->
+                userId to (profile?.id ?: "default")
             }
+                .distinctUntilChanged()
+                .collectLatest { (userId, profileId) ->
+                    _state.update { it.copy(watchlist = emptyList()) }
+                    LibraryDb.getForProfile(
+                        context = appContext,
+                        profileId = profileId,
+                        userId = userId,
+                    ).watchlist().all().collect { rows ->
+                        _state.update { it.copy(watchlist = rows) }
+                    }
+                }
         }
         viewModelScope.launch {
             combine(sl.settings.csHomeSections, pluginRepo.installed) { _, _ -> Unit }
@@ -1057,21 +1087,52 @@ class MoviesViewModel(
         _state.update { it.copy(notice = null) }
     }
 
+    private suspend fun activeLibraryDb(): LibraryDb {
+        val userId = sl.settings.nuvioUserId.first().trim()
+        val profileId = sl.profiles.currentActiveId()
+            ?.takeIf { it.isNotBlank() }
+            ?: "default"
+        return LibraryDb.getForProfile(
+            context = appContext,
+            profileId = profileId,
+            userId = userId,
+        )
+    }
+
     fun toggleWatchlist(tmdbId: Long, title: String, posterUrl: String?, mediaType: String) {
         viewModelScope.launch {
-            val db = LibraryDb.get(appContext).watchlist()
-            val alreadyIn = _state.value.watchlist.any { it.tmdbId == tmdbId }
+            val userId = sl.settings.nuvioUserId.first().trim()
+            val profileId = sl.profiles.currentActiveId()
+                ?.takeIf { it.isNotBlank() }
+                ?: "default"
+            val libraryDb = LibraryDb.getForProfile(
+                context = appContext,
+                profileId = profileId,
+                userId = userId,
+            )
+            val db = libraryDb.watchlist()
+            val alreadyIn = db.byId(tmdbId) != null
             if (alreadyIn) {
-                db.remove(tmdbId)
-                com.streamcloud.app.data.nuvio.NuvioAutoSync.requestLibraryDelete(
-                    appContext,
-                    tmdbId,
-                    mediaType,
-                )
+                val result = com.streamcloud.app.data.nuvio.NuvioAutoSync
+                    .deleteLibraryItemAndSyncNow(
+                        context = appContext,
+                        db = libraryDb,
+                        tmdbId = tmdbId,
+                        mediaType = mediaType,
+                        userId = userId,
+                        localProfileId = profileId,
+                    )
+                if (result.isFailure && userId.isNotBlank()) {
+                    _state.update {
+                        it.copy(
+                            notice = "Removed locally; Nuvio sync will retry when available.",
+                        )
+                    }
+                }
             } else {
                 db.add(WatchlistEntity(tmdbId = tmdbId, title = title, posterUrl = posterUrl, mediaType = mediaType))
+                com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
             }
-            com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
         }
     }
 
@@ -1553,7 +1614,7 @@ class MoviesViewModel(
             )
         }
         viewModelScope.launch {
-            val dao = LibraryDb.get(appContext).watchProgress()
+            val dao = activeLibraryDb().watchProgress()
             try {
                 // Let NuvioAutoSync serialize row removal with its account-scoped
                 // tombstone and any active account sync.
@@ -1641,7 +1702,7 @@ class MoviesViewModel(
         episodeNumber: Int,
     ) {
         viewModelScope.launch {
-            val dao = LibraryDb.get(appContext).watchProgress()
+            val dao = activeLibraryDb().watchProgress()
             val existing = dao.byKey(tmdbId, mediaType, seasonNumber, episodeNumber) ?: return@launch
             dao.upsert(existing.copy(positionMs = 0L, updatedAt = System.currentTimeMillis()))
             com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
@@ -1651,7 +1712,7 @@ class MoviesViewModel(
     fun markAsWatched(tmdbId: Long, title: String, posterUrl: String?, mediaType: String) {
         viewModelScope.launch {
             if (tmdbId <= 0L || (mediaType != "movie" && mediaType != "tv")) return@launch
-            val db = LibraryDb.get(appContext)
+            val db = activeLibraryDb()
             db.watchedMovies().mark(
                 com.streamcloud.app.data.library.WatchedMovieEntity(
                     tmdbId = tmdbId,

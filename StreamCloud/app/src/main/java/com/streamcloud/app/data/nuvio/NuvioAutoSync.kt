@@ -508,7 +508,6 @@ object NuvioAutoSync {
             userId = targetUserId,
             localProfileId = targetProfileId,
         )
-        clearLibraryDeletes(appContext, pending, targetUserId, targetProfileId)
     }
 
     /**
@@ -605,6 +604,94 @@ object NuvioAutoSync {
                             seasonNumber,
                             episodeNumber,
                         )
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Serialize a library removal with account sync. The durable tombstone is
+     * recorded before Room is changed, then the remote row is deleted directly.
+     * A queued full sync keeps the tombstone until its complete library pull
+     * confirms the row is absent.
+     */
+    suspend fun deleteLibraryItemAndSyncNow(
+        context: Context,
+        db: LibraryDb,
+        tmdbId: Long,
+        mediaType: String,
+        userId: String,
+        localProfileId: String,
+        localMutation: suspend () -> Unit = { db.watchlist().remove(tmdbId) },
+    ): Result<Unit> {
+        val appContext = context.applicationContext
+        val normalizedType = when (mediaType.lowercase()) {
+            "movie" -> "movie"
+            "tv", "series" -> "series"
+            else -> return Result.failure(
+                IllegalArgumentException("Unsupported Nuvio library media type"),
+            )
+        }
+        val services = ServiceLocator.get(appContext)
+        val targetUserId = userId.trim().ifBlank {
+            services.settings.nuvioUserId.first().trim()
+        }
+        val targetProfileId = localProfileId.trim().ifBlank {
+            services.profiles.currentActiveId()
+                ?.takeIf { it.isNotBlank() }
+                ?: services.profiles.currentProfiles().firstOrNull()?.id
+                ?: "default"
+        }
+
+        return syncMutex.withLock {
+            var localMutationApplied = false
+            try {
+                if (targetUserId.isNotBlank()) {
+                    requestLibraryDelete(
+                        context = appContext,
+                        tmdbId = tmdbId,
+                        mediaType = mediaType,
+                        userId = targetUserId,
+                        localProfileId = targetProfileId,
+                    )
+                }
+                localMutation()
+                localMutationApplied = true
+
+                if (targetUserId.isBlank()) {
+                    Result.success(Unit)
+                } else {
+                    val currentUserId = services.settings.nuvioUserId.first().trim()
+                    val accessToken = services.settings.nuvioAccessToken.first().trim()
+                    when {
+                        currentUserId != targetUserId ->
+                            Result.failure(IllegalStateException("The Nuvio account changed during deletion"))
+                        accessToken.isBlank() ->
+                            Result.failure(IllegalStateException("Reconnect to Nuvio to sync this deletion"))
+                        else -> runCatching {
+                            NuvioAccountService.get(appContext).deleteLibraryItems(
+                                accessToken = accessToken,
+                                keys = listOf(
+                                    NuvioLibraryDeleteKey(
+                                        contentId = "tmdb:$tmdbId",
+                                        contentType = normalizedType,
+                                    ),
+                                ),
+                                userId = targetUserId,
+                                localProfileId = targetProfileId,
+                            )
+                        }
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Result.failure(failure)
+            } finally {
+                if (localMutationApplied) {
+                    withContext(NonCancellable) {
+                        db.watchlist().remove(tmdbId)
                     }
                 }
             }
@@ -759,6 +846,32 @@ object NuvioAutoSync {
             val contentId = value.substring(separator + 1)
             PendingDelete(value, contentType, contentId)
         }
+    }
+
+    internal fun pendingLibraryDeleteKeys(
+        context: Context,
+        userId: String,
+        localProfileId: String,
+    ): List<NuvioLibraryDeleteKey> =
+        pendingLibraryDeletes(context, userId, localProfileId).map {
+            NuvioLibraryDeleteKey(it.contentId, it.contentType)
+        }
+
+    internal fun confirmLibraryDeletes(
+        context: Context,
+        deletes: Collection<NuvioLibraryDeleteKey>,
+        userId: String,
+        localProfileId: String,
+    ) {
+        if (deletes.isEmpty()) return
+        val serialized = deletes.map { "${it.contentType}:${it.contentId}" }.toSet()
+        clearLibraryDeletes(
+            context = context,
+            deletes = pendingLibraryDeletes(context, userId, localProfileId)
+                .filter { it.serialized in serialized },
+            userId = userId,
+            localProfileId = localProfileId,
+        )
     }
 
     private fun clearLibraryDeletes(
