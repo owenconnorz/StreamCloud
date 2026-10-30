@@ -45,18 +45,28 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
         com.streamcloud.app.data.network.Net.init(cacheDir)
         com.streamcloud.app.data.spotify.SpotifyPlaylistRepository.initialize(applicationContext)
 
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            "plugin_update_check",
-            ExistingPeriodicWorkPolicy.KEEP,
-            PeriodicWorkRequestBuilder<PluginUpdateWorker>(24, TimeUnit.HOURS)
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiredNetworkType(NetworkType.CONNECTED)
-                        .build()
+        // WorkManager setup touches its database; schedule background maintenance away
+        // from the main thread so it cannot delay the first Activity frame.
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                WorkManager.getInstance(this@StreamCloudApplication).enqueueUniquePeriodicWork(
+                    "plugin_update_check",
+                    ExistingPeriodicWorkPolicy.KEEP,
+                    PeriodicWorkRequestBuilder<PluginUpdateWorker>(24, TimeUnit.HOURS)
+                        .setConstraints(
+                            Constraints.Builder()
+                                .setRequiredNetworkType(NetworkType.CONNECTED)
+                                .build()
+                        )
+                        .build(),
                 )
-                .build(),
-        )
-        com.streamcloud.app.data.nuvio.NuvioAutoSync.installPeriodic(this)
+                com.streamcloud.app.data.nuvio.NuvioAutoSync.installPeriodic(
+                    this@StreamCloudApplication,
+                )
+            }.onFailure { failure ->
+                android.util.Log.w("StreamCloud", "Unable to schedule periodic startup work", failure)
+            }
+        }
 
         NewPipe.init(
             com.streamcloud.app.data.newpipe.NewPipeDownloader.instance,

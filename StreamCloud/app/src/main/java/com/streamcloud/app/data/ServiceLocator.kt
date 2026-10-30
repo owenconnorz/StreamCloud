@@ -13,15 +13,19 @@ import com.streamcloud.app.torrent.TorrentService
 import kotlinx.coroutines.flow.first
 
 class ServiceLocator(context: Context) {
-    val settings = SettingsRepository(context.applicationContext)
-    val profiles = ProfileRepository(context.applicationContext)
-    val plugins = PluginRepository(context.applicationContext)
-    val stremio = StremioRepository(context.applicationContext, settings, profiles)
-    val nuvio = NuvioRepository(context.applicationContext, settings, profiles)
+    private val appContext = context.applicationContext
 
-    val torrentService: TorrentService = TorrentService(context.applicationContext)
+    val settings by lazy { SettingsRepository(appContext) }
+    val profiles by lazy { ProfileRepository(appContext) }
+    val plugins by lazy { PluginRepository(appContext) }
+    val stremio by lazy { StremioRepository(appContext, settings, profiles) }
+    val nuvio by lazy { NuvioRepository(appContext, settings, profiles) }
 
-    val tmdb: TmdbApi = Net.retrofit("https://api.themoviedb.org/").create(TmdbApi::class.java)
+    val torrentService by lazy { TorrentService(appContext) }
+
+    val tmdb: TmdbApi by lazy {
+        Net.retrofit("https://api.themoviedb.org/").create(TmdbApi::class.java)
+    }
     val tmdbApiKey: String = BuildConfig.TMDB_API_KEY
 
     suspend fun backend(): StreamCloudBackendApi {

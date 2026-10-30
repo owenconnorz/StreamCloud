@@ -59,7 +59,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 const val SOURCE_BUILTIN = "builtin"
-private const val HOME_COLLECTION_TIMEOUT_MS = 30_000L
+// Don't let a stalled TMDB shelf keep the cold-start home loading for half a minute.
+// Rows publish independently, so a slow collection can time out while others remain visible.
+private const val HOME_COLLECTION_TIMEOUT_MS = 12_000L
 private const val HOME_COLLECTION_STALE_AFTER_MS = 15 * 60 * 1000L
 private const val GENRE_ARTWORK_STALE_AFTER_MS = 7L * 24 * 60 * 60 * 1000L
 private const val SECONDARY_HOME_STARTUP_WAIT_MS = 8_000L

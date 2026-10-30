@@ -51,8 +51,8 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import com.streamcloud.app.ui.theme.LocalTvFocusColor
 import com.streamcloud.app.ui.theme.tvFocusBorder
+import kotlinx.coroutines.launch
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
 import androidx.compose.ui.graphics.Brush
@@ -258,6 +258,45 @@ fun MoviesScreen(
     val appearancePalette by settingsRepo.colorPalette.collectAsState(initial = "modern_blue")
     val posterStyle by settingsRepo.posterStyle.collectAsState(initial = "portrait")
     val homeCardStyle by settingsRepo.homeCardStyle.collectAsState(initial = "expanding")
+    val adultAgeGateConfirmed by settingsRepo.ageGateConfirmed.collectAsState(initial = false)
+    val adultCatalogMarkers = remember {
+        listOf("adult", "porn", "xxx", "nsfw", "18+", "erotic", "hentai")
+    }
+    val adultStremioRow = remember(state.stremioRows, adultContentEnabled) {
+        if (!adultContentEnabled) {
+            null
+        } else {
+            state.stremioRows.firstOrNull { row ->
+                listOf(row.addonName, row.catalogName).any { label ->
+                    adultCatalogMarkers.any { marker -> label.contains(marker, ignoreCase = true) }
+                } || row.items.any { item ->
+                    item.genres.orEmpty().any { genre ->
+                        adultCatalogMarkers.any { marker -> genre.contains(marker, ignoreCase = true) }
+                    }
+                }
+            }
+        }
+    }
+    var showAdultCatalogAgeGate by remember { mutableStateOf(false) }
+    val adultGenreScope = rememberCoroutineScope()
+    val openAdultStremioCatalog = {
+        adultStremioRow?.let { row ->
+            onOpenCatalog(
+                "stremio:${row.addonId}:${row.type}:${row.catalogId}",
+                "18+ · ${row.catalogName}",
+                row.addonName,
+            )
+        }
+    }
+    val requestAdultStremioCatalog = {
+        if (adultStremioRow != null) {
+            if (adultAgeGateConfirmed) {
+                openAdultStremioCatalog()
+            } else {
+                showAdultCatalogAgeGate = true
+            }
+        }
+    }
     var query by remember { mutableStateOf("") }
     var searchExpanded by remember { mutableStateOf(false) }
     val tvIdleRecommendations = remember(
@@ -487,14 +526,15 @@ fun MoviesScreen(
                 },
             )
         }
-        if (adultContentEnabled) {
+        if (adultStremioRow != null) {
             genreShortcuts + TvGenreShortcut(
                 id = "adult",
                 title = "18+",
                 icon = Icons.Default.Warning,
-                imageUrl = null,
+                imageUrl = adultStremioRow.items.firstOrNull()?.background
+                    ?: adultStremioRow.items.firstOrNull()?.poster,
                 tint = Color(0xFFB53962),
-                onClick = onOpenAdultContent,
+                onClick = requestAdultStremioCatalog,
             )
         } else {
             genreShortcuts
@@ -604,6 +644,33 @@ fun MoviesScreen(
             // letting the parent list scroll independently.
             .tvDpadRepeatThrottle(handleInitialPresses = true),
     ) {
+        if (showAdultCatalogAgeGate) {
+            AlertDialog(
+                onDismissRequest = { showAdultCatalogAgeGate = false },
+                title = { Text("18+ content") },
+                text = {
+                    Text("This Stremio catalog may contain explicit adult content. Continue only if you are at least 18 years old.")
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showAdultCatalogAgeGate = false
+                            adultGenreScope.launch {
+                                settingsRepo.setAgeGateConfirmed(true)
+                                openAdultStremioCatalog()
+                            }
+                        },
+                    ) {
+                        Text("I'm 18 or older")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAdultCatalogAgeGate = false }) {
+                        Text("Cancel")
+                    }
+                },
+            )
+        }
         if (
             isTv &&
             query.isBlank() &&
@@ -867,9 +934,9 @@ fun MoviesScreen(
                         )
                     }
                 }
-                if (!isTv && adultContentEnabled) {
+                if (!isTv && adultStremioRow != null) {
                     item(key = "mobile_adult_home_genre") {
-                        AdultHomeGenreCard(onClick = onOpenAdultContent)
+                        AdultHomeGenreCard(onClick = requestAdultStremioCatalog)
                     }
                 }
                 state.pinnedCollections.forEach { pinnedRow ->
@@ -1614,13 +1681,13 @@ private fun AdultHomeGenreCard(onClick: () -> Unit) {
         )
         Column(Modifier.weight(1f)) {
             Text(
-                "18+ · Adult sources",
+                "18+ · Stremio add-ons",
                 style = MaterialTheme.typography.titleSmall,
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                "Browse your enabled adult providers",
+                "Browse adult catalogs from installed add-ons",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.72f),
             )
@@ -2728,11 +2795,11 @@ private fun CsHomePosterCard(
             if (isExpanded || isTv) {
                 LandscapeCardTitle(tmdbMovie?.displayTitle ?: item.name, titleLogoUrl)
             }
-            if (isExpanded) {
+            if (isTv && isFocused) {
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .border(2.dp, MaterialTheme.colorScheme.primary, posterShape),
+                        .border(4.dp, Color(0xFF62D8FF), posterShape),
                 )
             }
         }
@@ -2834,10 +2901,10 @@ private fun MidPoster(
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color.Black)
                 .then(
-                    if (isExpanded) {
+                    if (isTv && isFocused) {
                         Modifier.border(
-                            2.dp,
-                            MaterialTheme.colorScheme.primary,
+                            4.dp,
+                            Color(0xFF62D8FF),
                             RoundedCornerShape(12.dp),
                         )
                     } else {
@@ -2932,8 +2999,6 @@ private fun StremioPoster(
                 meta.posterShape.equals("landscape", ignoreCase = true)))
     var isFocused by remember(meta.type, meta.id) { mutableStateOf(false) }
     val isExpanded = isTv && posterStyle == "expanding" && isFocused
-    val focusColor = LocalTvFocusColor.current.takeUnless { it == Color.White }
-        ?: MaterialTheme.colorScheme.primary
     val posterShape = RoundedCornerShape(12.dp)
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     val width = if (useLandscape) 220.dp else 140.dp
@@ -2995,7 +3060,7 @@ private fun StremioPoster(
                 .clip(posterShape)
                 .background(MaterialTheme.colorScheme.surface)
                 .then(
-                    if (isExpanded) Modifier.border(2.dp, focusColor, posterShape)
+                    if (isTv && isFocused) Modifier.border(4.dp, Color(0xFF62D8FF), posterShape)
                     else Modifier,
                 ),
         ) {
