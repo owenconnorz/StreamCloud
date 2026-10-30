@@ -20,7 +20,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -498,6 +501,13 @@ fun MoviesScreen(
         }
     }
     val moviesListState = rememberLazyListState()
+    val tvHeroDetailsVisible by remember(moviesListState, query) {
+        derivedStateOf {
+            query.isBlank() &&
+                moviesListState.firstVisibleItemIndex == 0 &&
+                moviesListState.firstVisibleItemScrollOffset <= 16
+        }
+    }
         val topBarVisibilityChanged by rememberUpdatedState(onTvTopBarVisibilityChanged)
         LaunchedEffect(isTv) {
             if (isTv) topBarVisibilityChanged(true)
@@ -780,6 +790,7 @@ fun MoviesScreen(
                 onCurrentItemChanged = { activeHeroBanner = it },
                 onPlayNow = playHeroNow,
                 onMoreInfo = openHeroDetails,
+                detailsVisible = tvHeroDetailsVisible,
                 onActionsFocusChanged = { focused ->
                     tvNavHeroHasFocus = focused
                     onFirstMovieFocusedChanged(focused)
@@ -1768,6 +1779,7 @@ private fun HomeGenresRow(
 private fun TvHeroBackdrop(
     items: List<HeroBannerItem>,
     rowsViewportHeight: androidx.compose.ui.unit.Dp,
+    detailsVisible: Boolean,
     initialFocusRequester: FocusRequester? = null,
     navFocusRequester: FocusRequester? = null,
     onCurrentItemChanged: (HeroBannerItem) -> Unit,
@@ -1827,114 +1839,120 @@ private fun TvHeroBackdrop(
                 hero.year.takeIf(String::isNotBlank),
                 hero.rating.takeIf(String::isNotBlank),
             ).joinToString("  •  ")
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(
-                        start = 24.dp,
-                        end = LocalConfiguration.current.screenWidthDp.dp * 0.48f,
-                        bottom = rowsViewportHeight + 12.dp,
-                    )
-                    .widthIn(max = 560.dp),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
+            AnimatedVisibility(
+                visible = detailsVisible || actionsFocused,
+                modifier = Modifier.align(Alignment.BottomStart),
+                enter = fadeIn(tween(180)),
+                exit = fadeOut(tween(140)),
             ) {
-                Text(
-                    hero.title,
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp),
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    meta,
-                    color = Color.White.copy(alpha = 0.84f),
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                )
-                hero.overview.trim().takeIf(String::isNotBlank)?.let { overview ->
+                Column(
+                    modifier = Modifier
+                        .padding(
+                            start = 24.dp,
+                            end = LocalConfiguration.current.screenWidthDp.dp * 0.48f,
+                            bottom = rowsViewportHeight + 12.dp,
+                        )
+                        .widthIn(max = 560.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
                     Text(
-                        overview,
-                        color = Color.White.copy(alpha = 0.9f),
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
-                        maxLines = 2,
+                        hero.title,
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp),
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                }
-                Row(
-                    modifier = Modifier
-                        .tvFocusGroup()
-                        .onFocusChanged {
-                            actionsFocused = it.hasFocus
-                            onActionsFocusChanged(it.hasFocus)
-                        },
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .then(
-                                if (initialFocusRequester != null) {
-                                    Modifier.focusRequester(initialFocusRequester)
-                                } else {
-                                    Modifier
-                                },
-                            )
-                            .then(
-                                if (navFocusRequester != null) {
-                                    Modifier.focusRequester(navFocusRequester)
-                                } else {
-                                    Modifier
-                                },
-                            )
-                            .clip(RoundedCornerShape(50))
-                            .background(Color.White)
-                            .tvFocusBorder(RoundedCornerShape(50))
-                            .tvOkPress({ onPlayNow(hero) }, onLongPress = {})
-                            .clickable { onPlayNow(hero) }
-                            .padding(horizontal = 14.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.PlayArrow,
-                            contentDescription = null,
-                            tint = Color.Black,
-                            modifier = Modifier.size(19.dp),
-                        )
+                    Text(
+                        meta,
+                        color = Color.White.copy(alpha = 0.84f),
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                    )
+                    hero.overview.trim().takeIf(String::isNotBlank)?.let { overview ->
                         Text(
-                            "Play Now",
-                            color = Color.Black,
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                            ),
+                            overview,
+                            color = Color.White.copy(alpha = 0.9f),
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(Color.White.copy(alpha = 0.2f))
-                            .border(1.dp, Color.White.copy(alpha = 0.42f), RoundedCornerShape(50))
-                            .tvFocusBorder(RoundedCornerShape(50))
-                            .tvOkPress({ onMoreInfo(hero) }, onLongPress = {})
-                            .clickable { onMoreInfo(hero) }
-                            .padding(horizontal = 14.dp, vertical = 7.dp),
+                            .tvFocusGroup()
+                            .onFocusChanged {
+                                actionsFocused = it.hasFocus
+                                onActionsFocusChanged(it.hasFocus)
+                            },
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Icon(
-                            Icons.Filled.Info,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Text(
-                            "More Info",
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelLarge.copy(
-                                fontWeight = FontWeight.SemiBold,
-                            ),
-                        )
+                        Row(
+                            modifier = Modifier
+                                .then(
+                                    if (initialFocusRequester != null) {
+                                        Modifier.focusRequester(initialFocusRequester)
+                                    } else {
+                                        Modifier
+                                    },
+                                )
+                                .then(
+                                    if (navFocusRequester != null) {
+                                        Modifier.focusRequester(navFocusRequester)
+                                    } else {
+                                        Modifier
+                                    },
+                                )
+                                .clip(RoundedCornerShape(50))
+                                .background(Color.White)
+                                .tvFocusBorder(RoundedCornerShape(50))
+                                .tvOkPress({ onPlayNow(hero) }, onLongPress = {})
+                                .clickable { onPlayNow(hero) }
+                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.Black,
+                                modifier = Modifier.size(19.dp),
+                            )
+                            Text(
+                                "Play Now",
+                                color = Color.Black,
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.Bold,
+                                ),
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(Color.White.copy(alpha = 0.2f))
+                                .border(1.dp, Color.White.copy(alpha = 0.42f), RoundedCornerShape(50))
+                                .tvFocusBorder(RoundedCornerShape(50))
+                                .tvOkPress({ onMoreInfo(hero) }, onLongPress = {})
+                                .clickable { onMoreInfo(hero) }
+                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.Info,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                "More Info",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                ),
+                            )
+                        }
                     }
                 }
             }
