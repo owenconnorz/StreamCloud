@@ -1,3 +1,24 @@
+## Latest — Changes since V2362
+
+### Movies home and startup
+- **See the Movies home sooner after a cold start** — the primary movie shelves are prioritized while nonessential provider work runs later.
+- **18+ discovery includes Stremio add-ons** — the genre can show adult catalogues from enabled Stremio add-ons, not only the XXX Club source, and those shelves are made available earlier.
+- **Mobile Movies has matching TMDB genre cards** — browse genre rows on mobile as well as TV.
+- **Home layout choices apply consistently** — portrait, landscape, and expanding-card preferences now cover Stremio and CloudStream home rows.
+
+### Playback and TV navigation
+- **Fixed playback for saved adult videos** — saved titles return through their provider-aware playback route.
+- **More reliable remote navigation** — focus can move between the TV navigation bar and Movies content while the first shelf is loading; the 18+ genre row fits its tiles.
+- **Fixed the TV release compilation error** — the focus-navigation extension is imported in the main app.
+
+### Torrent playback and APK updates
+- **Torrent playback now uses Nuvio Engine** instead of the previous TorrServer integration.
+- **TV APK downloads are available by device architecture** — universal, ARM64, and ARMv7 builds are produced for compatible devices.
+- **Removed the unused Coil video decoder dependency** to trim unnecessary app contents.
+
+### Account reliability
+- **Google profile photos stay saved** — account-menu photo thumbnails are parsed directly, refreshed during account checks, and a blank login result no longer clears an existing photo.
+
 ## Hotfix — Changes since V2360
 
 ### Android TV
