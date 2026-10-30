@@ -17,6 +17,7 @@ import com.streamcloud.app.data.plugins.csHomeSectionsJson
 import com.streamcloud.app.data.music.MusicProvider
 import com.streamcloud.app.data.ytmusic.YtmSong
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
@@ -51,6 +52,9 @@ data class YtMusicAccountInfo(
     val name: String,
     val avatar: String,
 )
+
+internal fun preserveYtMusicAvatar(candidate: String, existing: String?): String =
+    candidate.takeIf(String::isNotBlank) ?: existing.orEmpty()
 
 @Serializable
 private data class StoredYtMusicAccount(
@@ -611,7 +615,7 @@ class SettingsRepository(private val context: Context) {
     }
     val ytMusicCookie: Flow<String> = context.dataStore.data.map {
         activeStoredYtMusicAccount(it)?.cookie.orEmpty()
-    }
+    }.distinctUntilChanged()
     val ytMusicUserName: Flow<String> = context.dataStore.data.map {
         activeStoredYtMusicAccount(it)?.name.orEmpty()
     }
@@ -723,7 +727,7 @@ class SettingsRepository(private val context: Context) {
             val account = StoredYtMusicAccount(
                 id = existing?.id ?: "yt-${cookie.hashCode().toUInt().toString(16)}",
                 name = name,
-                avatar = avatar,
+                avatar = preserveYtMusicAvatar(avatar, existing?.avatar),
                 cookie = cookie,
             )
             accounts.removeAll { it.id == account.id }

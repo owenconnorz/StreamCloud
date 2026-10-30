@@ -5,6 +5,11 @@ import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import com.streamcloud.app.data.ytmusic.YtMusicPremiumDetector
 import org.json.JSONException
 import org.json.JSONObject
@@ -34,13 +39,41 @@ object GoogleAccountHelper {
     private const val YTM_BODY = """{"context":{"client":{"hl":"en","gl":"US",""" +
         """"clientName":"WEB_REMIX","clientVersion":"1.20240101.01.00"}}}"""
 
-    /** Profile photos from Google always contain /a/ in the path. */
-    private val PROFILE_PHOTO_RE = Regex("""https://lh3\.googleusercontent\.com/a/[^"\\]+""")
-
     data class YtMusicAccountInfo(
         val profilePhotoUrl: String?,
         val hasPremium: Boolean,
     )
+
+    /**
+     * Follows Metrolist's AccountMenuResponse path and uses the final (largest)
+     * accountPhoto thumbnail instead of searching arbitrary response text.
+     */
+    internal fun accountPhotoUrl(response: JsonElement): String? {
+        val actions = runCatching { response.jsonObject["actions"]?.jsonArray }
+            .getOrNull()
+            ?: return null
+
+        return actions.firstNotNullOfOrNull { action ->
+            runCatching {
+                val accountHeader = action.jsonObject["openPopupAction"]?.jsonObject
+                    ?.get("popup")?.jsonObject
+                    ?.get("multiPageMenuRenderer")?.jsonObject
+                    ?.get("header")?.jsonObject
+                    ?.get("activeAccountHeaderRenderer")?.jsonObject
+                val rawUrl = accountHeader
+                    ?.get("accountPhoto")?.jsonObject
+                    ?.get("thumbnails")?.jsonArray
+                    ?.lastOrNull()?.jsonObject
+                    ?.get("url")?.jsonPrimitive?.contentOrNull
+                when {
+                    rawUrl.isNullOrBlank() -> null
+                    rawUrl.startsWith("//") -> "https:$rawUrl"
+                    rawUrl.startsWith("https://") -> rawUrl
+                    else -> null
+                }
+            }.getOrNull()
+        }
+    }
 
     /**
      * Calls the YouTube Music account menu with the saved session, returning the profile photo and
@@ -70,10 +103,8 @@ object GoogleAccountHelper {
             val body = conn.inputStream.bufferedReader().readText()
             conn.disconnect()
             val response = Json.parseToJsonElement(body)
-            val photoUrl = PROFILE_PHOTO_RE.find(body)?.value
-                ?.replace(Regex("=s\\d+.*$"), "=s256")
             YtMusicAccountInfo(
-                profilePhotoUrl = photoUrl,
+                profilePhotoUrl = accountPhotoUrl(response),
                 hasPremium = YtMusicPremiumDetector.isPremium(response),
             )
         } catch (_: Exception) {

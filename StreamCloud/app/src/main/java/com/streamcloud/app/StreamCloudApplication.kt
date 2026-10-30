@@ -116,6 +116,9 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
                         null
                     }
                     if (com.streamcloud.app.data.ytmusic.YtPlayerUtils.ytMusicCookie == cookie) {
+                        accountInfo?.profilePhotoUrl
+                            ?.takeIf(String::isNotBlank)
+                            ?.let { settings.setYtMusicUserAvatar(it) }
                         com.streamcloud.app.data.ytmusic.YtPlayerUtils.updateYtMusicPremiumStatus(
                             if (cookie.isBlank()) false else accountInfo?.hasPremium,
                         )
