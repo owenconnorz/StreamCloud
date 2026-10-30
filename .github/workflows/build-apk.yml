@@ -123,6 +123,7 @@ jobs:
           --tests 'com.streamcloud.app.player.MoviePlayerSessionMergeOrderTest'
           --tests 'com.streamcloud.app.player.WatchProgressRestorePolicyTest'
           --tests 'com.streamcloud.app.player.BingeEpisodeQueueTest'
+          --tests 'com.streamcloud.app.data.updater.UpdateCheckerAssetSelectionTest'
           --no-daemon --stacktrace --no-build-cache
 
       - name: Build TV release APK
@@ -134,8 +135,23 @@ jobs:
       - name: Collect APK artifacts
         run: |
           mkdir -p artifacts
-          cp "app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk" \
-            "artifacts/StreamCloud-${{ matrix.flavor }}-release.apk"
+          if [[ "${{ matrix.flavor }}" == "mobile" ]]; then
+            apk_dir="app/build/outputs/apk/mobile/release"
+            universal="$(find "$apk_dir" -type f \( -name '*universal*release.apk' -o -name 'app-mobile-release.apk' \) -print -quit)"
+            test -n "$universal" || { echo "::error::Mobile universal APK was not produced"; find "$apk_dir" -type f -print; exit 1; }
+            cp "$universal" artifacts/StreamCloud-mobile-release.apk
+          else
+            apk_dir="app/build/outputs/apk/tv/release"
+            universal="$(find "$apk_dir" -type f \( -name '*universal*release.apk' -o -name 'app-tv-release.apk' \) -print -quit)"
+            arm64="$(find "$apk_dir" -type f -name '*arm64-v8a*release.apk' -print -quit)"
+            armv7="$(find "$apk_dir" -type f -name '*armeabi-v7a*release.apk' -print -quit)"
+            for apk in "$universal" "$arm64" "$armv7"; do
+              test -n "$apk" || { echo "::error::A TV universal or ABI APK was not produced"; find "$apk_dir" -type f -print; exit 1; }
+            done
+            cp "$universal" artifacts/StreamCloud-tv-release.apk
+            cp "$arm64" artifacts/StreamCloud-tv-arm64-v8a-release.apk
+            cp "$armv7" artifacts/StreamCloud-tv-armeabi-v7a-release.apk
+          fi
           ls -la artifacts/
 
       - name: Upload APK Artifacts
@@ -167,11 +183,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts
-          for flavor in mobile tv; do
-            target="artifacts/StreamCloud-${flavor}-release.apk"
-            source="$(find artifacts -type f -name "StreamCloud-${flavor}-release.apk" -print -quit)"
+          for variant in mobile tv tv-arm64-v8a tv-armeabi-v7a; do
+            target="artifacts/StreamCloud-${variant}-release.apk"
+            source="$(find artifacts -type f -name "StreamCloud-${variant}-release.apk" -print -quit)"
             if [[ -z "$source" ]]; then
-              echo "::error::Missing APK for ${flavor}"
+              echo "::error::Missing APK for ${variant}"
               find artifacts -maxdepth 4 -type f -print
               exit 1
             fi
@@ -191,4 +207,6 @@ jobs:
           files: |
             StreamCloud/artifacts/StreamCloud-mobile-release.apk
             StreamCloud/artifacts/StreamCloud-tv-release.apk
+            StreamCloud/artifacts/StreamCloud-tv-arm64-v8a-release.apk
+            StreamCloud/artifacts/StreamCloud-tv-armeabi-v7a-release.apk
           fail_on_unmatched_files: true

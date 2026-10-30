@@ -14,6 +14,7 @@
 ### Android TV navigation
 - **Down from the navigation returns to Movies** — focus retries until the first Movies content target is ready.
 - **Selected navigation pill fits its item** — the animated highlight now matches the selected icon-and-label bounds.
+- **Smaller TV update downloads** — publish ARM64 and ARMv7 APKs and select the matching one automatically; keep the universal TV APK for older updaters.
 
 ## Latest — Changes since V2354
 

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.res.Configuration
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import androidx.core.content.FileProvider
 import com.streamcloud.app.BuildConfig
 import com.streamcloud.app.data.network.Net
@@ -45,6 +46,28 @@ data class UpdateInfo(
     val sizeBytes: Long,
     val isNewerThanInstalled: Boolean,
 )
+
+internal fun selectReleaseApkAssetName(
+    assetNames: List<String>,
+    isTv: Boolean,
+    supportedAbis: List<String>,
+): String? {
+    val suffixes = if (isTv) {
+        supportedAbis.mapNotNull { abi ->
+            when (abi) {
+                "arm64-v8a" -> "-tv-arm64-v8a-release.apk"
+                "armeabi-v7a" -> "-tv-armeabi-v7a-release.apk"
+                else -> null
+            }
+        } + "-tv-release.apk"
+    } else {
+        listOf("-mobile-release.apk")
+    }
+
+    return suffixes.firstNotNullOfOrNull { suffix ->
+        assetNames.firstOrNull { it.endsWith(suffix, ignoreCase = true) }
+    }
+}
 
 class UpdateChecker(private val context: Context) {
 
@@ -106,12 +129,12 @@ class UpdateChecker(private val context: Context) {
         val isTv = BuildConfig.TV_BUILD ||
             (context.resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
             Configuration.UI_MODE_TYPE_TELEVISION
-        val targetName = if (isTv) "tv-release" else "mobile-release"
-        return apks.firstOrNull { it.name.contains(targetName, true) }
-            ?: apks.firstOrNull { it.name.contains("release-signed", true) }
-            ?: apks.firstOrNull { it.name.contains("release", true) && !it.name.contains("UNSIGNED", true) }
-            ?: apks.firstOrNull { it.name.contains("debug", true) }
-            ?: apks.firstOrNull()
+        val selectedName = selectReleaseApkAssetName(
+            assetNames = apks.map { it.name },
+            isTv = isTv,
+            supportedAbis = Build.SUPPORTED_ABIS.toList(),
+        ) ?: return null
+        return apks.firstOrNull { it.name.equals(selectedName, ignoreCase = true) }
     }
 
 

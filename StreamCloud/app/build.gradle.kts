@@ -13,6 +13,15 @@ val keystoreProps = Properties().apply {
     if (f.exists()) load(f.inputStream())
 }
 
+val supportedTvAbis = setOf("arm64-v8a", "armeabi-v7a")
+val requestedTvAbi = providers.gradleProperty("tvAbi").orNull
+val tvAbiFilters = requestedTvAbi?.let { abi ->
+    require(abi in supportedTvAbis) {
+        "Unsupported tvAbi '$abi'. Choose one of: ${supportedTvAbis.joinToString()}"
+    }
+    setOf(abi)
+} ?: supportedTvAbis
+
 android {
     namespace = "com.streamcloud.app"
     compileSdk = 34
@@ -52,13 +61,24 @@ android {
         create("tv") {
             dimension = "device"
             buildConfigField("Boolean", "TV_BUILD", "true")
-            // TV release APKs support both modern ARM64 TVs and older Fire TV devices
-            // whose 64-bit-capable CPU still runs a 32-bit Android userspace.
-            // Keep x86 architectures out while retaining armeabi-v7a compatibility
-            // for first-generation Fire TV Cube and similar devices.
+            // Keep both ARM ABIs in the universal TV APK for older Fire TV devices.
+            // CI can pass -PtvAbi=arm64-v8a or -PtvAbi=armeabi-v7a to package one
+            // architecture for the matching smaller update APK.
             ndk {
-                abiFilters += setOf("arm64-v8a", "armeabi-v7a")
+                abiFilters += tvAbiFilters
             }
+        }
+    }
+
+    // Publish per-ABI APKs as well as a universal APK. The universal TV APK is
+    // retained for existing installs/updaters; newer app versions select the
+    // smaller APK matching the device's supported ABI.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+            isUniversalApk = true
         }
     }
 
