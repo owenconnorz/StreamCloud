@@ -149,9 +149,36 @@ data class StremioHomeRow(
     val catalogName: String,
     val type: String,
     val items: List<StremioMetaPreview>,
+    val isAdultCatalog: Boolean = false,
 ) {
     val rowKey: String get() = "$addonId:$type:$catalogId"
 }
+
+private val stremioAdultMarkers = listOf(
+    "adult",
+    "porn",
+    "xxx",
+    "nsfw",
+    "18+",
+    "erotic",
+    "hentai",
+)
+
+fun isAdultStremioLabel(label: String?): Boolean =
+    !label.isNullOrBlank() &&
+        stremioAdultMarkers.any { marker -> label.contains(marker, ignoreCase = true) }
+
+fun StremioHomeRow.containsAdultContent(): Boolean =
+    isAdultCatalog ||
+        isAdultStremioLabel(addonName) ||
+        isAdultStremioLabel(catalogName) ||
+        items.any { item -> item.genres.orEmpty().any(::isAdultStremioLabel) }
+
+fun StremioMetaPreview.containsAdultContent(): Boolean =
+    genres.orEmpty().any(::isAdultStremioLabel)
+
+fun adultStremioHomeRows(rows: List<StremioHomeRow>): List<StremioHomeRow> =
+    rows.filter(StremioHomeRow::containsAdultContent)
 
 data class StremioCatalogMeta(
     val addonId: String,

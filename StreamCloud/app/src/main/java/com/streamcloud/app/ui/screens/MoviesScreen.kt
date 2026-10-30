@@ -2,6 +2,7 @@
 package com.streamcloud.app.ui.screens
 
 import android.os.SystemClock
+import android.util.Base64
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -85,7 +86,7 @@ import com.streamcloud.app.data.library.CollectionFolderEntity
 import com.streamcloud.app.data.library.WatchProgressEntity
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.plugins.InstalledPlugin
-import com.streamcloud.app.data.stremio.StremioHomeRow
+import com.streamcloud.app.data.stremio.adultStremioHomeRows
 import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.ui.components.MovieArtwork
@@ -259,37 +260,38 @@ fun MoviesScreen(
     val posterStyle by settingsRepo.posterStyle.collectAsState(initial = "portrait")
     val homeCardStyle by settingsRepo.homeCardStyle.collectAsState(initial = "expanding")
     val adultAgeGateConfirmed by settingsRepo.ageGateConfirmed.collectAsState(initial = false)
-    val adultCatalogMarkers = remember {
-        listOf("adult", "porn", "xxx", "nsfw", "18+", "erotic", "hentai")
-    }
-    val adultStremioRow = remember(state.stremioRows, adultContentEnabled) {
+    val adultStremioRows = remember(
+        state.stremioRows,
+        state.stremioAdultCatalogs,
+        adultContentEnabled,
+    ) {
         if (!adultContentEnabled) {
-            null
+            emptyList()
         } else {
-            state.stremioRows.firstOrNull { row ->
-                listOf(row.addonName, row.catalogName).any { label ->
-                    adultCatalogMarkers.any { marker -> label.contains(marker, ignoreCase = true) }
-                } || row.items.any { item ->
-                    item.genres.orEmpty().any { genre ->
-                        adultCatalogMarkers.any { marker -> genre.contains(marker, ignoreCase = true) }
-                    }
-                }
-            }
+            (
+                state.stremioAdultCatalogs +
+                    adultStremioHomeRows(state.stremioRows)
+                ).distinctBy { it.rowKey }
         }
     }
     var showAdultCatalogAgeGate by remember { mutableStateOf(false) }
-    val adultGenreScope = rememberCoroutineScope()
     val openAdultStremioCatalog = {
-        adultStremioRow?.let { row ->
+        if (adultStremioRows.isNotEmpty()) {
+            val encodedRows = adultStremioRows.joinToString(".") { row ->
+                Base64.encodeToString(
+                    "${if (row.isAdultCatalog) 1 else 0}|${row.rowKey}".toByteArray(Charsets.UTF_8),
+                    Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
+                )
+            }
             onOpenCatalog(
-                "stremio:${row.addonId}:${row.type}:${row.catalogId}",
-                "18+ · ${row.catalogName}",
-                row.addonName,
+                "stremio-multi:$encodedRows",
+                "18+ · Adult Stremio catalogs",
+                "${adultStremioRows.map { it.addonName }.distinct().size} enabled add-ons",
             )
         }
     }
     val requestAdultStremioCatalog = {
-        if (adultStremioRow != null) {
+        if (adultStremioRows.isNotEmpty()) {
             if (adultAgeGateConfirmed) {
                 openAdultStremioCatalog()
             } else {
@@ -526,13 +528,19 @@ fun MoviesScreen(
                 },
             )
         }
-        if (adultStremioRow != null) {
+        if (adultStremioRows.isNotEmpty()) {
             genreShortcuts + TvGenreShortcut(
                 id = "adult",
                 title = "18+",
                 icon = Icons.Default.Warning,
-                imageUrl = adultStremioRow.items.firstOrNull()?.background
-                    ?: adultStremioRow.items.firstOrNull()?.poster,
+                imageUrl = adultStremioRows.asSequence()
+                    .flatMap { it.items.asSequence() }
+                    .firstOrNull { !it.background.isNullOrBlank() }
+                    ?.background
+                    ?: adultStremioRows.asSequence()
+                        .flatMap { it.items.asSequence() }
+                        .firstOrNull { !it.poster.isNullOrBlank() }
+                        ?.poster,
                 tint = Color(0xFFB53962),
                 onClick = requestAdultStremioCatalog,
             )

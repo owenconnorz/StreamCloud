@@ -1,5 +1,6 @@
 package com.streamcloud.app.ui.screens
 
+import android.util.Base64
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -32,6 +33,8 @@ import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.api.TmdbFindResponse
 import com.streamcloud.app.data.collections.HomeCollections
 import com.streamcloud.app.data.library.LibraryDb
+import com.streamcloud.app.data.stremio.containsAdultContent
+import com.streamcloud.app.data.stremio.isAdultStremioLabel
 import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.ui.components.MovieArtwork
 import com.streamcloud.app.ui.components.WatchedPosterBadge
@@ -39,9 +42,52 @@ import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+
+private data class StremioCatalogReference(
+    val key: String,
+    val addonId: String,
+    val type: String,
+    val catalogId: String,
+    val includeAllItems: Boolean,
+)
+
+private data class StremioCatalogGridItem(
+    val addonId: String,
+    val type: String,
+    val meta: StremioMetaPreview,
+)
+
+private fun parseStremioCatalogReferences(source: String): List<StremioCatalogReference> =
+    source.removePrefix("stremio-multi:")
+        .split('.')
+        .mapNotNull { token ->
+            runCatching {
+                val rowKey = Base64.decode(
+                    token,
+                    Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
+                ).toString(Charsets.UTF_8)
+                val adultFlag = rowKey.substringBefore('|')
+                val catalogKey = rowKey.substringAfter('|', rowKey)
+                val parts = catalogKey.split(':', limit = 3)
+                if (parts.size < 3) return@mapNotNull null
+                StremioCatalogReference(
+                    key = catalogKey,
+                    addonId = parts[0],
+                    type = parts[1],
+                    catalogId = parts[2],
+                    includeAllItems = adultFlag == "1" ||
+                        isAdultStremioLabel(parts[0]),
+                )
+            }.getOrNull()
+        }
 
 @Composable
 fun CatalogPageScreen(
@@ -71,9 +117,13 @@ fun CatalogPageScreen(
     val scope = rememberCoroutineScope()
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val columns = if (isTv) 6 else 3
+    val stremioFetchSemaphore = remember(source) { Semaphore(4) }
 
     var tmdbItems by remember(source) { mutableStateOf<List<TmdbMovie>>(emptyList()) }
     var stremioItems by remember(source) { mutableStateOf<List<StremioMetaPreview>>(emptyList()) }
+    var multiStremioItems by remember(source) { mutableStateOf<List<StremioCatalogGridItem>>(emptyList()) }
+    var multiStremioOffsets by remember(source) { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    var exhaustedMultiStremioCatalogs by remember(source) { mutableStateOf<Set<String>>(emptySet()) }
     var page by remember(source) { mutableStateOf(1) }
     var loading by remember(source) { mutableStateOf(false) }
     var endReached by remember(source) { mutableStateOf(false) }
@@ -81,6 +131,10 @@ fun CatalogPageScreen(
 
     val isTmdb = source.startsWith("tmdb:")
     val isStremio = source.startsWith("stremio:")
+    val isMultiStremio = source.startsWith("stremio-multi:")
+    val multiStremioCatalogs = remember(source) {
+        if (isMultiStremio) parseStremioCatalogReferences(source) else emptyList()
+    }
 
     suspend fun loadNext() {
         if (loading || endReached) return
@@ -96,6 +150,52 @@ fun CatalogPageScreen(
                     tmdbItems = tmdbItems + items
                     page++
                 }
+            } else if (isMultiStremio) {
+                val addons = sl.stremio.addons.first()
+                val pending = multiStremioCatalogs.filterNot {
+                    it.key in exhaustedMultiStremioCatalogs
+                }
+                if (pending.isEmpty()) {
+                    endReached = true
+                    return
+                }
+                val fetched = coroutineScope {
+                    pending.map { ref ->
+                        async {
+                            val addon = addons.firstOrNull { it.id == ref.addonId }
+                            val skip = multiStremioOffsets[ref.key] ?: 0
+                            val items = if (addon == null) {
+                                emptyList()
+                            } else {
+                                stremioFetchSemaphore.withPermit {
+                                    runCatching {
+                                        sl.stremio.fetchCatalog(addon, ref.type, ref.catalogId, skip = skip)
+                                    }.getOrDefault(emptyList())
+                                }
+                            }
+                            ref to items
+                        }
+                    }.awaitAll()
+                }
+                val nextItems = mutableListOf<StremioCatalogGridItem>()
+                val nextOffsets = multiStremioOffsets.toMutableMap()
+                val exhausted = exhaustedMultiStremioCatalogs.toMutableSet()
+                fetched.forEach { (ref, items) ->
+                    if (items.isEmpty()) {
+                        exhausted += ref.key
+                    } else {
+                        nextOffsets[ref.key] = (nextOffsets[ref.key] ?: 0) + items.size
+                        items.filter { ref.includeAllItems || it.containsAdultContent() }
+                            .forEach { meta ->
+                                nextItems += StremioCatalogGridItem(ref.addonId, ref.type, meta)
+                            }
+                    }
+                }
+                multiStremioOffsets = nextOffsets
+                exhaustedMultiStremioCatalogs = exhausted
+                multiStremioItems = (multiStremioItems + nextItems)
+                    .distinctBy { "${it.addonId}:${it.type}:${it.meta.id}" }
+                if (exhausted.size == multiStremioCatalogs.size) endReached = true
             } else if (isStremio) {
                 val parts = source.removePrefix("stremio:").split(":")
                 if (parts.size < 3) { endReached = true; return }
@@ -177,6 +277,49 @@ fun CatalogPageScreen(
                 items(tmdbItems.distinctBy { it.id }, key = { "tmdb_${it.id}" }) { m ->
                     GridPosterTmdb(m, isWatched = m.id in watchedTmdbIds) {
                         if (m.title != null) onMovieClick(m.id) else onTvClick(m.id)
+                    }
+                }
+            } else if (isMultiStremio) {
+                items(
+                    multiStremioItems,
+                    key = { "${it.addonId}_${it.type}_${it.meta.id}" },
+                ) { item ->
+                    GridPosterStremio(item.meta) {
+                        val id = item.meta.id
+                        if (id.startsWith("tt", ignoreCase = true)) {
+                            scope.launch {
+                                runCatching {
+                                    val result: TmdbFindResponse =
+                                        sl.tmdb.find(id, sl.tmdbApiKey, "imdb_id")
+                                    val tmdbId = result.movieResults.firstOrNull()?.id
+                                        ?: result.tvResults.firstOrNull()?.id
+                                    if (tmdbId != null) {
+                                        withContext(Dispatchers.Main) {
+                                            if (item.type == "series") onTvClick(tmdbId)
+                                            else onMovieClick(tmdbId)
+                                        }
+                                    } else {
+                                        withContext(Dispatchers.Main) {
+                                            onOpenStremio(
+                                                item.addonId,
+                                                item.type,
+                                                id,
+                                                item.meta.name,
+                                                item.meta.poster,
+                                            )
+                                        }
+                                    }
+                                }.onFailure { error -> notice = "Resolve failed: ${error.message}" }
+                            }
+                        } else {
+                            onOpenStremio(
+                                item.addonId,
+                                item.type,
+                                id,
+                                item.meta.name,
+                                item.meta.poster,
+                            )
+                        }
                     }
                 }
             } else if (isStremio) {

@@ -22,6 +22,7 @@ import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.stremio.StremioRepository
+import com.streamcloud.app.data.stremio.isAdultStremioLabel
 import com.lagradost.cloudstream3.MovieSearchResponse
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.TvSeriesSearchResponse
@@ -153,6 +154,7 @@ data class MoviesState(
     val installedPlugins: List<InstalledPlugin> = emptyList(),
     val installedStremioAddons: List<InstalledStremioAddon> = emptyList(),
     val stremioRows: List<StremioHomeRow> = emptyList(),
+    val stremioAdultCatalogs: List<StremioHomeRow> = emptyList(),
     val stremioTmdbIds: Map<String, Long> = emptyMap(),
     val csHomeTmdbMovies: Map<String, TmdbMovie> = emptyMap(),
     val tmdbTitleLogos: Map<String, String> = emptyMap(),
@@ -321,6 +323,8 @@ class MoviesViewModel(
     private val titleLogoSemaphore = Semaphore(3)
     private var csHomeRowsJob: Job? = null
     private var stremioHomeRowsJob: Job? = null
+    private var stremioAdultDiscoveryJob: Job? = null
+    private var allDiscoveredAdultCatalogs: List<StremioHomeRow> = emptyList()
 
     private fun homeCollectionCachePreferences() =
         appContext.getSharedPreferences("tmdb_home_collection_cache_v1", Context.MODE_PRIVATE)
@@ -351,8 +355,20 @@ class MoviesViewModel(
         }
         viewModelScope.launch {
             stremioRepo.addons.collect { list ->
-                _state.update { it.copy(installedStremioAddons = list) }
+                _state.update {
+                    it.copy(
+                        installedStremioAddons = list,
+                        stremioAdultCatalogs = emptyList(),
+                    )
+                }
                 refreshStremioRows(list)
+            }
+        }
+        viewModelScope.launch {
+            combine(stremioRepo.addons, sl.settings.nsfwEnabled) { addons, adultEnabled ->
+                addons to adultEnabled
+            }.collect { (addons, adultEnabled) ->
+                refreshStremioAdultCatalogs(addons, adultEnabled)
             }
         }
         viewModelScope.launch {
@@ -565,6 +581,7 @@ class MoviesViewModel(
                 coroutineScope {
                     collections.map { def ->
                         async {
+                            val shelfStartedAt = SystemClock.elapsedRealtime()
                             val result = try {
                                 val fetchedItems = withTimeoutOrNull(HOME_COLLECTION_TIMEOUT_MS) {
                                     homeCollectionFetchSemaphore.withPermit {
@@ -597,6 +614,13 @@ class MoviesViewModel(
                                 )
                             }
 
+                            Log.d(
+                                HOME_PERFORMANCE_TAG,
+                                "Shelf ${def.id} finished in " +
+                                    "${SystemClock.elapsedRealtime() - shelfStartedAt}ms; " +
+                                    "items=${result.row?.items?.size ?: 0}; " +
+                                    "failure=${result.failure ?: "none"}",
+                            )
                             publishMutex.withLock {
                                 result.row?.let { rawRow ->
                                     homeCollectionRowsCache[def.id] = rawRow
@@ -837,9 +861,61 @@ class MoviesViewModel(
         stremioHomeRowsJob?.cancel()
         if (addons.isEmpty()) {
             allFetchedStremioRows = emptyList()
-            _state.update { it.copy(stremioRows = emptyList()) }
+            _state.update {
+                it.copy(
+                    stremioRows = emptyList(),
+                )
+            }
             return
         }
+        loadStremioHomeRowsAfterPrimary(addons)
+    }
+
+    private fun refreshStremioAdultCatalogs(
+        addons: List<InstalledStremioAddon>,
+        adultContentEnabled: Boolean,
+    ) {
+        stremioAdultDiscoveryJob?.cancel()
+        allDiscoveredAdultCatalogs = emptyList()
+        if (!adultContentEnabled || addons.isEmpty()) {
+            _state.update { it.copy(stremioAdultCatalogs = emptyList()) }
+            return
+        }
+
+        // Manifest metadata is much lighter than catalog contents. Discover adult
+        // catalog references immediately so the 18+ genre does not wait for Movies
+        // home or the delayed supplementary catalog fetch.
+        stremioAdultDiscoveryJob = viewModelScope.launch {
+            try {
+                // Check clearly adult-named add-ons first, so those references are
+                // available even when a large collection of unrelated manifests is slow.
+                val (adultNamed, otherAddons) = addons.partition {
+                    isAdultStremioLabel(it.name)
+                }
+                if (adultNamed.isNotEmpty()) {
+                    allDiscoveredAdultCatalogs =
+                        stremioRepo.fetchAdultCatalogReferences(adultNamed)
+                    applyStremioFilter()
+                }
+                if (otherAddons.isNotEmpty()) {
+                    val additionalRefs =
+                        stremioRepo.fetchAdultCatalogReferences(otherAddons)
+                    allDiscoveredAdultCatalogs =
+                        (allDiscoveredAdultCatalogs + additionalRefs).distinctBy { it.rowKey }
+                    applyStremioFilter()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Adult-catalog discovery is supplementary; the regular home must
+                // continue loading even if a provider manifest is unavailable.
+            }
+        }
+    }
+
+    private fun loadStremioHomeRowsAfterPrimary(addons: List<InstalledStremioAddon>) {
+        stremioHomeRowsJob?.cancel()
+        if (addons.isEmpty()) return
         stremioHomeRowsJob = viewModelScope.launch {
             // Add-on catalogs are supplementary home content. Keep their network work
             // out of the first Movies startup window.
@@ -862,6 +938,10 @@ class MoviesViewModel(
             val fetchedRows = normalizeStremioRows(allFetchedStremioRows)
             val orderCsv = sl.settings.stremioCatalogOrderCsv.first()
             val sorted = orderStremioHomeRows(fetchedRows, csv, orderCsv)
+            val adultCatalogs = (
+                orderStremioHomeRows(allDiscoveredAdultCatalogs, csv, orderCsv) +
+                    adultStremioHomeRows(sorted)
+                ).distinctBy { it.rowKey }
             stremioHeroItems = sorted
                 .flatMap { row -> row.items.take(2) }
                 .distinctBy { it.id }
@@ -878,7 +958,13 @@ class MoviesViewModel(
                         mediaType   = if (meta.type == "series") "tv" else "movie",
                     )
                 }
-            _state.update { it.copy(stremioRows = sorted, heroBanner = (tmdbHeroItems + stremioHeroItems).take(12)) }
+            _state.update {
+                it.copy(
+                    stremioRows = sorted,
+                    stremioAdultCatalogs = adultCatalogs,
+                    heroBanner = (tmdbHeroItems + stremioHeroItems).take(12),
+                )
+            }
         }
     }
 
