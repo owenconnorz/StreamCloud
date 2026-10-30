@@ -2252,6 +2252,7 @@ fun StreamCloudApp(
                         },
                         onTabSelected         = { route -> navigateToTab(nav, route) },
                         adultTabEnabled      = nsfwEnabled,
+                        selectedTabColor     = navAccentColor,
                         onProfileClick       = { showProfilePicker = true },
                         profileAvatarSeed    = activeProfile?.avatarSeed.orEmpty()
                             .ifBlank { activeProfile?.name.orEmpty() },
@@ -2418,6 +2419,7 @@ private fun TvNetflixTopNav(
     onDownFocusHandoffRequested: () -> Unit = {},
     onTabSelected: (String) -> Unit,
     onSearchClick: () -> Unit,
+    selectedTabColor: Color,
     adultTabEnabled: Boolean = false,
     onProfileClick: () -> Unit = {},
     profileAvatarSeed: String = "",
@@ -2690,7 +2692,10 @@ private fun TvNetflixTopNav(
                                 .clip(navTabShape)
                                 .background(
                                     Brush.horizontalGradient(
-                                        listOf(Color(0xFF6247FF), Color(0xFF9B33F5)),
+                                        listOf(
+                                            selectedTabColor,
+                                            selectedTabColor.copy(alpha = 0.88f),
+                                        ),
                                     ),
                                 ),
                         )

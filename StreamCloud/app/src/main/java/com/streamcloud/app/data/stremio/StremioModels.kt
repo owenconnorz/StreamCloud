@@ -154,6 +154,26 @@ data class StremioHomeRow(
     val rowKey: String get() = "$addonId:$type:$catalogId"
 }
 
+fun StremioHomeRow.displayCatalogTitle(): String {
+    val name = catalogName.trim().ifBlank { catalogId }
+    val mediaLabel = when (type.trim().lowercase()) {
+        "movie" -> "Movies"
+        "series", "tv" -> "TV Shows"
+        "channel" -> "Live TV"
+        else -> type.trim()
+            .replaceFirstChar { character ->
+                if (character.isLowerCase()) character.titlecase() else character.toString()
+            }
+            .takeIf(String::isNotBlank)
+    } ?: return name
+
+    return if (name.endsWith(mediaLabel, ignoreCase = true)) {
+        name
+    } else {
+        "$name · $mediaLabel"
+    }
+}
+
 private val stremioAdultMarkers = listOf(
     "adult",
     "porn",

@@ -87,6 +87,7 @@ import com.streamcloud.app.data.library.WatchProgressEntity
 import com.streamcloud.app.data.library.WatchlistEntity
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.stremio.adultStremioHomeRows
+import com.streamcloud.app.data.stremio.displayCatalogTitle
 import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.SettingsRepository
 import com.streamcloud.app.ui.components.MovieArtwork
@@ -110,6 +111,7 @@ private data class TvGenreShortcut(
     val title: String,
     val icon: ImageVector,
     val imageUrl: String?,
+    val fallbackImageUrl: String? = null,
     val tint: Color,
     val onClick: () -> Unit,
 )
@@ -276,6 +278,7 @@ fun MoviesScreen(
         }
     }
     var showAdultCatalogAgeGate by remember { mutableStateOf(false) }
+    var showNoAdultStremioCatalogs by remember { mutableStateOf(false) }
     val openAdultStremioCatalog = {
         if (adultStremioRows.isNotEmpty()) {
             val encodedRows = adultStremioRows.joinToString(".") { row ->
@@ -298,6 +301,61 @@ fun MoviesScreen(
             } else {
                 showAdultCatalogAgeGate = true
             }
+        } else {
+            showNoAdultStremioCatalogs = true
+        }
+    }
+    fun openHeroSources(tmdbId: Long, mediaType: String) {
+        val openSources = onOpenSourcePage
+        if (openSources != null) {
+            openSources(tmdbId, mediaType, null, null)
+        } else if (mediaType == "tv") {
+            onTvClick(tmdbId)
+        } else {
+            onMovieClick(tmdbId)
+        }
+    }
+    val openHeroDetails: (HeroBannerItem) -> Unit = { item ->
+        when {
+            item.tmdbId != null && (
+                item.mediaType.equals("tv", ignoreCase = true) ||
+                    item.mediaType.equals("series", ignoreCase = true)
+                ) ->
+                onTvClick(item.tmdbId)
+            item.tmdbId != null -> onMovieClick(item.tmdbId)
+            item.stremioMeta != null -> vm.openStremioMeta(item.stremioMeta) { tmdbId, _ ->
+                if (tmdbId != null) {
+                    if (
+                        item.stremioMeta.type.equals("series", ignoreCase = true) ||
+                        item.stremioMeta.type.equals("tv", ignoreCase = true)
+                    ) {
+                        onTvClick(tmdbId)
+                    } else {
+                        onMovieClick(tmdbId)
+                    }
+                }
+            }
+            else -> Unit
+        }
+    }
+    val playHeroNow: (HeroBannerItem) -> Unit = { item ->
+        val mediaType = if (
+            item.mediaType.equals("tv", ignoreCase = true) ||
+            item.mediaType.equals("series", ignoreCase = true) ||
+            item.stremioMeta?.type.equals("series", ignoreCase = true) ||
+            item.stremioMeta?.type.equals("tv", ignoreCase = true)
+        ) {
+            "tv"
+        } else {
+            "movie"
+        }
+        when {
+            item.tmdbId != null -> openHeroSources(item.tmdbId, mediaType)
+            item.stremioMeta != null -> vm.openStremioMeta(item.stremioMeta) { tmdbId, _ ->
+                if (tmdbId != null) openHeroSources(tmdbId, mediaType)
+                else openHeroDetails(item)
+            }
+            else -> openHeroDetails(item)
         }
     }
     var query by remember { mutableStateOf("") }
@@ -494,6 +552,17 @@ fun MoviesScreen(
             .distinctBy { it.id }
             .filter { !it.backdropUrl.isNullOrBlank() }
     }
+    val adultGenreArtwork = remember(adultStremioRows) {
+        adultStremioRows.asSequence()
+            .flatMap { it.items.asSequence() }
+            .flatMap { sequenceOf(it.background, it.poster) }
+            .filterNotNull()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .take(2)
+            .toList()
+    }
     val homeGenres = run {
         val definitions = listOf(
             TvGenreDefinition("Action", "action", 28, Icons.Default.Whatshot, Color(0xFFEA8C2B)),
@@ -504,20 +573,28 @@ fun MoviesScreen(
         )
         val genreShortcuts = definitions.map { definition ->
             val (title, collectionId, genreId, icon, tint) = definition
-            val categoryArtwork = state.collections
+            val categoryItem = state.collections
                 .firstOrNull { it.id == collectionId }
                 ?.items
-                ?.firstOrNull { !it.backdropUrl.isNullOrBlank() }
-                ?.backdropUrl
-            val matchingArtwork = tvGenreArtworkPool.firstOrNull {
+                ?.firstOrNull {
+                    !it.backdropUrl.isNullOrBlank() || !it.posterUrl.isNullOrBlank()
+                }
+            val matchingItem = tvGenreArtworkPool.firstOrNull {
                 genreId in it.genreIds && !it.backdropUrl.isNullOrBlank()
-            }?.backdropUrl
-            val artwork = state.genreArtwork[collectionId] ?: categoryArtwork ?: matchingArtwork
+            }
+            val artworkCandidates = listOfNotNull(
+                state.genreArtwork[collectionId]?.takeIf(String::isNotBlank),
+                categoryItem?.backdropUrl?.takeIf(String::isNotBlank)
+                    ?: categoryItem?.posterUrl?.takeIf(String::isNotBlank),
+                matchingItem?.backdropUrl?.takeIf(String::isNotBlank)
+                    ?: matchingItem?.posterUrl?.takeIf(String::isNotBlank),
+            ).distinct()
             TvGenreShortcut(
                 id = collectionId,
                 title = title,
                 icon = icon,
-                imageUrl = artwork,
+                imageUrl = artworkCandidates.firstOrNull(),
+                fallbackImageUrl = artworkCandidates.getOrNull(1),
                 tint = tint,
                 onClick = {
                     val collection = HomeCollections.byId(collectionId)
@@ -529,19 +606,13 @@ fun MoviesScreen(
                 },
             )
         }
-        if (adultStremioRows.isNotEmpty()) {
+        if (adultContentEnabled) {
             genreShortcuts + TvGenreShortcut(
                 id = "adult",
                 title = "18+",
                 icon = Icons.Default.Warning,
-                imageUrl = adultStremioRows.asSequence()
-                    .flatMap { it.items.asSequence() }
-                    .firstOrNull { !it.background.isNullOrBlank() }
-                    ?.background
-                    ?: adultStremioRows.asSequence()
-                        .flatMap { it.items.asSequence() }
-                        .firstOrNull { !it.poster.isNullOrBlank() }
-                        ?.poster,
+                imageUrl = adultGenreArtwork.firstOrNull(),
+                fallbackImageUrl = adultGenreArtwork.getOrNull(1),
                 tint = Color(0xFFB53962),
                 onClick = requestAdultStremioCatalog,
             )
@@ -549,6 +620,10 @@ fun MoviesScreen(
             genreShortcuts
         }
     }
+    val hasTvHero = isTv &&
+        query.isBlank() &&
+        state.showHeroSection &&
+        state.heroBanner.isNotEmpty()
     val tvHomeRowsViewportHeight = run {
         val screenWidth = LocalConfiguration.current.screenWidthDp.dp
         val continueCardWidth = (screenWidth * 0.21f).coerceIn(176.dp, 272.dp)
@@ -678,15 +753,37 @@ fun MoviesScreen(
                 },
             )
         }
-        if (
-            isTv &&
-            query.isBlank() &&
-            state.showHeroSection &&
-            state.heroBanner.isNotEmpty()
-        ) {
+        if (showNoAdultStremioCatalogs) {
+            AlertDialog(
+                onDismissRequest = { showNoAdultStremioCatalogs = false },
+                title = { Text("No adult Stremio catalogs") },
+                text = {
+                    Text("Enable an adult Stremio catalog in Add-ons, then return here to browse 18+ titles.")
+                },
+                confirmButton = {
+                    TextButton(onClick = { showNoAdultStremioCatalogs = false }) {
+                        Text("OK")
+                    }
+                },
+            )
+        }
+        if (hasTvHero) {
             TvHeroBackdrop(
                 items = state.heroBanner,
+                rowsViewportHeight = tvHomeRowsViewportHeight,
+                initialFocusRequester = if (startupFocusTarget == "hero") {
+                    initialFocusRequester
+                } else {
+                    null
+                },
+                navFocusRequester = tvNavHeroFocus,
                 onCurrentItemChanged = { activeHeroBanner = it },
+                onPlayNow = playHeroNow,
+                onMoreInfo = openHeroDetails,
+                onActionsFocusChanged = { focused ->
+                    tvNavHeroHasFocus = focused
+                    onFirstMovieFocusedChanged(focused)
+                },
             )
         }
         val moviesListModifier = if (isTv && query.isBlank()) {
@@ -769,17 +866,9 @@ fun MoviesScreen(
                                  onFirstMovieFocusedChanged(focused)
                              },
                             onClick = { item ->
-                                when {
-                                    item.tmdbId != null && item.mediaType == "tv" -> onTvClick(item.tmdbId)
-                                    item.tmdbId != null -> onMovieClick(item.tmdbId)
-                                    item.stremioMeta != null -> vm.openStremioMeta(item.stremioMeta) { tmdbId, _ ->
-                                        if (tmdbId != null) {
-                                            if (item.stremioMeta.type == "series") onTvClick(tmdbId)
-                                            else onMovieClick(tmdbId)
-                                        }
-                                    }
-                                }
+                                openHeroDetails(item)
                             },
+                            onPlayNow = playHeroNow,
                         )
                     }
                 } else if (!isTv) {
@@ -861,6 +950,7 @@ fun MoviesScreen(
                                         .then(
                                             if (
                                                 isTv &&
+                                                !hasTvHero &&
                                                 index == 0 &&
                                                 startupFocusTarget != "recovery" &&
                                                 tvNavHeroFocus != null
@@ -926,6 +1016,7 @@ fun MoviesScreen(
                             },
                             navFocusRequester = if (
                                 visibleContinueWatching.isEmpty() &&
+                                !hasTvHero &&
                                 startupFocusTarget == "genre"
                             ) {
                                 tvNavHeroFocus
@@ -1040,7 +1131,7 @@ fun MoviesScreen(
                         KeepTvFocusedItemAtStart(
                             listState = collectionRowState,
                             focusedIndex = focusedPosterIndex,
-                            isTv = isTv,
+                            isTv = isTv && homeCardStyle != "portrait",
                         )
                         LazyRow(
                             state = collectionRowState,
@@ -1112,11 +1203,11 @@ fun MoviesScreen(
                     item(key = "stremio_t_${row.rowKey}") {
                         AddonSectionTitleWithViewAll(
                             addon = row.addonName,
-                            catalog = row.catalogName,
+                            catalog = row.displayCatalogTitle(),
                             onViewAll = {
                                 onOpenCatalog(
                                     "stremio:${row.addonId}:${row.type}:${row.catalogId}",
-                                    row.catalogName,
+                                    row.displayCatalogTitle(),
                                     row.addonName,
                                 )
                             },
@@ -1128,7 +1219,7 @@ fun MoviesScreen(
                         KeepTvFocusedItemAtStart(
                             listState = stremioRowState,
                             focusedIndex = focusedPosterIndex,
-                            isTv = isTv,
+                            isTv = isTv && homeCardStyle != "portrait",
                         )
                         LazyRow(
                             state = stremioRowState,
@@ -1206,7 +1297,7 @@ fun MoviesScreen(
                                         onClick = {
                                             onOpenCatalog(
                                                 "stremio:${row.addonId}:${row.type}:${row.catalogId}",
-                                                row.catalogName,
+                                                row.displayCatalogTitle(),
                                                 row.addonName,
                                             )
                                         },
@@ -1261,7 +1352,7 @@ fun MoviesScreen(
                         KeepTvFocusedItemAtStart(
                             listState = csRowState,
                             focusedIndex = focusedPosterIndex,
-                            isTv = isTv,
+                            isTv = isTv && homeCardStyle != "portrait",
                         )
                         LazyRow(
                             state = csRowState,
@@ -1620,10 +1711,10 @@ private fun HomeGenresRow(
                         .clickable(onClick = genre.onClick),
                 ) {
                     if (!genre.imageUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = tvHighResolutionTmdbArtworkUrl(genre.imageUrl),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
+                        MovieArtwork(
+                            primaryUrl = genre.imageUrl,
+                            fallbackUrl = genre.fallbackImageUrl,
+                            contentDescription = "${genre.title} genre artwork",
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
@@ -1676,14 +1767,21 @@ private fun HomeGenresRow(
 @Composable
 private fun TvHeroBackdrop(
     items: List<HeroBannerItem>,
+    rowsViewportHeight: androidx.compose.ui.unit.Dp,
+    initialFocusRequester: FocusRequester? = null,
+    navFocusRequester: FocusRequester? = null,
     onCurrentItemChanged: (HeroBannerItem) -> Unit,
+    onPlayNow: (HeroBannerItem) -> Unit,
+    onMoreInfo: (HeroBannerItem) -> Unit,
+    onActionsFocusChanged: (Boolean) -> Unit = {},
 ) {
     var currentPage by remember(items.size) { mutableIntStateOf(0) }
+    var actionsFocused by remember { mutableStateOf(false) }
     LaunchedEffect(currentPage, items) {
         items.getOrNull(currentPage)?.let(onCurrentItemChanged)
     }
-    LaunchedEffect(items.size) {
-        if (items.size <= 1) return@LaunchedEffect
+    LaunchedEffect(items.size, actionsFocused) {
+        if (items.size <= 1 || actionsFocused) return@LaunchedEffect
         while (true) {
             kotlinx.coroutines.delay(15_000L)
             currentPage = (currentPage + 1) % items.size
@@ -1722,6 +1820,125 @@ private fun TvHeroBackdrop(
                     ),
                 ),
         )
+        val hero = items.getOrNull(currentPage)
+        if (hero != null) {
+            val meta = listOfNotNull(
+                if (hero.mediaType.equals("tv", ignoreCase = true)) "Series" else "Movie",
+                hero.year.takeIf(String::isNotBlank),
+                hero.rating.takeIf(String::isNotBlank),
+            ).joinToString("  •  ")
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(
+                        start = 24.dp,
+                        end = LocalConfiguration.current.screenWidthDp.dp * 0.48f,
+                        bottom = rowsViewportHeight + 12.dp,
+                    )
+                    .widthIn(max = 560.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Text(
+                    hero.title,
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp),
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    meta,
+                    color = Color.White.copy(alpha = 0.84f),
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                )
+                hero.overview.trim().takeIf(String::isNotBlank)?.let { overview ->
+                    Text(
+                        overview,
+                        color = Color.White.copy(alpha = 0.9f),
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .tvFocusGroup()
+                        .onFocusChanged {
+                            actionsFocused = it.hasFocus
+                            onActionsFocusChanged(it.hasFocus)
+                        },
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .then(
+                                if (initialFocusRequester != null) {
+                                    Modifier.focusRequester(initialFocusRequester)
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .then(
+                                if (navFocusRequester != null) {
+                                    Modifier.focusRequester(navFocusRequester)
+                                } else {
+                                    Modifier
+                                },
+                            )
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.White)
+                            .tvFocusBorder(RoundedCornerShape(50))
+                            .tvOkPress({ onPlayNow(hero) }, onLongPress = {})
+                            .clickable { onPlayNow(hero) }
+                            .padding(horizontal = 14.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(19.dp),
+                        )
+                        Text(
+                            "Play Now",
+                            color = Color.Black,
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                            ),
+                        )
+                    }
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.White.copy(alpha = 0.2f))
+                            .border(1.dp, Color.White.copy(alpha = 0.42f), RoundedCornerShape(50))
+                            .tvFocusBorder(RoundedCornerShape(50))
+                            .tvOkPress({ onMoreInfo(hero) }, onLongPress = {})
+                            .clickable { onMoreInfo(hero) }
+                            .padding(horizontal = 14.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Info,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            "More Info",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.SemiBold,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1737,6 +1954,7 @@ private fun HeroPager(
     onRequestTitleLogoFor: (HeroBannerItem) -> Unit = {},
     onCurrentItemChanged: (HeroBannerItem) -> Unit = {},
     onClick: (HeroBannerItem) -> Unit,
+    onPlayNow: (HeroBannerItem) -> Unit = onClick,
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -1773,6 +1991,7 @@ private fun HeroPager(
                 HeroBannerSlide(
                     item = item,
                     onClick = { onClick(item) },
+                    onPlayClick = { onPlayNow(item) },
                     titleLogoUrl = titleLogoUrlFor(item),
                     titleLogoRequestKey = titleLogoRequestKeyFor(item),
                     onRequestTitleLogo = { onRequestTitleLogoFor(item) },
@@ -1841,6 +2060,7 @@ private fun HeroPager(
                 HeroBannerSlide(
                     item = item,
                     onClick = { onClick(item) },
+                    onPlayClick = { onPlayNow(item) },
                     titleLogoUrl = titleLogoUrlFor(item),
                     titleLogoRequestKey = titleLogoRequestKeyFor(item),
                     onRequestTitleLogo = { onRequestTitleLogoFor(item) },
@@ -1954,6 +2174,7 @@ private fun HeroBannerSlide(
     item: HeroBannerItem,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
+    onPlayClick: () -> Unit = onClick,
     titleLogoUrl: String? = null,
     titleLogoRequestKey: String? = null,
     onRequestTitleLogo: () -> Unit = {},
@@ -2103,7 +2324,7 @@ private fun HeroBannerSlide(
                             .tvFocusBorder(RoundedCornerShape(50))
                             .clip(RoundedCornerShape(50))
                             .background(Color.White)
-                            .clickable(onClick = onClick)
+                            .clickable(onClick = onPlayClick)
                             .padding(horizontal = 20.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2115,7 +2336,7 @@ private fun HeroBannerSlide(
                             modifier = Modifier.size(22.dp),
                         )
                         Text(
-                            "Watch Now",
+                            "Play Now",
                             color = Color.Black,
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         )
@@ -2178,18 +2399,22 @@ private fun HeroBannerSlide(
                     color = Color.White.copy(alpha = 0.85f),
                     style = MaterialTheme.typography.titleMedium,
                 )
-                Spacer(Modifier.height(18.dp))
-                Box(
-                    Modifier
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier
                         .clip(RoundedCornerShape(50))
                         .background(Color.White)
                         .clickable(onClick = onClick)
-                        .padding(horizontal = 38.dp, vertical = 14.dp),
+                        .padding(horizontal = 26.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
                 ) {
                     Text(
                         "View Details",
-                        color = Color(0xFF111111),
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                        color = Color.Black,
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                        ),
                     )
                 }
             }
