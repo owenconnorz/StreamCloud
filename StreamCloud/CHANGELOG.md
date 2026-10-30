@@ -1,3 +1,17 @@
+## Latest — Changes since V2378
+
+### Movies home and Android TV
+- **Compact TV hero actions are back** — the TV hero shows a short description, Play Now, and More Info just above Continue Watching; Play Now opens source selection, and More Info opens the title details.
+- **Mobile hero details remain unchanged** — the existing View Details action stays in place without adding a second details button.
+- **Portrait poster focus stays steady** — remote focus moves between posters without shifting the selected card to the start of its row.
+- **TV navigation follows the selected palette** — the active navigation pill uses the configured theme color, and Down from the navigation reaches the hero Play Now action when the hero is visible.
+
+### Genres and Stremio
+- **Genre cards recover missing artwork** — home genres try alternate TMDB artwork, and adult Stremio genres can use catalog backgrounds or posters.
+- **18+ appears as soon as Adult is enabled** — the genre is visible while catalogs load, retains the age gate, and explains when no adult Stremio catalogs are configured.
+- **Stremio shelves identify their media type** — catalog labels distinguish Movies, TV Shows, and Live TV when an add-on uses the same name for multiple types.
+- **Added regression coverage** for Stremio catalog media labels.
+
 ## Latest — Changes since V2362
 
 ### Movies home and startup
