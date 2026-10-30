@@ -22,6 +22,7 @@ import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioHomeRow
 import com.streamcloud.app.data.stremio.StremioMetaPreview
 import com.streamcloud.app.data.stremio.StremioRepository
+import com.streamcloud.app.data.stremio.adultStremioHomeRows
 import com.streamcloud.app.data.stremio.isAdultStremioLabel
 import com.lagradost.cloudstream3.MovieSearchResponse
 import com.lagradost.cloudstream3.SearchResponse

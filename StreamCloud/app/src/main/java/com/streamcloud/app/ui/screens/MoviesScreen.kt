@@ -240,6 +240,7 @@ fun MoviesScreen(
     val state by vm.state.collectAsState()
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val lifecycleOwner = LocalLifecycleOwner.current
+    val adultGenreScope = rememberCoroutineScope()
     DisposableEffect(lifecycleOwner, vm) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) vm.refreshDiscoverIfStale()
