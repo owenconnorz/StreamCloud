@@ -71,7 +71,7 @@ class TorrentService(context: Context) {
 
     /**
      * Creates a separate short-lived stream for downloads without interrupting
-     * the stream currently used by the player. Nuvio Engine retires idle routes
+     * the stream currently used by the player. SC Engine retires idle routes
      * and warm torrents according to the configured timeouts.
      */
     suspend fun resolveStreamUrlFromMagnet(magnet: String): String = withContext(Dispatchers.IO) {
@@ -112,7 +112,7 @@ class TorrentService(context: Context) {
                 currentStream = stream
                 _state.value = TorrentState.Streaming(localUrl = stream.url)
                 startStatsPolling(activeEngine, stream)
-                Log.d(TAG, "Nuvio Engine stream prepared for file index ${stream.fileIndex}")
+                Log.d(TAG, "SC Engine stream prepared for file index ${stream.fileIndex}")
                 stream.url
             } catch (cancelled: CancellationException) {
                 stopActiveStream()
@@ -120,7 +120,7 @@ class TorrentService(context: Context) {
             } catch (error: Exception) {
                 stopActiveStream()
                 _state.value = TorrentState.Error(error.message ?: "Torrent stream could not start")
-                throw TorrentException("Nuvio Engine could not prepare the torrent stream", error)
+                throw TorrentException("SC Engine could not prepare the torrent stream", error)
             }
         }
     }
@@ -160,10 +160,10 @@ class TorrentService(context: Context) {
         val dataDirectory = File(appContext.filesDir, "nuvio-engine")
         val cacheDirectory = File(appContext.cacheDir, "nuvio-engine")
         check(dataDirectory.mkdirs() || dataDirectory.isDirectory) {
-            "Could not create Nuvio Engine data directory"
+            "Could not create SC Engine data directory"
         }
         check(cacheDirectory.mkdirs() || cacheDirectory.isDirectory) {
-            "Could not create Nuvio Engine cache directory"
+            "Could not create SC Engine cache directory"
         }
 
         NuvioEngine.create(
@@ -214,7 +214,7 @@ class TorrentService(context: Context) {
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
-                    Log.w(TAG, "Nuvio Engine stats update failed", error)
+                    Log.w(TAG, "SC Engine stats update failed", error)
                 }
                 delay(STATS_INTERVAL_MS)
             }

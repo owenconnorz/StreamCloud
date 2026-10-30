@@ -2429,7 +2429,7 @@ fun SettingsHubScreen(
                         icon = Icons.Default.Info,
                         tint = ColourSystem,
                         title = "Open-source licenses",
-                        subtitle = "GPL-3.0-or-later · Nuvio Engine and bundled libraries",
+                        subtitle = "GPL-3.0-or-later · SC Engine and bundled libraries",
                         onClick = { showOpenSourceLicensesDialog = true },
                     )
                 }
@@ -4894,8 +4894,8 @@ private fun OpenSourceLicensesDialog(onDismiss: () -> Unit) {
     val documents = listOf(
         "GPL-3.0-or-later.txt" to "GPL",
         "StreamCloud-THIRD_PARTY_NOTICES.md" to "App notices",
-        "NuvioEngine-THIRD_PARTY_NOTICES.md" to "Engine notices",
-        "NUVIO_ENGINE_LICENSE.txt" to "Engine GPL",
+        "NuvioEngine-THIRD_PARTY_NOTICES.md" to "SC Engine notices",
+        "NUVIO_ENGINE_LICENSE.txt" to "SC Engine GPL",
         "LIBTORRENT_LICENSE.txt" to "libtorrent",
         "BOOST_LICENSE_1_0.txt" to "Boost",
         "OPENSSL_LICENSE.txt" to "OpenSSL",
@@ -4918,7 +4918,8 @@ private fun OpenSourceLicensesDialog(onDismiss: () -> Unit) {
         text = {
             Column(Modifier.heightIn(max = 560.dp)) {
                 Text(
-                    "StreamCloud and Nuvio Engine are licensed under GPL-3.0-or-later. " +
+                    "StreamCloud's SC Engine integration is based on Nuvio Engine; both are " +
+                        "licensed under GPL-3.0-or-later. " +
                         "This software is provided without warranty.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -4964,7 +4965,7 @@ private fun OpenSourceLicensesDialog(onDismiss: () -> Unit) {
                         )
                     },
                 ) {
-                    Text("View Nuvio Engine source")
+                    Text("View upstream Nuvio Engine source")
                 }
             }
         },

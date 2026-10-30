@@ -1,7 +1,7 @@
 # Third-party notices
 
-StreamCloud is licensed under GPL-3.0-or-later. The app includes Nuvio Engine
-Android 0.1.6, also licensed under GPL-3.0-or-later.
+StreamCloud is licensed under GPL-3.0-or-later. Its SC Engine torrent integration
+is based on Nuvio Engine Android 0.1.6, also licensed under GPL-3.0-or-later.
 
 Nuvio Engine sources are fetched at build time from the pinned upstream commit
 `167f8541d2e07212a9cf7034b9ca4a0c3b6be4d3`; its Android release AAR is

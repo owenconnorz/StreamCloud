@@ -36,3 +36,4 @@
 - [TV cold-start performance](tv-cold-start-performance.md) — User reports 13 seconds on TV and a 45-second Movies-home load; validate first-screen and full-load timings on device.
 - [Stremio adult home genre](stremio-adult-home-genre.md) — The 18+ home genre should browse adult Stremio catalogs, not open the Adult sources hub, and must honor the existing age gate.
 - [TV ABI APK updates](tv-apk-abi-splits.md) — Keep the universal TV APK for older updater compatibility while offering architecture-specific downloads.
+- [SC Engine branding](sc-engine-branding.md) — Call the torrent integration SC Engine in StreamCloud, while retaining Nuvio Engine upstream attribution in legal notices.
