@@ -1564,6 +1564,14 @@ fun StreamCloudApp(
                                            val u = URLEncoder.encode(itemUrl, "UTF-8")
                                            nav.navigate("player/xnxx/$u/$t")
                                        }
+                                       "pornmz" -> {
+                                           val u = URLEncoder.encode(itemUrl, "UTF-8")
+                                           nav.navigate("player/pornmz/$u/$t")
+                                       }
+                                       "beeg" -> {
+                                           val u = URLEncoder.encode(itemUrl, "UTF-8")
+                                           nav.navigate("player/beeg/$u/$t")
+                                       }
                                       "pornhub" -> {
                                           val id = itemUrl.substringAfter("viewkey=", "")
                                               .substringBefore('&')

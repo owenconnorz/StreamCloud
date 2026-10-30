@@ -697,7 +697,7 @@ fun LibraryScreen(
                                 }
                             }
                             "reddit", "redgifs" -> onDirectMediaClick(entry.csUrl, entry.title)
-                            "eporner", "pornhub", "xhamster" ->
+                            "eporner", "pornhub", "xhamster", "xfree", "pornmz", "beeg", "xnxx" ->
                                 onAdultProviderClick(entry.mediaType, entry.csUrl, entry.title)
                             else -> onMovieClick(entry.tmdbId)
                         }
