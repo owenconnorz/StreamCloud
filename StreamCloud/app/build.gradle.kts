@@ -6,7 +6,11 @@ plugins {
     id("org.jetbrains.kotlin.kapt")
 }
 
+import java.net.URL
+import java.security.MessageDigest
 import java.util.Properties
+import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 
 val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
@@ -21,6 +25,149 @@ val tvAbiFilters = requestedTvAbi?.let { abi ->
     }
     setOf(abi)
 } ?: supportedTvAbis
+
+// Nuvio Engine's release AAR is built with Kotlin 2.3, but this app must stay on
+// Kotlin 2.0.21 for Room/KAPT and compileSdk 34 compatibility. Compile its pinned
+// Kotlin wrapper sources with the app toolchain and extract only native libraries.
+val nuvioEngineVersion = "0.1.6"
+val nuvioEngineCommit = "167f8541d2e07212a9cf7034b9ca4a0c3b6be4d3"
+val nuvioEngineAarSha256 = "66b049a3625bfdc39c3b5d25a0af9bbc127c530512617e9f57cd988c019d33d6"
+val nuvioEngineSources = listOf(
+    "platform/android/engine/src/main/kotlin/com/nuvio/engine/NuvioEngine.kt" to "996ed238af9cfa1dd449adde14cfbc229e848899",
+    "platform/android/engine/src/main/kotlin/com/nuvio/engine/NuvioEngineConfig.kt" to "27ad4c8f33ef4794417239aa265fc98242543a58",
+    "platform/android/engine/src/main/kotlin/com/nuvio/engine/NuvioModels.kt" to "b7f1b18e9b8081e96f626b1ec3d6ec4712d91c10",
+    "platform/android/engine/src/main/kotlin/com/nuvio/engine/internal/AndroidTrustStore.kt" to "d487c4397b6507befecced436bebbfc3140a90f0",
+    "platform/android/engine/src/main/kotlin/com/nuvio/engine/internal/NativeBridge.kt" to "3ca61995ccc475e5937b6701d95b4f1b06bca959",
+)
+val nuvioEngineDocuments = listOf(
+    "LICENSE" to "e72bfddabc15be5718a7cc061ac10e47741d8219",
+    "THIRD_PARTY_NOTICES.md" to "379c4f1a8526a074be344fdffedd3caf1263a6c5",
+)
+val nuvioGeneratedSources = layout.buildDirectory.dir("generated/nuvio-engine/sources")
+val nuvioGeneratedJniLibs = layout.buildDirectory.dir("generated/nuvio-engine/jniLibs")
+val nuvioGeneratedAssets = layout.buildDirectory.dir("generated/nuvio-engine/assets")
+val prepareNuvioEngine = tasks.register("prepareNuvioEngine") {
+    inputs.property("nuvioEngineVersion", nuvioEngineVersion)
+    inputs.property("nuvioEngineCommit", nuvioEngineCommit)
+    inputs.property("nuvioEngineAarSha256", nuvioEngineAarSha256)
+    inputs.property(
+        "nuvioPinnedSourceBlobs",
+        (nuvioEngineSources + nuvioEngineDocuments).joinToString("|"),
+    )
+    outputs.dir(nuvioGeneratedSources)
+    outputs.dir(nuvioGeneratedJniLibs)
+    outputs.dir(nuvioGeneratedAssets)
+
+    doLast {
+        fun sha256(bytes: ByteArray): String =
+            MessageDigest.getInstance("SHA-256")
+                .digest(bytes)
+                .joinToString("") { "%02x".format(it) }
+
+        fun download(url: String): ByteArray {
+            val connection = URL(url).openConnection().apply {
+                connectTimeout = 30_000
+                readTimeout = 120_000
+                setRequestProperty("User-Agent", "StreamCloud-Gradle")
+            }
+            return connection.getInputStream().use { it.readBytes() }
+        }
+
+        val aarFile = layout.buildDirectory
+            .file("downloads/nuvio-engine-android-$nuvioEngineVersion.aar")
+            .get().asFile
+        if (!aarFile.isFile || sha256(aarFile.readBytes()) != nuvioEngineAarSha256) {
+            val bytes = download(
+                "https://github.com/NuvioMedia/nuvio-engine/releases/download/" +
+                    "v$nuvioEngineVersion/nuvio-engine-android-$nuvioEngineVersion.aar",
+            )
+            check(sha256(bytes) == nuvioEngineAarSha256) {
+                "Nuvio Engine AAR checksum mismatch; refusing an unverified binary."
+            }
+            aarFile.parentFile.mkdirs()
+            aarFile.writeBytes(bytes)
+        }
+
+        val sourceRoot = nuvioGeneratedSources.get().asFile
+        val nativeRoot = nuvioGeneratedJniLibs.get().asFile
+        val assetsRoot = nuvioGeneratedAssets.get().asFile
+        sourceRoot.deleteRecursively()
+        nativeRoot.deleteRecursively()
+        assetsRoot.deleteRecursively()
+        sourceRoot.mkdirs()
+        nativeRoot.mkdirs()
+        assetsRoot.mkdirs()
+
+        fun fetchPinnedSource(upstreamPath: String, expectedBlob: String): ByteArray {
+            val bytes = download(
+                "https://raw.githubusercontent.com/NuvioMedia/nuvio-engine/" +
+                    "$nuvioEngineCommit/$upstreamPath",
+            )
+            val blobPrefix = "blob ${bytes.size}\u0000".toByteArray(Charsets.UTF_8)
+            val actualBlob = MessageDigest.getInstance("SHA-1")
+                .digest(blobPrefix + bytes)
+                .joinToString("") { "%02x".format(it) }
+            check(actualBlob == expectedBlob) {
+                "Nuvio Engine source checksum mismatch for $upstreamPath."
+            }
+            return bytes
+        }
+
+        nuvioEngineSources.forEach { (upstreamPath, expectedBlob) ->
+            val bytes = fetchPinnedSource(upstreamPath, expectedBlob)
+            val output = sourceRoot.resolve(upstreamPath.substringAfter("/kotlin/"))
+            output.parentFile.mkdirs()
+            output.writeBytes(bytes)
+        }
+
+        val licensesDirectory = assetsRoot.resolve("licenses")
+        licensesDirectory.mkdirs()
+        nuvioEngineDocuments.forEach { (upstreamPath, expectedBlob) ->
+            val bytes = fetchPinnedSource(upstreamPath, expectedBlob)
+            val outputName = when (upstreamPath) {
+                "LICENSE" -> "GPL-3.0-or-later.txt"
+                else -> "NuvioEngine-THIRD_PARTY_NOTICES.md"
+            }
+            licensesDirectory.resolve(outputName).writeBytes(bytes)
+        }
+
+        ZipFile(aarFile).use { archive ->
+            listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64").forEach { abi ->
+                val entry = archive.getEntry("jni/$abi/libnuvio_engine.so")
+                    ?: error("Nuvio Engine AAR is missing the $abi native library.")
+                val output = nativeRoot.resolve("$abi/libnuvio_engine.so")
+                output.parentFile.mkdirs()
+                archive.getInputStream(entry).use { input ->
+                    output.outputStream().use { outputStream -> input.copyTo(outputStream) }
+                }
+            }
+
+            val classesJar = archive.getEntry("classes.jar")
+                ?: error("Nuvio Engine AAR is missing its license-bearing classes.jar.")
+            ZipInputStream(archive.getInputStream(classesJar)).use { nested ->
+                while (true) {
+                    val licenseEntry = nested.nextEntry ?: break
+                    val entryName = licenseEntry.name
+                    val isLicenseNotice = entryName.startsWith("META-INF/") &&
+                        (entryName.contains("LICENSE", ignoreCase = true) ||
+                            entryName.contains("NOTICE", ignoreCase = true))
+                    if (isLicenseNotice && !licenseEntry.isDirectory) {
+                        val output = licensesDirectory.resolve(entryName.substringAfterLast('/'))
+                        output.outputStream().use { outputStream ->
+                            val buffer = ByteArray(8 * 1024)
+                            while (true) {
+                                val count = nested.read(buffer)
+                                if (count < 0) break
+                                outputStream.write(buffer, 0, count)
+                            }
+                        }
+                    }
+                    nested.closeEntry()
+                }
+            }
+        }
+    }
+}
 
 android {
     namespace = "com.streamcloud.app"
@@ -142,12 +289,21 @@ android {
         }
         jniLibs {
             useLegacyPackaging = true
-            // Prevent AGP's llvm-strip from re-stripping the already-stripped
-            // TorrServer binary — double-stripping corrupts .gnu.version_r
-            // string table, turning "LIBC" → "version"/"oid" which causes
-            // the Android linker to fail with exit=127.
-            keepDebugSymbols += "**/libtorrserver.so"
         }
+    }
+    sourceSets.getByName("main").java.srcDir(nuvioGeneratedSources)
+    sourceSets.getByName("main").jniLibs.srcDir(nuvioGeneratedJniLibs)
+    sourceSets.getByName("main").assets.srcDir(nuvioGeneratedAssets)
+}
+
+tasks.configureEach {
+    if (
+        (name.startsWith("compile") && name.endsWith("Kotlin")) ||
+        name.startsWith("kaptGenerateStubs") ||
+        name.endsWith("JniLibFolders") ||
+        name.endsWith("Assets")
+    ) {
+        dependsOn(prepareNuvioEngine)
     }
 }
 
@@ -240,10 +396,8 @@ dependencies {
     // buffer tuning instead of bare HttpURLConnection.
     implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
 
-    // Torrent / P2P streaming via TorrServer (Go binary in jniLibs/).
-    // TorrServer exposes a local HTTP server with Range support that ExoPlayer
-    // can stream from directly — no Java-level piece-gating needed.
-    // (libtorrent4j + nanohttpd replaced; see com.streamcloud.app.torrent.*)
+    // Nuvio Engine's pinned wrapper sources and verified ABI libraries are
+    // prepared by prepareNuvioEngine; the upstream Kotlin 2.3 AAR classes are not linked.
 
     // Maintained YouTube extractors. PipePipe is the preferred music resolver; BravePipe keeps an
     // independent parser/decipher fallback when a PipePipe stream URL is rejected by the CDN.

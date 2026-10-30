@@ -211,7 +211,8 @@ object MovieDownloader {
 
     /**
      * Executes an HTTP GET with all [headers] passed through.
-     * Uses a longer connect timeout for localhost (TorrServer needs time to gather peers).
+     * Uses a longer connect timeout for local engine streams while the first
+     * verified torrent pieces become available.
      * No content-type filtering — whatever the server sends, we stream it.
      */
     private fun <T> streamUrl(

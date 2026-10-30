@@ -310,6 +310,7 @@ fun SettingsHubScreen(
     var showCollectionsDialog   by remember { mutableStateOf(false) }
     var showNavOrderDialog      by remember { mutableStateOf(false) }
     var showAboutDialog         by remember { mutableStateOf(false) }
+    var showOpenSourceLicensesDialog by remember { mutableStateOf(false) }
     var showAiDialog            by remember { mutableStateOf(false) }
     var showBackendDialog       by remember { mutableStateOf(false) }
     var showCrossfadeDialog     by remember { mutableStateOf(false) }
@@ -2423,6 +2424,14 @@ fun SettingsHubScreen(
                             }
                         },
                     )
+                    SettingDivider()
+                    SettingNav(
+                        icon = Icons.Default.Info,
+                        tint = ColourSystem,
+                        title = "Open-source licenses",
+                        subtitle = "GPL-3.0-or-later · Nuvio Engine and bundled libraries",
+                        onClick = { showOpenSourceLicensesDialog = true },
+                    )
                 }
                 if (!isTv) {
                     Spacer(Modifier.height(16.dp))
@@ -2606,6 +2615,9 @@ fun SettingsHubScreen(
     }
     if (showAboutDialog) {
         AboutDialog(onDismiss = { showAboutDialog = false })
+    }
+    if (showOpenSourceLicensesDialog) {
+        OpenSourceLicensesDialog(onDismiss = { showOpenSourceLicensesDialog = false })
     }
     if (showCrossfadeDialog) {
         QualityDialog(
@@ -4870,6 +4882,90 @@ private fun AboutDialog(onDismiss: () -> Unit) {
                 TextButton(onClick = {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}")))
                 }) { Text("Source code (GitHub)") }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+@Composable
+private fun OpenSourceLicensesDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val documents = listOf(
+        "GPL-3.0-or-later.txt" to "GPL",
+        "StreamCloud-THIRD_PARTY_NOTICES.md" to "App notices",
+        "NuvioEngine-THIRD_PARTY_NOTICES.md" to "Engine notices",
+        "NUVIO_ENGINE_LICENSE.txt" to "Engine GPL",
+        "LIBTORRENT_LICENSE.txt" to "libtorrent",
+        "BOOST_LICENSE_1_0.txt" to "Boost",
+        "OPENSSL_LICENSE.txt" to "OpenSSL",
+        "TRY_SIGNAL_LICENSE.txt" to "try_signal",
+    )
+    var selectedDocument by remember { mutableStateOf(documents.first().first) }
+    val documentText = remember(selectedDocument) {
+        runCatching {
+            context.assets.open("licenses/$selectedDocument")
+                .bufferedReader()
+                .use { it.readText() }
+        }.getOrElse {
+            "The license document is unavailable in this build. See the StreamCloud source repository."
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Open-source licenses") },
+        text = {
+            Column(Modifier.heightIn(max = 560.dp)) {
+                Text(
+                    "StreamCloud and Nuvio Engine are licensed under GPL-3.0-or-later. " +
+                        "This software is provided without warranty.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    documents.forEach { (assetName, label) ->
+                        TextButton(onClick = { selectedDocument = assetName }) {
+                            Text(
+                                label,
+                                color = if (selectedDocument == assetName) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = documentText,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState()),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                TextButton(
+                    onClick = {
+                        context.startActivity(
+                            Intent(
+                                Intent.ACTION_VIEW,
+                                Uri.parse(
+                                    "https://github.com/NuvioMedia/nuvio-engine/tree/" +
+                                        "167f8541d2e07212a9cf7034b9ca4a0c3b6be4d3",
+                                ),
+                            ),
+                        )
+                    },
+                ) {
+                    Text("View Nuvio Engine source")
+                }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },

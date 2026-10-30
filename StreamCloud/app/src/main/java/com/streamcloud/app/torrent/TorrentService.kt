@@ -2,6 +2,11 @@ package com.streamcloud.app.torrent
 
 import android.content.Context
 import android.util.Log
+import com.nuvio.engine.NuvioEngine
+import com.nuvio.engine.NuvioEngineConfig
+import com.nuvio.engine.NuvioEventType
+import com.nuvio.engine.NuvioStream
+import com.nuvio.engine.NuvioTorrentProfile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -11,226 +16,221 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.net.URLDecoder
-import java.net.URLEncoder
-
-private val VIDEO_EXTENSIONS = setOf(
-    "mkv", "mp4", "avi", "webm", "ts", "m4v", "mov", "wmv", "flv",
-)
+import java.io.File
+import java.util.concurrent.atomic.AtomicLong
 
 class TorrentService(context: Context) {
 
     companion object {
         private const val TAG = "TorrentService"
-        private val DEFAULT_TRACKERS = listOf(
-            "udp://tracker.opentrackr.org:1337/announce",
-            "udp://open.stealth.si:80/announce",
-            "udp://tracker.openbittorrent.com:6969/announce",
-            "udp://exodus.desync.com:6969/announce",
-            "udp://tracker.torrent.eu.org:451/announce",
-            "udp://open.demonii.com:1337/announce",
-            "udp://tracker.bittor.pw:1337/announce",
-        )
+        private const val MEMORY_CACHE_BYTES = 64L * 1024L * 1024L
+        private const val DISK_CACHE_BYTES = 2L * 1024L * 1024L * 1024L
+        private const val STREAM_IDLE_TIMEOUT_MS = 30_000
+        private const val WARM_TORRENT_TIMEOUT_MS = 60_000
+        private const val STATS_INTERVAL_MS = 1_000L
     }
 
     private val appContext = context.applicationContext
-    private val binary = TorrServerBinary(appContext)
-    private val api    = TorrServerApi(binary)
-
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val operationMutex = Mutex()
+    private val engineMutex = Mutex()
     private val _state = MutableStateFlow<TorrentState>(TorrentState.Idle)
     val state: StateFlow<TorrentState> = _state.asStateFlow()
 
-    private var statsJob: Job? = null
-    private var currentHash: String? = null
+    @Volatile
+    private var engine: NuvioEngine? = null
 
+    @Volatile
+    private var currentTorrentId: String? = null
+
+    private var currentStream: NuvioStream? = null
+    private var statsJob: Job? = null
+    private var eventsJob: Job? = null
+    private val streamRevision = AtomicLong(0L)
 
     suspend fun startStream(
         infoHash: String,
         fileIdx: Int? = null,
         filename: String? = null,
         trackers: List<String> = emptyList(),
-    ): String = withContext(Dispatchers.IO) {
-        stopStream()
-        _state.value = TorrentState.Connecting
-
-        binary.start()
-
-        val magnet = buildMagnet(infoHash, trackers)
-        Log.d(TAG, "Starting stream: infoHash=$infoHash fileIdx=$fileIdx")
-
-        val hash = api.addTorrent(magnet)
-            ?: throw TorrentException("TorrServer rejected the torrent (addTorrent returned null)")
-        currentHash = hash
-
-        val resolvedIdx = resolveFileIndex(hash, fileIdx, filename)
-        val streamUrl   = api.getStreamUrl(magnet, resolvedIdx)
-        Log.d(TAG, "Stream URL → $streamUrl")
-
-        startStatsPolling(hash)
-
-        _state.value = TorrentState.Streaming(localUrl = streamUrl)
-        streamUrl
+    ): String {
+        val magnet = TorrentMagnet.fromInfoHash(infoHash, trackers)
+        return startPreparedStream(magnet.uri, fileIdx, filename)
     }
 
+    suspend fun startStreamFromMagnet(magnet: String): String {
+        val parsed = TorrentMagnet.parse(magnet)
+        return startPreparedStream(parsed.uri, parsed.fileIndexHint, filename = null)
+    }
 
     /**
-     * Resolves a magnet link to a TorrServer local HTTP stream URL suitable for downloading,
-     * WITHOUT stopping any currently playing stream.
+     * Creates a separate short-lived stream for downloads without interrupting
+     * the stream currently used by the player. Nuvio Engine retires idle routes
+     * and warm torrents according to the configured timeouts.
      */
     suspend fun resolveStreamUrlFromMagnet(magnet: String): String = withContext(Dispatchers.IO) {
-        binary.start()
-
-        val fidxRegex = Regex("[&?]_sc_fidx=(\\d+)", RegexOption.IGNORE_CASE)
-        val fileIdxHint = fidxRegex.find(magnet)?.groupValues?.get(1)?.toIntOrNull()
-        val cleanMagnet = magnet.replace(fidxRegex, "")
-
-        val infoHash = Regex("urn:btih:([a-zA-Z0-9]{32,40})", RegexOption.IGNORE_CASE)
-            .find(cleanMagnet)?.groupValues?.get(1)
-            ?: throw TorrentException("Could not parse infoHash from magnet")
-
-        val trackers = Regex("[&?]tr=([^&]+)").findAll(cleanMagnet)
-            .map { runCatching { java.net.URLDecoder.decode(it.groupValues[1], "UTF-8") }.getOrDefault(it.groupValues[1]) }
-            .filter { it.isNotBlank() }.toList()
-
-        val fullMagnet = buildMagnet(infoHash, trackers)
-        val hash = api.addTorrent(fullMagnet)
-            ?: throw TorrentException("TorrServer rejected the torrent")
-
-        val fileIdx = resolveFileIndex(hash, fileIdxHint, null)
-        api.getStreamUrl(fullMagnet, fileIdx)
+        val prepared = TorrentMagnet.parse(magnet)
+        val activeEngine = getOrCreateEngine()
+        val torrentId = activeEngine.addMagnet(prepared.uri)
+        val files = activeEngine.files(torrentId)
+        val index = TorrentFileSelector.select(files, prepared.fileIndexHint, filename = null)
+        activeEngine.prepareStream(
+            torrentId = torrentId,
+            fileIndex = index,
+        ).url
     }
 
-    suspend fun startStreamFromMagnet(magnet: String): String = withContext(Dispatchers.IO) {
+    private suspend fun startPreparedStream(
+        magnetUri: String,
+        fileIndex: Int?,
+        filename: String?,
+    ): String = withContext(Dispatchers.IO) {
+        operationMutex.withLock {
+            streamRevision.incrementAndGet()
+            stopActiveStream()
+            _state.value = TorrentState.Connecting
 
-        val fidxRegex = Regex("[&?]_sc_fidx=(\\d+)", RegexOption.IGNORE_CASE)
-        val fileIdxHint = fidxRegex.find(magnet)?.groupValues?.get(1)?.toIntOrNull()
-        val cleanMagnet = magnet.replace(fidxRegex, "")
+            try {
+                val activeEngine = getOrCreateEngine()
+                Log.d(TAG, "Adding torrent for playback; requested file index=$fileIndex")
+                val torrentId = activeEngine.addMagnet(magnetUri)
+                val files = activeEngine.files(torrentId)
+                val selectedIndex = TorrentFileSelector.select(files, fileIndex, filename)
+                val stream = activeEngine.prepareStream(
+                    torrentId = torrentId,
+                    fileIndex = selectedIndex,
+                    filenameHint = filename,
+                )
 
-
-        val infoHash = Regex("urn:btih:([a-zA-Z0-9]{32,40})", RegexOption.IGNORE_CASE)
-            .find(cleanMagnet)?.groupValues?.get(1)
-            ?: throw TorrentException("Could not parse infoHash from magnet: ${cleanMagnet.take(80)}")
-
-
-        val trackers = Regex("[&?]tr=([^&]+)").findAll(cleanMagnet)
-            .map {
-                runCatching { URLDecoder.decode(it.groupValues[1], "UTF-8") }
-                    .getOrDefault(it.groupValues[1])
+                currentTorrentId = torrentId
+                currentStream = stream
+                _state.value = TorrentState.Streaming(localUrl = stream.url)
+                startStatsPolling(activeEngine, stream)
+                Log.d(TAG, "Nuvio Engine stream prepared for file index ${stream.fileIndex}")
+                stream.url
+            } catch (cancelled: CancellationException) {
+                stopActiveStream()
+                throw cancelled
+            } catch (error: Exception) {
+                stopActiveStream()
+                _state.value = TorrentState.Error(error.message ?: "Torrent stream could not start")
+                throw TorrentException("Nuvio Engine could not prepare the torrent stream", error)
             }
-            .filter { it.isNotBlank() }
-            .toList()
-
-        Log.d(TAG, "startStreamFromMagnet infoHash=$infoHash fileIdxHint=$fileIdxHint trackers=${trackers.size}")
-
-
-        startStream(infoHash = infoHash, fileIdx = fileIdxHint, filename = null, trackers = trackers)
+        }
     }
 
     fun stopStream() {
-        statsJob?.cancel()
-        statsJob = null
-        currentHash?.let { hash ->
-            runCatching { runBlocking(Dispatchers.IO) { api.dropTorrent(hash) } }
-        }
-        currentHash = null
+        val requestedRevision = streamRevision.incrementAndGet()
         _state.value = TorrentState.Idle
+        scope.launch {
+            operationMutex.withLock {
+                // A newer playback request supersedes a delayed stop from the
+                // previous player's dispose callback.
+                if (streamRevision.get() == requestedRevision) stopActiveStream()
+            }
+        }
     }
 
     fun shutdown() {
-        stopStream()
-        binary.stop()
-    }
-
-
-
-    private fun buildMagnet(infoHash: String, extraTrackers: List<String>): String {
-        val trackers = (DEFAULT_TRACKERS + extraTrackers).distinct()
-        return "magnet:?xt=urn:btih:$infoHash" +
-            trackers.joinToString("") { "&tr=" + URLEncoder.encode(it, "UTF-8") }
-    }
-
-    private suspend fun resolveFileIndex(
-        hash: String,
-        requestedIdx: Int?,
-        filename: String?,
-    ): Int {
-
-        val deadline = System.currentTimeMillis() + 15_000L
-        var files: List<TorrServerFile> = emptyList()
-        while (System.currentTimeMillis() < deadline) {
-            files = api.getTorrentStats(hash)?.files ?: emptyList()
-            if (files.isNotEmpty()) break
-            Log.d(TAG, "Waiting for torrent metadata…")
-            delay(800L)
-        }
-
-        if (files.isEmpty()) {
-            Log.w(TAG, "No file list after metadata timeout; guessing idx=${requestedIdx?.plus(1) ?: 1}")
-            return requestedIdx?.plus(1) ?: 1
-        }
-        Log.d(TAG, "Torrent has ${files.size} files")
-
-
-        if (!filename.isNullOrBlank()) {
-            val name = filename.trim()
-            files.firstOrNull { it.path.substringAfterLast('/').equals(name, true) }
-                ?.also { Log.d(TAG, "Resolved by exact filename: ${it.path} id=${it.id}"); return it.id }
-            files.firstOrNull { it.path.contains(name, true) }
-                ?.also { Log.d(TAG, "Resolved by partial filename: ${it.path} id=${it.id}"); return it.id }
-        }
-
-
-        if (requestedIdx != null) {
-            val tsIdx = requestedIdx + 1
-            if (files.any { it.id == tsIdx }) {
-                Log.d(TAG, "Resolved by ID offset: id=$tsIdx"); return tsIdx
+        streamRevision.incrementAndGet()
+        scope.launch {
+            operationMutex.withLock {
+                stopActiveStream()
+                engineMutex.withLock {
+                    eventsJob?.cancel()
+                    eventsJob = null
+                    val activeEngine = engine
+                    engine = null
+                    runCatching { activeEngine?.shutdown() }
+                        .onFailure { Log.w(TAG, "Engine shutdown failed", it) }
+                }
             }
         }
-
-
-        if (requestedIdx != null && requestedIdx in files.indices) {
-            val f = files[requestedIdx]
-            Log.d(TAG, "Resolved by positional index [$requestedIdx]: ${f.path} id=${f.id}")
-            return f.id
-        }
-
-
-        val best = files
-            .filter { f -> f.path.substringAfterLast('.', "").lowercase() in VIDEO_EXTENSIONS }
-            .maxByOrNull { it.length }
-            ?: files.maxByOrNull { it.length }
-        Log.d(TAG, "Resolved by largest video fallback: id=${best?.id ?: 1}")
-        return best?.id ?: 1
     }
 
-    private fun startStatsPolling(hash: String) {
+    private suspend fun getOrCreateEngine(): NuvioEngine = engineMutex.withLock {
+        engine?.let { return@withLock it }
+
+        val dataDirectory = File(appContext.filesDir, "nuvio-engine")
+        val cacheDirectory = File(appContext.cacheDir, "nuvio-engine")
+        check(dataDirectory.mkdirs() || dataDirectory.isDirectory) {
+            "Could not create Nuvio Engine data directory"
+        }
+        check(cacheDirectory.mkdirs() || cacheDirectory.isDirectory) {
+            "Could not create Nuvio Engine cache directory"
+        }
+
+        NuvioEngine.create(
+            NuvioEngineConfig(
+                dataDirectory = dataDirectory,
+                cacheDirectory = cacheDirectory,
+                memoryCacheCapacityBytes = MEMORY_CACHE_BYTES,
+                diskCacheCapacityBytes = DISK_CACHE_BYTES,
+                torrentProfile = NuvioTorrentProfile.Balanced,
+                streamInactivityTimeoutMilliseconds = STREAM_IDLE_TIMEOUT_MS,
+                warmTorrentTimeoutMilliseconds = WARM_TORRENT_TIMEOUT_MS,
+            ),
+        ).also { created ->
+            engine = created
+            eventsJob?.cancel()
+            eventsJob = scope.launch {
+                created.events.collect { event ->
+                    if (
+                        event.type == NuvioEventType.TorrentError &&
+                        event.torrentId == currentTorrentId
+                    ) {
+                        _state.value = TorrentState.Error(
+                            event.message ?: "Torrent connection failed",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun startStatsPolling(activeEngine: NuvioEngine, stream: NuvioStream) {
         statsJob?.cancel()
         statsJob = scope.launch {
             while (isActive) {
                 try {
-                    val stats = api.getTorrentStats(hash)
-                    val cur   = _state.value
-                    if (stats != null && cur is TorrentState.Streaming) {
-                        _state.value = cur.copy(
-                            downloadSpeed  = stats.downloadSpeed,
-                            uploadSpeed    = stats.uploadSpeed,
-                            peers          = stats.peers,
-                            seeds          = stats.seeds,
-                            preloadedBytes = stats.preloadedBytes,
+                    val engineStats = activeEngine.stats.value
+                    val streamStats = activeEngine.currentStreamStats(stream.id)
+                    val current = _state.value as? TorrentState.Streaming
+                    if (current?.localUrl == stream.url) {
+                        _state.value = current.copy(
+                            downloadSpeed = engineStats.downloadRateBytesPerSecond,
+                            uploadSpeed = engineStats.uploadRateBytesPerSecond,
+                            peers = engineStats.connectedPeers,
+                            seeds = engineStats.connectedSeeds,
+                            preloadedBytes = streamStats.contiguousReadyBytes,
                         )
                     }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.w(TAG, "Stats polling error", e)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Log.w(TAG, "Nuvio Engine stats update failed", error)
                 }
-                delay(1_500L)
+                delay(STATS_INTERVAL_MS)
             }
         }
+    }
+
+    private suspend fun stopActiveStream() {
+        statsJob?.cancel()
+        statsJob = null
+        val stream = currentStream
+        currentStream = null
+        currentTorrentId = null
+        if (stream != null) {
+            runCatching { engine?.stopStream(stream.id) }
+                .onFailure { Log.w(TAG, "Could not stop torrent stream cleanly", it) }
+        }
+        _state.value = TorrentState.Idle
     }
 }
