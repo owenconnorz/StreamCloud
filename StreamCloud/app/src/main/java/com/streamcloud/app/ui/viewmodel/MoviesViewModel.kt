@@ -62,6 +62,8 @@ const val SOURCE_BUILTIN = "builtin"
 private const val HOME_COLLECTION_TIMEOUT_MS = 30_000L
 private const val HOME_COLLECTION_STALE_AFTER_MS = 15 * 60 * 1000L
 private const val GENRE_ARTWORK_STALE_AFTER_MS = 7L * 24 * 60 * 60 * 1000L
+private const val SECONDARY_HOME_STARTUP_WAIT_MS = 8_000L
+private const val SECONDARY_HOME_QUIET_PERIOD_MS = 2_000L
 private val TV_HOME_GENRE_COLLECTION_IDS = listOf("action", "comedy", "drama", "horror", "scifi")
 
 internal fun isPersistedHomeCollectionCacheFresh(
@@ -308,8 +310,11 @@ class MoviesViewModel(
     private val homeCollectionRowsCache = mutableMapOf<String, CollectionRow>()
     private val homeCollectionCacheJson = Json { ignoreUnknownKeys = true }
     private val homeCollectionCacheReady = CompletableDeferred<Unit>()
+    private val primaryHomeContentReady = CompletableDeferred<Unit>()
     private val homeCollectionFetchSemaphore = Semaphore(4)
     private val titleLogoSemaphore = Semaphore(3)
+    private var csHomeRowsJob: Job? = null
+    private var stremioHomeRowsJob: Job? = null
 
     private fun homeCollectionCachePreferences() =
         appContext.getSharedPreferences("tmdb_home_collection_cache_v1", Context.MODE_PRIVATE)
@@ -417,15 +422,24 @@ class MoviesViewModel(
     }
 
     private fun loadCsPluginRows() {
-        viewModelScope.launch {
+        csHomeRowsJob?.cancel()
+        csHomeRowsJob = viewModelScope.launch {
             try {
                 val pinned = sl.settings.csHomeSections.first()
                 if (pinned.isEmpty()) {
                     _state.update { it.copy(csPluginRows = emptyList()) }
                     return@launch
                 }
+                // CloudStream plugin home pages can be CPU- and network-heavy. Prioritize
+                // primary Movies shelves before asking installed plugins for rows.
+                waitForPrimaryHomeStartup()
+                val currentPinned = sl.settings.csHomeSections.first()
+                if (currentPinned.isEmpty()) {
+                    _state.update { it.copy(csPluginRows = emptyList()) }
+                    return@launch
+                }
                 val installed = pluginRepo.installed.first()
-                val rows = pinned.mapNotNull { pin ->
+                val rows = currentPinned.mapNotNull { pin ->
                     val plugin = installed.firstOrNull { it.internalName == pin.pluginInternalName }
                         ?: return@mapNotNull null
                     val items = runCatching {
@@ -442,6 +456,13 @@ class MoviesViewModel(
                 _state.update { it.copy(csPluginRows = rows) }
             } catch (_: Throwable) {}
         }
+    }
+
+    private suspend fun waitForPrimaryHomeStartup() {
+        withTimeoutOrNull(SECONDARY_HOME_STARTUP_WAIT_MS) {
+            primaryHomeContentReady.await()
+        }
+        delay(SECONDARY_HOME_QUIET_PERIOD_MS)
     }
 
     fun loadDiscover() {
@@ -560,7 +581,6 @@ class MoviesViewModel(
                                 )
                             }
 
-                            result.row?.let { persistHomeCollectionRow(it) }
                             publishMutex.withLock {
                                 result.row?.let { rawRow ->
                                     homeCollectionRowsCache[def.id] = rawRow
@@ -580,10 +600,14 @@ class MoviesViewModel(
                                     ),
                                 )
                             }
+                            // Publish the first usable shelf before serializing its cache.
+                            // Cache writes still finish before the full refresh is marked done.
+                            result.row?.let { persistHomeCollectionRow(it) }
                             result
                         }
                     }.awaitAll()
                 }
+                primaryHomeContentReady.complete(Unit)
 
                 if (!isActive) return@launch
                 val rows = config.ids.mapNotNull(rowsById::get)
@@ -608,6 +632,7 @@ class MoviesViewModel(
                 throw e
             } catch (e: Exception) {
                 if (!isActive) return@launch
+                primaryHomeContentReady.complete(Unit)
                 _state.update { it.copy(error = "Failed to load: ${e.message}", loading = false) }
             }
         }
@@ -656,29 +681,31 @@ class MoviesViewModel(
         "freshness:${config.ids.sorted().joinToString(",")}"
 
     private fun refreshGenreArtwork() {
-        val preferences = genreArtworkPreferences()
-        val cachedArtwork = preferences.getString("items", null)?.let { serialized ->
-            runCatching {
-                homeCollectionCacheJson.decodeFromString<Map<String, String>>(serialized)
-            }.getOrNull()
-        }.orEmpty()
-        if (cachedArtwork.isNotEmpty()) {
-            _state.update { it.copy(genreArtwork = cachedArtwork) }
-        }
-
-        val savedAt = preferences.getLong("saved_at", 0L)
-        if (
-            cachedArtwork.keys.containsAll(TV_HOME_GENRE_COLLECTION_IDS) &&
-            System.currentTimeMillis() - savedAt in 0..GENRE_ARTWORK_STALE_AFTER_MS
-        ) {
-            return
-        }
         if (genreArtworkJob?.isActive == true) return
 
         genreArtworkJob = viewModelScope.launch {
-            // These images are decorative. Give cached movie rows time to render
-            // before their discovery requests compete for bandwidth on cold start.
-            delay(1_500L)
+            val (cachedArtwork, savedAt) = withContext(Dispatchers.IO) {
+                val preferences = genreArtworkPreferences()
+                val artwork = preferences.getString("items", null)?.let { serialized ->
+                    runCatching {
+                        homeCollectionCacheJson.decodeFromString<Map<String, String>>(serialized)
+                    }.getOrNull()
+                }.orEmpty()
+                artwork to preferences.getLong("saved_at", 0L)
+            }
+            if (cachedArtwork.isNotEmpty()) {
+                _state.update { it.copy(genreArtwork = cachedArtwork) }
+            }
+            if (
+                cachedArtwork.keys.containsAll(TV_HOME_GENRE_COLLECTION_IDS) &&
+                System.currentTimeMillis() - savedAt in 0..GENRE_ARTWORK_STALE_AFTER_MS
+            ) {
+                return@launch
+            }
+
+            // Artwork is decorative. Do not compete with the first Movies shelves
+            // for network, CPU, or storage work during a cold launch.
+            waitForPrimaryHomeStartup()
             val fetchedArtwork = coroutineScope {
                 TV_HOME_GENRE_COLLECTION_IDS.map { collectionId ->
                     async {
@@ -704,7 +731,7 @@ class MoviesViewModel(
             val mergedArtwork = cachedArtwork + fetchedArtwork
             _state.update { it.copy(genreArtwork = mergedArtwork) }
             withContext(Dispatchers.IO) {
-                preferences.edit()
+                genreArtworkPreferences().edit()
                     .putString("items", homeCollectionCacheJson.encodeToString(mergedArtwork))
                     .putLong("saved_at", System.currentTimeMillis())
                     .apply()
@@ -739,6 +766,9 @@ class MoviesViewModel(
     }
 
     private fun applyCollectionRows(rows: List<CollectionRow>, loading: Boolean) {
+        if (rows.any { it.items.isNotEmpty() }) {
+            primaryHomeContentReady.complete(Unit)
+        }
         val byId = rows.associateBy { it.id }
         tmdbHeroItems = rows
             .flatMap { row -> row.items.take(2) }
@@ -772,12 +802,16 @@ class MoviesViewModel(
     private var allFetchedStremioRows: List<StremioHomeRow> = emptyList()
 
     private fun refreshStremioRows(addons: List<InstalledStremioAddon>) {
+        stremioHomeRowsJob?.cancel()
         if (addons.isEmpty()) {
             allFetchedStremioRows = emptyList()
             _state.update { it.copy(stremioRows = emptyList()) }
             return
         }
-        viewModelScope.launch {
+        stremioHomeRowsJob = viewModelScope.launch {
+            // Add-on catalogs are supplementary home content. Keep their network work
+            // out of the first Movies startup window.
+            waitForPrimaryHomeStartup()
             val rows = addons.map { addon ->
                 async {
                     normalizeStremioRows(
