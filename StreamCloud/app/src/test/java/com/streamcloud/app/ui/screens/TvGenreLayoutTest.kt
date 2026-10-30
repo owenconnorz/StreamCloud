@@ -24,4 +24,15 @@ class TvGenreLayoutTest {
             calculateTvGenreCardWidth(1920.dp, genreCount = 6) <= 220.dp,
         )
     }
+
+    @Test
+    fun mobileGenreCardsUseReadableCarouselWidths() {
+        listOf(360.dp, 393.dp, 432.dp).forEach { screenWidth ->
+            val cardWidth = calculateMobileGenreCardWidth(screenWidth)
+
+            assertTrue(cardWidth >= 144.dp)
+            assertTrue(cardWidth <= 176.dp)
+            assertTrue(cardWidth < screenWidth)
+        }
+    }
 }

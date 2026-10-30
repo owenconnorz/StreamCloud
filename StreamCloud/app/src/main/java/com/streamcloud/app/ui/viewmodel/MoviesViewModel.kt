@@ -2,6 +2,7 @@ package com.streamcloud.app.ui.viewmodel
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -62,11 +63,14 @@ const val SOURCE_BUILTIN = "builtin"
 // Don't let a stalled TMDB shelf keep the cold-start home loading for half a minute.
 // Rows publish independently, so a slow collection can time out while others remain visible.
 private const val HOME_COLLECTION_TIMEOUT_MS = 12_000L
-private const val HOME_COLLECTION_STALE_AFTER_MS = 15 * 60 * 1000L
+// Cached shelves remain visible while stale data refreshes; a longer freshness window avoids
+// needlessly refetching the full home on typical app reopen intervals.
+private const val HOME_COLLECTION_STALE_AFTER_MS = 30 * 60 * 1000L
 private const val GENRE_ARTWORK_STALE_AFTER_MS = 7L * 24 * 60 * 60 * 1000L
 private const val SECONDARY_HOME_STARTUP_WAIT_MS = 8_000L
 private const val SECONDARY_HOME_QUIET_PERIOD_MS = 2_000L
 private val TV_HOME_GENRE_COLLECTION_IDS = listOf("action", "comedy", "drama", "horror", "scifi")
+private const val HOME_PERFORMANCE_TAG = "MoviesHomePerf"
 
 internal fun isPersistedHomeCollectionCacheFresh(
     savedAtMillis: Long,
@@ -508,6 +512,7 @@ class MoviesViewModel(
 
         activeDiscoverConfig = config
         discoverJob = viewModelScope.launch {
+            val loadStartedAt = SystemClock.elapsedRealtime()
             // Keep an already browseable home visible while refreshing its rows.
             _state.update { state ->
                 state.copy(
@@ -533,6 +538,7 @@ class MoviesViewModel(
                 val cachedRows = config.ids.mapNotNull(rowsById::get)
                 val failures = mutableListOf<String>()
                 val publishMutex = Mutex()
+                var firstFreshShelfLogged = false
 
                 applyCollectionRows(
                     cachedRows,
@@ -540,6 +546,14 @@ class MoviesViewModel(
                         cachedRows.any { it.items.isNotEmpty() },
                     ),
                 )
+                if (cachedRows.any { it.items.isNotEmpty() }) {
+                    Log.d(
+                        HOME_PERFORMANCE_TAG,
+                        "Cached home content visible after ${SystemClock.elapsedRealtime() - loadStartedAt}ms",
+                    )
+                } else {
+                    Log.d(HOME_PERFORMANCE_TAG, "No cached home rows; fetching ${collections.size} shelves")
+                }
                 refreshGenreArtwork()
 
                 if (!force && isDiscoverConfigFresh(config)) {
@@ -595,6 +609,17 @@ class MoviesViewModel(
                                 }
                                 result.failure?.let(failures::add)
                                 val visibleRows = config.ids.mapNotNull(rowsById::get)
+                                if (
+                                    !firstFreshShelfLogged &&
+                                    result.row != null &&
+                                    rowsById.containsKey(result.row.id)
+                                ) {
+                                    firstFreshShelfLogged = true
+                                    Log.d(
+                                        HOME_PERFORMANCE_TAG,
+                                        "First fresh shelf visible after ${SystemClock.elapsedRealtime() - loadStartedAt}ms",
+                                    )
+                                }
                                 applyCollectionRows(
                                     visibleRows,
                                     loading = shouldShowMoviesHomeLoading(
@@ -614,6 +639,11 @@ class MoviesViewModel(
                 if (!isActive) return@launch
                 val rows = config.ids.mapNotNull(rowsById::get)
                 applyCollectionRows(rows, loading = false)
+                Log.d(
+                    HOME_PERFORMANCE_TAG,
+                    "Home refresh finished after ${SystemClock.elapsedRealtime() - loadStartedAt}ms; " +
+                        "${rows.count { it.items.isNotEmpty() }}/${collections.size} shelves loaded",
+                )
                 val loadError = when {
                     failures.isNotEmpty() -> failures.joinToString("; ").take(240)
                     rows.isEmpty() && collections.isNotEmpty() ->

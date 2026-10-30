@@ -491,7 +491,7 @@ fun MoviesScreen(
             .distinctBy { it.id }
             .filter { !it.backdropUrl.isNullOrBlank() }
     }
-    val tvGenres = if (isTv) {
+    val homeGenres = run {
         val definitions = listOf(
             TvGenreDefinition("Action", "action", 28, Icons.Default.Whatshot, Color(0xFFEA8C2B)),
             TvGenreDefinition("Comedy", "comedy", 35, Icons.Default.Star, Color(0xFF5BA5E8)),
@@ -539,13 +539,11 @@ fun MoviesScreen(
         } else {
             genreShortcuts
         }
-    } else {
-        emptyList()
     }
     val tvHomeRowsViewportHeight = run {
         val screenWidth = LocalConfiguration.current.screenWidthDp.dp
         val continueCardWidth = (screenWidth * 0.21f).coerceIn(176.dp, 272.dp)
-        val genreCardWidth = calculateTvGenreCardWidth(screenWidth, tvGenres.size)
+        val genreCardWidth = calculateTvGenreCardWidth(screenWidth, homeGenres.size)
         val continueRowHeight = 30.dp + continueCardWidth * 0.54f + 8.dp
         val genreRowHeight = 30.dp + genreCardWidth * 9f / 16f + 8.dp
         val followingShelfHeight = 120.dp
@@ -907,10 +905,11 @@ fun MoviesScreen(
                         }
                     }
                 }
-                if (isTv && tvGenres.isNotEmpty()) {
-                    item(key = "tv_home_genres") {
-                        TvGenresRow(
-                            genres = tvGenres,
+                if (homeGenres.isNotEmpty()) {
+                    item(key = "home_genres") {
+                        HomeGenresRow(
+                            genres = homeGenres,
+                            isTv = isTv,
                             initialFocusRequester = if (startupFocusTarget == "genre") {
                                 initialFocusRequester
                             } else {
@@ -932,11 +931,6 @@ fun MoviesScreen(
 
                             },
                         )
-                    }
-                }
-                if (!isTv && adultStremioRow != null) {
-                    item(key = "mobile_adult_home_genre") {
-                        AdultHomeGenreCard(onClick = requestAdultStremioCatalog)
                     }
                 }
                 state.pinnedCollections.forEach { pinnedRow ->
@@ -1547,15 +1541,23 @@ internal fun calculateTvGenreCardWidth(screenWidth: Dp, genreCount: Int): Dp {
     return (availableWidth / itemCount.toFloat()).coerceIn(72.dp, 220.dp)
 }
 
+internal fun calculateMobileGenreCardWidth(screenWidth: Dp): Dp =
+    (screenWidth * 0.42f).coerceIn(144.dp, 176.dp)
+
 @Composable
-private fun TvGenresRow(
+private fun HomeGenresRow(
     genres: List<TvGenreShortcut>,
+    isTv: Boolean,
     initialFocusRequester: FocusRequester? = null,
     navFocusRequester: FocusRequester? = null,
     onFirstItemFocusChanged: (Boolean) -> Unit = {},
 ) {
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-    val cardWidth = calculateTvGenreCardWidth(screenWidth, genres.size)
+    val cardWidth = if (isTv) {
+        calculateTvGenreCardWidth(screenWidth, genres.size)
+    } else {
+        calculateMobileGenreCardWidth(screenWidth)
+    }
     val compactCards = cardWidth < 136.dp
     val labelHorizontalPadding = if (compactCards) 7.dp else 10.dp
     val labelVerticalPadding = if (compactCards) 6.dp else 8.dp
@@ -1563,10 +1565,14 @@ private fun TvGenresRow(
     val labelSpacing = if (compactCards) 5.dp else 7.dp
     val labelFontSize = if (compactCards) 12.sp else 14.sp
     Column {
-        TvHomeSectionTitle("Genres")
+        if (isTv) {
+            TvHomeSectionTitle("Genres")
+        } else {
+            SectionTitle("Genres")
+        }
         LazyRow(
             modifier = Modifier.tvFocusGroup(),
-            contentPadding = PaddingValues(horizontal = 24.dp),
+            contentPadding = PaddingValues(horizontal = if (isTv) 24.dp else 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             itemsIndexed(genres, key = { _, genre -> genre.id }) { index, genre ->
@@ -1655,48 +1661,6 @@ private fun TvGenresRow(
             }
         }
         Spacer(Modifier.height(8.dp))
-    }
-}
-
-@Composable
-private fun AdultHomeGenreCard(onClick: () -> Unit) {
-    val shape = RoundedCornerShape(14.dp)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(shape)
-            .background(Color(0xFF34202C))
-            .tvFocusBorder(shape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Icon(
-            Icons.Default.Warning,
-            contentDescription = null,
-            tint = Color(0xFFFF7EAA),
-            modifier = Modifier.size(24.dp),
-        )
-        Column(Modifier.weight(1f)) {
-            Text(
-                "18+ · Stremio add-ons",
-                style = MaterialTheme.typography.titleSmall,
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                "Browse adult catalogs from installed add-ons",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.72f),
-            )
-        }
-        Icon(
-            Icons.AutoMirrored.Filled.ArrowForward,
-            contentDescription = "Open adult sources",
-            tint = Color.White.copy(alpha = 0.84f),
-        )
     }
 }
 
