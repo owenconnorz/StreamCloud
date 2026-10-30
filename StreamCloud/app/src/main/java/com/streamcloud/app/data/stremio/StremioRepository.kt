@@ -94,6 +94,26 @@ private fun StremioManifest.allCatalogs(): List<StremioCatalogDef> =
             }
         ).distinctBy { "${it.type}:${it.id}" }
 
+internal fun stremioHomeLayoutCatalogs(
+    addonName: String,
+    manifest: StremioManifest,
+    defaultLimit: Int = 8,
+): List<StremioCatalogDef> {
+    val catalogs = manifest.allCatalogs().filter { catalog ->
+        catalog.extra?.none { it.isRequired } ?: true
+    }
+    val addonIsAdult = isAdultStremioLabel(addonName) ||
+        isAdultStremioLabel(manifest.name)
+    val regular = catalogs.take(defaultLimit)
+    val additionalAdult = catalogs.drop(defaultLimit).filter { catalog ->
+        addonIsAdult ||
+            isAdultStremioLabel(catalog.name) ||
+            isAdultStremioLabel(catalog.id) ||
+            isAdultStremioLabel(catalog.group)
+    }
+    return (regular + additionalAdult).distinctBy { "${it.type}:${it.id}" }
+}
+
 internal fun normalizeStremioManifestUrl(input: String): String {
     val trimmed = input.trim()
     val queryStart = trimmed.indexOf('?')
@@ -122,6 +142,7 @@ class StremioRepository(
 
     private val legacyMigrationMutex = Mutex()
     private val manifestCache = ConcurrentHashMap<String, CachedStremioManifest>()
+    private val homeCatalogFetchSemaphore = kotlinx.coroutines.sync.Semaphore(4)
     private val scopeFlow = combine(
         settings.nuvioUserId,
         profiles.activeProfileId,
@@ -528,9 +549,7 @@ class StremioRepository(
         withContext(Dispatchers.IO) {
             val mf = runCatching { fetchManifest(addon.manifestUrl) }.getOrNull()
                 ?: return@withContext emptyList()
-            mf.catalogs
-                .filter { c -> c.extra?.none { it.isRequired } ?: true }
-                .take(8)
+            stremioHomeLayoutCatalogs(addon.name, mf)
                 .map { c ->
                     StremioCatalogMeta(
                         addonId = addon.id,
@@ -563,30 +582,26 @@ class StremioRepository(
         }.awaitAll().flatten()
     }
 
-    suspend fun fetchAllHomeCatalogs(addon: InstalledStremioAddon): List<StremioHomeRow> =
+    suspend fun fetchAllHomeCatalogs(
+        addon: InstalledStremioAddon,
+        disabledCatalogKeys: Set<String> = emptySet(),
+    ): List<StremioHomeRow> =
         withContext(Dispatchers.IO) {
             val mf = runCatching { fetchManifest(addon.manifestUrl) }.getOrNull()
                 ?: return@withContext emptyList()
-            val nonSearch = mf.allCatalogs().filter { c ->
-                c.extra?.none { it.isRequired } ?: true
-            }
-            // Keep the regular home startup bounded, but include adult catalogs even
-            // when an add-on lists them after its first eight home catalogs.
-            val homeCatalogs = (
-                nonSearch.take(8) +
-                    nonSearch.drop(8).filter { catalog ->
-                        isAdultStremioLabel(addon.name) ||
-                            isAdultStremioLabel(mf.name) ||
-                            isAdultStremioLabel(catalog.name) ||
-                            isAdultStremioLabel(catalog.id) ||
-                            isAdultStremioLabel(catalog.group)
-                    }
-                ).distinctBy { "${it.type}:${it.id}" }
+            val homeCatalogs = stremioHomeLayoutCatalogs(addon.name, mf)
+                .filterNot { catalog ->
+                    "${addon.id}:${catalog.type}:${catalog.id}" in disabledCatalogKeys
+                }
 
             coroutineScope {
                 homeCatalogs.map { c ->
                     async {
-                        runCatching { fetchCatalog(addon, c.type, c.id) }
+                        runCatching {
+                            homeCatalogFetchSemaphore.withPermit {
+                                fetchCatalog(addon, c.type, c.id)
+                            }
+                        }
                             .getOrDefault(emptyList())
                             .takeIf { it.isNotEmpty() }
                             ?.let {

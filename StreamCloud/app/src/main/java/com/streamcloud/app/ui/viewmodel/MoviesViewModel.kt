@@ -83,6 +83,22 @@ internal fun isPersistedHomeCollectionCacheFresh(
     return savedAtMillis > 0L && ageMillis >= 0L && ageMillis < staleAfterMillis
 }
 
+internal fun staleHomeCollectionIds(
+    collectionIds: List<String>,
+    cachedCollectionIds: Set<String>,
+    savedAtByCollectionId: Map<String, Long>,
+    legacySavedAtMillis: Long,
+    nowMillis: Long,
+    staleAfterMillis: Long,
+): Set<String> = collectionIds.filterTo(linkedSetOf()) { id ->
+    id !in cachedCollectionIds ||
+        !isPersistedHomeCollectionCacheFresh(
+            savedAtMillis = savedAtByCollectionId[id] ?: legacySavedAtMillis,
+            nowMillis = nowMillis,
+            staleAfterMillis = staleAfterMillis,
+        )
+}
+
 internal fun shouldShowMoviesHomeLoading(hasVisibleRows: Boolean): Boolean =
     !hasVisibleRows
 
@@ -326,6 +342,8 @@ class MoviesViewModel(
     private var stremioHomeRowsJob: Job? = null
     private var stremioAdultDiscoveryJob: Job? = null
     private var allDiscoveredAdultCatalogs: List<StremioHomeRow> = emptyList()
+    private var activeStremioAddonIdentity: Set<Pair<String, String>>? = null
+    private var lastStremioDisabledCatalogKeys: Set<String>? = null
 
     private fun homeCollectionCachePreferences() =
         appContext.getSharedPreferences("tmdb_home_collection_cache_v1", Context.MODE_PRIVATE)
@@ -355,14 +373,35 @@ class MoviesViewModel(
             }
         }
         viewModelScope.launch {
-            stremioRepo.addons.collect { list ->
+            combine(
+                stremioRepo.addons,
+                sl.settings.stremioDisabledCatalogsCsv,
+            ) { addons, disabledCsv ->
+                addons to disabledCsv.orEmpty()
+                    .split(',')
+                    .map(String::trim)
+                    .filter(String::isNotBlank)
+                    .toSet()
+            }.distinctUntilChanged().collect { (list, disabledKeys) ->
+                val addonIdentity = list.map { it.id to it.manifestUrl }.toSet()
+                val addonsChanged = activeStremioAddonIdentity != addonIdentity
+                val previousDisabledKeys = lastStremioDisabledCatalogKeys
+                val newlyEnabledCatalog = previousDisabledKeys
+                    ?.minus(disabledKeys)
+                    ?.isNotEmpty() == true
+                lastStremioDisabledCatalogKeys = disabledKeys
                 _state.update {
                     it.copy(
                         installedStremioAddons = list,
-                        stremioAdultCatalogs = emptyList(),
+                        stremioAdultCatalogs = if (addonsChanged) emptyList()
+                        else it.stremioAdultCatalogs,
                     )
                 }
-                refreshStremioRows(list)
+                if (addonsChanged || newlyEnabledCatalog || previousDisabledKeys == null) {
+                    refreshStremioRows(list, disabledKeys)
+                } else {
+                    applyStremioFilter()
+                }
             }
         }
         viewModelScope.launch {
@@ -406,11 +445,7 @@ class MoviesViewModel(
                 .collectLatest { loadCsPluginRows() }
         }
         viewModelScope.launch {
-            combine(
-                sl.settings.stremioDisabledCatalogsCsv,
-                sl.settings.stremioCatalogOrderCsv,
-            ) { _, _ -> Unit }
-                .collectLatest { applyStremioFilter() }
+            sl.settings.stremioCatalogOrderCsv.collectLatest { applyStremioFilter() }
         }
         viewModelScope.launch {
             sl.settings.showHeroSection.collectLatest { v ->
@@ -543,6 +578,12 @@ class MoviesViewModel(
                 homeCollectionCacheReady.await()
                 val collections: List<HomeCollection> =
                     config.ids.mapNotNull { HomeCollections.byId(it) }
+                if (collections.isEmpty()) {
+                    primaryHomeContentReady.complete(Unit)
+                    applyCollectionRows(emptyList(), loading = false)
+                    _state.update { it.copy(error = null) }
+                    return@launch
+                }
                 val today = java.time.LocalDate.now().toString()
                 val rowsById = config.ids
                     .mapNotNull { id ->
@@ -573,14 +614,25 @@ class MoviesViewModel(
                 }
                 refreshGenreArtwork()
 
-                if (!force && isDiscoverConfigFresh(config)) {
+                val staleCollectionIds = if (force) {
+                    collections.mapTo(linkedSetOf()) { it.id }
+                } else {
+                    staleHomeCollectionIds(config, collections)
+                }
+                if (!force && staleCollectionIds.isEmpty()) {
                     applyCollectionRows(config.ids.mapNotNull(rowsById::get), loading = false)
+                    primaryHomeContentReady.complete(Unit)
                     _state.update { it.copy(error = null) }
+                    Log.d(
+                        HOME_PERFORMANCE_TAG,
+                        "All cached home shelves are fresh; no TMDB refresh needed",
+                    )
                     return@launch
                 }
 
+                val collectionsToFetch = collections.filter { it.id in staleCollectionIds }
                 coroutineScope {
-                    collections.map { def ->
+                    collectionsToFetch.map { def ->
                         async {
                             val shelfStartedAt = SystemClock.elapsedRealtime()
                             val result = try {
@@ -667,7 +719,8 @@ class MoviesViewModel(
                 Log.d(
                     HOME_PERFORMANCE_TAG,
                     "Home refresh finished after ${SystemClock.elapsedRealtime() - loadStartedAt}ms; " +
-                        "${rows.count { it.items.isNotEmpty() }}/${collections.size} shelves loaded",
+                        "${rows.count { it.items.isNotEmpty() }}/${collections.size} shelves visible; " +
+                        "refreshed=${collectionsToFetch.size}",
                 )
                 val loadError = when {
                     failures.isNotEmpty() -> failures.joinToString("; ").take(240)
@@ -711,31 +764,47 @@ class MoviesViewModel(
         return visibleItems.takeIf { it.isNotEmpty() }?.let { row.copy(items = it) }
     }
 
-    private suspend fun isDiscoverConfigFresh(config: HomeCollectionConfig): Boolean {
+    private suspend fun staleHomeCollectionIds(
+        config: HomeCollectionConfig,
+        collections: List<HomeCollection>,
+    ): Set<String> {
         if (lastSuccessfulDiscoverConfig == config) {
             val lastSuccessAt = lastSuccessfulDiscoverAt
             if (
                 lastSuccessAt != null &&
                 SystemClock.elapsedRealtime() - lastSuccessAt < HOME_COLLECTION_STALE_AFTER_MS
             ) {
-                return true
+                return emptySet()
             }
         }
 
-        val collectionIds = config.ids.filter { HomeCollections.byId(it) != null }
-        if (collectionIds.any { it !in homeCollectionRowsCache }) return false
-        val savedAtMillis = withContext(Dispatchers.IO) {
-            homeCollectionCachePreferences().getLong(homeCollectionFreshnessKey(config), 0L)
+        val collectionIds = collections.map { it.id }
+        val cachedCollectionIds = homeCollectionRowsCache.keys.toSet()
+        val now = System.currentTimeMillis()
+        return withContext(Dispatchers.IO) {
+            val preferences = homeCollectionCachePreferences()
+            val legacySavedAt = preferences.getLong(homeCollectionFreshnessKey(config), 0L)
+            val savedAtById = collectionIds.associateWith { id ->
+                preferences.getLong(homeCollectionRowFreshnessKey(id), 0L)
+                    .takeIf { it > 0L }
+                    ?: legacySavedAt
+            }
+            staleHomeCollectionIds(
+                collectionIds = collectionIds,
+                cachedCollectionIds = cachedCollectionIds,
+                savedAtByCollectionId = savedAtById,
+                legacySavedAtMillis = legacySavedAt,
+                nowMillis = now,
+                staleAfterMillis = HOME_COLLECTION_STALE_AFTER_MS,
+            )
         }
-        return isPersistedHomeCollectionCacheFresh(
-            savedAtMillis = savedAtMillis,
-            nowMillis = System.currentTimeMillis(),
-            staleAfterMillis = HOME_COLLECTION_STALE_AFTER_MS,
-        )
     }
 
     private fun homeCollectionFreshnessKey(config: HomeCollectionConfig): String =
         "freshness:${config.ids.sorted().joinToString(",")}"
+
+    private fun homeCollectionRowFreshnessKey(collectionId: String): String =
+        "collection_freshness:$collectionId"
 
     private fun refreshGenreArtwork() {
         if (genreArtworkJob?.isActive == true) return
@@ -818,6 +887,7 @@ class MoviesViewModel(
             val serialized = homeCollectionCacheJson.encodeToString(row.items)
             homeCollectionCachePreferences().edit()
                 .putString("collection:${row.id}", serialized)
+                .putLong(homeCollectionRowFreshnessKey(row.id), System.currentTimeMillis())
                 .apply()
         }
     }
@@ -858,8 +928,16 @@ class MoviesViewModel(
 
     private var allFetchedStremioRows: List<StremioHomeRow> = emptyList()
 
-    private fun refreshStremioRows(addons: List<InstalledStremioAddon>) {
+    private fun refreshStremioRows(
+        addons: List<InstalledStremioAddon>,
+        disabledCatalogKeys: Set<String>,
+    ) {
         stremioHomeRowsJob?.cancel()
+        val addonIdentity = addons.map { it.id to it.manifestUrl }.toSet()
+        if (activeStremioAddonIdentity != addonIdentity) {
+            activeStremioAddonIdentity = addonIdentity
+            allFetchedStremioRows = emptyList()
+        }
         if (addons.isEmpty()) {
             allFetchedStremioRows = emptyList()
             _state.update {
@@ -869,7 +947,7 @@ class MoviesViewModel(
             }
             return
         }
-        loadStremioHomeRowsAfterPrimary(addons)
+        loadStremioHomeRowsAfterPrimary(addons, disabledCatalogKeys)
     }
 
     private fun refreshStremioAdultCatalogs(
@@ -914,7 +992,10 @@ class MoviesViewModel(
         }
     }
 
-    private fun loadStremioHomeRowsAfterPrimary(addons: List<InstalledStremioAddon>) {
+    private fun loadStremioHomeRowsAfterPrimary(
+        addons: List<InstalledStremioAddon>,
+        disabledCatalogKeys: Set<String>,
+    ) {
         stremioHomeRowsJob?.cancel()
         if (addons.isEmpty()) return
         stremioHomeRowsJob = viewModelScope.launch {
@@ -924,7 +1005,9 @@ class MoviesViewModel(
             val rows = addons.map { addon ->
                 async {
                     normalizeStremioRows(
-                        runCatching { stremioRepo.fetchAllHomeCatalogs(addon) }.getOrNull(),
+                        runCatching {
+                            stremioRepo.fetchAllHomeCatalogs(addon, disabledCatalogKeys)
+                        }.getOrNull(),
                     )
                 }
             }.awaitAll().flatten()
