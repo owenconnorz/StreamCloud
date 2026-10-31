@@ -512,6 +512,9 @@ fun MoviesScreen(
     }
     val moviesListState = rememberLazyListState()
     val tvHomeRowFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val tvHomeItemFocusRequesters =
+        remember { mutableMapOf<String, MutableMap<Int, FocusRequester>>() }
+    val tvHomeFocusedItemIndices = remember { mutableMapOf<String, Int>() }
     val tvHomeFocusedRowKey = remember { mutableStateOf<String?>(null) }
     val tvHomeFocusedRowHasFocus = remember { mutableStateOf(false) }
     val tvHomeFirstGenreFocusRequester = remember { FocusRequester() }
@@ -526,6 +529,11 @@ fun MoviesScreen(
         } else if (tvHomeFocusedRowKey.value == rowKey) {
             tvHomeFocusedRowHasFocus.value = false
         }
+    }
+    fun updateTvHomeItemFocus(rowKey: String, itemIndex: Int, hasFocus: Boolean) {
+        if (!isTv || !hasFocus) return
+        tvHomeFocusedItemIndices[rowKey] = itemIndex
+        updateTvHomeRowFocus(rowKey, true)
     }
     val tvHeroDetailsVisible by remember(moviesListState, query) {
         derivedStateOf {
@@ -836,17 +844,29 @@ fun MoviesScreen(
             rowKey: String,
             focusFirstGenre: Boolean = false,
         ) {
-            val requester = if (focusFirstGenre && rowKey == "home_genres") {
+            val itemIndex = if (focusFirstGenre && rowKey == "home_genres") {
+                0
+            } else {
+                tvHomeFocusedItemIndices[rowKey] ?: 0
+            }
+            val isFirstGenre = rowKey == "home_genres" && itemIndex == 0
+            val itemRequester = if (isFirstGenre) {
                 tvHomeFirstGenreFocusRequester
             } else {
-                tvHomeRowFocusRequesters[rowKey]
-            } ?: return
+                tvHomeItemFocusRequesters[rowKey]?.get(itemIndex)
+            }
+            val rowRequester = tvHomeRowFocusRequesters[rowKey] ?: return
             tvHomeFocusScope.launch {
-                repeat(12) {
+                repeat(12) { attempt ->
                     withFrameNanos { }
+                    val requester = when {
+                        focusFirstGenre && isFirstGenre -> itemRequester ?: rowRequester
+                        attempt < 4 -> itemRequester ?: rowRequester
+                        else -> rowRequester
+                    }
                     runCatching { requester.requestFocus() }
                     withFrameNanos { }
-                    val hasFocus = if (focusFirstGenre && rowKey == "home_genres") {
+                    val hasFocus = if (focusFirstGenre && isFirstGenre) {
                         tvHomeFirstGenreHasFocus.value
                     } else {
                         tvHomeFocusedRowKey.value == rowKey &&
@@ -876,7 +896,13 @@ fun MoviesScreen(
             // Capture the last focused shelf before the parent NavHost's fallback
             // can move focus to its default item.
             val savedRowKey = tvHomeFocusedRowKey.value ?: return@LaunchedEffect
-            val requester = tvHomeRowFocusRequesters[savedRowKey]
+            val savedItemIndex = tvHomeFocusedItemIndices[savedRowKey] ?: 0
+            val itemRequester = if (savedRowKey == "home_genres" && savedItemIndex == 0) {
+                tvHomeFirstGenreFocusRequester
+            } else {
+                tvHomeItemFocusRequesters[savedRowKey]?.get(savedItemIndex)
+            }
+            val rowRequester = tvHomeRowFocusRequesters[savedRowKey]
                 ?: return@LaunchedEffect
             kotlinx.coroutines.delay(260L)
             if (
@@ -885,7 +911,8 @@ fun MoviesScreen(
             ) {
                 return@LaunchedEffect
             }
-            repeat(14) {
+            repeat(14) { attempt ->
+                val requester = if (attempt < 8) itemRequester ?: rowRequester else rowRequester
                 runCatching { requester.requestFocus() }
                 withFrameNanos { }
                 if (
@@ -1144,7 +1171,20 @@ fun MoviesScreen(
                                     key = { _, entry -> "cw_${cwIdentity(entry)}" },
                                 ) { index, entry ->
                                     val backdropCacheKey = "${entry.mediaType}:${entry.tmdbId}"
+                                    val itemFocusRequester = if (isTv) {
+                                        rememberTvHomeItemFocusRequester(
+                                            tvHomeItemFocusRequesters,
+                                            "continue_watching",
+                                            index,
+                                        )
+                                    } else {
+                                        null
+                                    }
                                     val focusModifier = Modifier
+                                        .then(
+                                            itemFocusRequester?.let { Modifier.focusRequester(it) }
+                                                ?: Modifier,
+                                        )
                                         .then(
                                             if (
                                                 isTv &&
@@ -1179,6 +1219,11 @@ fun MoviesScreen(
                                             continueWatchingBackdropCache[backdropCacheKey] = url
                                         },
                                         onFocusChanged = { hasFocus ->
+                                            updateTvHomeItemFocus(
+                                                "continue_watching",
+                                                index,
+                                                hasFocus,
+                                            )
                                             if (isTv && index == 0) {tvNavHeroHasFocus = hasFocus
 
                                                 onFirstMovieFocusedChanged(hasFocus)
@@ -1215,7 +1260,11 @@ fun MoviesScreen(
                             onRowFocusChanged = {
                                 updateTvHomeRowFocus("home_genres", it)
                             },
+                            itemFocusRequesters = tvHomeItemFocusRequesters.takeIf { isTv },
                             firstItemFocusRequester = tvHomeFirstGenreFocusRequester,
+                            onItemFocusChanged = { index, focused ->
+                                updateTvHomeItemFocus("home_genres", index, focused)
+                            },
                             initialFocusRequester = if (startupFocusTarget == "genre") {
                                 initialFocusRequester
                             } else {
@@ -1269,9 +1318,38 @@ fun MoviesScreen(
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
-                                items(pinnedRow.folders, key = { "pf_${it.id}" }) { folder ->
+                                itemsIndexed(
+                                    pinnedRow.folders,
+                                    key = { _, folder -> "pf_${folder.id}" },
+                                ) { index, folder ->
+                                    val itemFocusRequester = if (isTv) {
+                                        rememberTvHomeItemFocusRequester(
+                                            tvHomeItemFocusRequesters,
+                                            rowKey,
+                                            index,
+                                        )
+                                    } else {
+                                        null
+                                    }
                                     CollectionFolderTile(
                                         folder = folder,
+                                        modifier = if (isTv) {
+                                            Modifier
+                                                .then(
+                                                    itemFocusRequester?.let {
+                                                        Modifier.focusRequester(it)
+                                                    } ?: Modifier,
+                                                )
+                                                .onFocusChanged {
+                                                    updateTvHomeItemFocus(
+                                                        rowKey,
+                                                        index,
+                                                        it.isFocused || it.hasFocus,
+                                                    )
+                                                }
+                                        } else {
+                                            Modifier
+                                        },
                                         onClick = {
                                             runCatching {
                                                 when (folder.providerType) {
@@ -1378,6 +1456,15 @@ fun MoviesScreen(
                                 row.items,
                                 key = { _, movie -> "${row.id}_${movie.id}" },
                             ) { index, m ->
+                                val itemFocusRequester = if (isTv) {
+                                    rememberTvHomeItemFocusRequester(
+                                        tvHomeItemFocusRequesters,
+                                        rowKey,
+                                        index,
+                                    )
+                                } else {
+                                    null
+                                }
                                 val mediaType = if (m.title != null) "movie" else "tv"
                                 MidPoster(
                                     m = m,
@@ -1388,19 +1475,28 @@ fun MoviesScreen(
                                     titleLogoUrl = state.tmdbTitleLogos["$mediaType:${m.id}"],
                                     onRequestTitleLogo = { vm.requestTitleLogo(m.id, mediaType) },
                                     onFocusChanged = { hasFocus ->
-                                        if (hasFocus) focusedPosterIndex = index
+                                        if (hasFocus) {
+                                            focusedPosterIndex = index
+                                            updateTvHomeItemFocus(rowKey, index, true)
+                                        }
                                     },
-                                    modifier = if (
-                                        row.id == firstCollectionRowId &&
-                                        index == 0 &&
-                                        startupFocusTarget == "collection" &&
-                                        initialFocusRequester != null
-                                    ) {
-                                        Modifier
-                                            .focusRequester(initialFocusRequester)
-                                    } else {
-                                        Modifier
-                                    },
+                                    modifier = Modifier
+                                        .then(
+                                            itemFocusRequester?.let { Modifier.focusRequester(it) }
+                                                ?: Modifier,
+                                        )
+                                        .then(
+                                            if (
+                                                row.id == firstCollectionRowId &&
+                                                index == 0 &&
+                                                startupFocusTarget == "collection" &&
+                                                initialFocusRequester != null
+                                            ) {
+                                                Modifier.focusRequester(initialFocusRequester)
+                                            } else {
+                                                Modifier
+                                            },
+                                        ),
                                     onClick = {
                                         if (m.title != null) onMovieClick(m.id) else onTvClick(m.id)
                                     },
@@ -1474,6 +1570,15 @@ fun MoviesScreen(
                                 row.items,
                                 key = { _, meta -> "${row.rowKey}_${meta.id}" },
                             ) { index, meta ->
+                                val itemFocusRequester = if (isTv) {
+                                    rememberTvHomeItemFocusRequester(
+                                        tvHomeItemFocusRequesters,
+                                        rowKey,
+                                        index,
+                                    )
+                                } else {
+                                    null
+                                }
                                 val stremioKey = "stremio:${meta.type}:${meta.id}"
                                 val mediaType = if (
                                     meta.type.equals("series", ignoreCase = true) ||
@@ -1490,19 +1595,28 @@ fun MoviesScreen(
                                     },
                                     onRequestTitleLogo = vm::requestTitleLogo,
                                     onFocusChanged = { hasFocus ->
-                                        if (hasFocus) focusedPosterIndex = index
+                                        if (hasFocus) {
+                                            focusedPosterIndex = index
+                                            updateTvHomeItemFocus(rowKey, index, true)
+                                        }
                                     },
-                                    modifier = if (
-                                        row.rowKey == firstStremioRowKey &&
-                                        index == 0 &&
-                                        startupFocusTarget == "stremio" &&
-                                        initialFocusRequester != null
-                                    ) {
-                                        Modifier
-                                            .focusRequester(initialFocusRequester)
-                                    } else {
-                                        Modifier
-                                    },
+                                    modifier = Modifier
+                                        .then(
+                                            itemFocusRequester?.let { Modifier.focusRequester(it) }
+                                                ?: Modifier,
+                                        )
+                                        .then(
+                                            if (
+                                                row.rowKey == firstStremioRowKey &&
+                                                index == 0 &&
+                                                startupFocusTarget == "stremio" &&
+                                                initialFocusRequester != null
+                                            ) {
+                                                Modifier.focusRequester(initialFocusRequester)
+                                            } else {
+                                                Modifier
+                                            },
+                                        ),
                                     onLongPress = {
                                         posterSheet = PosterSheetItem(
                                             tmdbId = null,
@@ -1620,6 +1734,15 @@ fun MoviesScreen(
                                     "${row.pluginInternalName}_${row.sectionName}_${item.url}"
                                 },
                             ) { index, sr ->
+                                val itemFocusRequester = if (isTv) {
+                                    rememberTvHomeItemFocusRequester(
+                                        tvHomeItemFocusRequesters,
+                                        rowKey,
+                                        index,
+                                    )
+                                } else {
+                                    null
+                                }
                                 val tmdbKey = csHomeTmdbKey(
                                     row.pluginInternalName,
                                     row.sectionName,
@@ -1644,8 +1767,14 @@ fun MoviesScreen(
                                     },
                                     onRequestTitleLogo = vm::requestTitleLogo,
                                     onFocusChanged = { hasFocus ->
-                                        if (hasFocus) focusedPosterIndex = index
+                                        if (hasFocus) {
+                                            focusedPosterIndex = index
+                                            updateTvHomeItemFocus(rowKey, index, true)
+                                        }
                                     },
+                                    modifier = itemFocusRequester?.let {
+                                        Modifier.focusRequester(it)
+                                    } ?: Modifier,
                                     onClick = {
                                         onOpenCsItem(
                                             row.pluginInternalName,
@@ -1984,14 +2113,26 @@ private fun rememberTvHomeRowFocusRequester(
 }
 
 @Composable
+private fun rememberTvHomeItemFocusRequester(
+    registry: MutableMap<String, MutableMap<Int, FocusRequester>>,
+    rowKey: String,
+    itemIndex: Int,
+): FocusRequester = remember(registry, rowKey, itemIndex) {
+    registry.getOrPut(rowKey) { mutableMapOf() }
+        .getOrPut(itemIndex) { FocusRequester() }
+}
+
+@Composable
 private fun HomeGenresRow(
     genres: List<TvGenreShortcut>,
     isTv: Boolean,
     rowFocusRequester: FocusRequester? = null,
     onRowFocusChanged: (Boolean) -> Unit = {},
+    itemFocusRequesters: MutableMap<String, MutableMap<Int, FocusRequester>>? = null,
     firstItemFocusRequester: FocusRequester? = null,
     initialFocusRequester: FocusRequester? = null,
     navFocusRequester: FocusRequester? = null,
+    onItemFocusChanged: (Int, Boolean) -> Unit = { _, _ -> },
     onFirstItemFocusChanged: (Boolean) -> Unit = {},
 ) {
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
@@ -2024,10 +2165,16 @@ private fun HomeGenresRow(
         ) {
             itemsIndexed(genres, key = { _, genre -> genre.id }) { index, genre ->
                 val shape = RoundedCornerShape(12.dp)
+                val itemFocusRequester = when {
+                    index == 0 && firstItemFocusRequester != null -> firstItemFocusRequester
+                    itemFocusRequesters != null ->
+                        rememberTvHomeItemFocusRequester(itemFocusRequesters, "home_genres", index)
+                    else -> null
+                }
                 val focusModifier = Modifier
                     .then(
-                        if (index == 0 && firstItemFocusRequester != null) {
-                            Modifier.focusRequester(firstItemFocusRequester)
+                        if (itemFocusRequester != null) {
+                            Modifier.focusRequester(itemFocusRequester)
                         } else {
                             Modifier
                         },
@@ -2047,6 +2194,7 @@ private fun HomeGenresRow(
                         },
                     )
                     .onFocusChanged {
+                        onItemFocusChanged(index, it.isFocused || it.hasFocus)
                         if (index == 0) {
                             onFirstItemFocusChanged(it.isFocused || it.hasFocus)
                         }
@@ -3321,6 +3469,7 @@ private fun CsHomePosterCard(
     onRequestTitleLogo: (Long, String) -> Unit,
     onFocusChanged: (Boolean) -> Unit = {},
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var isFocused by remember(item.url) { mutableStateOf(false) }
     val isExpanded = isTv && homeCardStyle == "expanding" && isFocused
@@ -3353,7 +3502,7 @@ private fun CsHomePosterCard(
 
     val posterShape = RoundedCornerShape(12.dp)
     Column(
-        modifier = Modifier
+        modifier = modifier
             .width(animatedWidth)
             .tvOkPress(onClick, onLongPress = {})
             .onFocusChanged {
@@ -3988,14 +4137,18 @@ private fun PosterOptionsSheet(
 }
 
 @Composable
-private fun CollectionFolderTile(folder: CollectionFolderEntity, onClick: () -> Unit) {
+private fun CollectionFolderTile(
+    folder: CollectionFolderEntity,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val (width, ratio) = when (folder.tileShape) {
         "poster" -> 120.dp to (2f / 3f)
         "square" -> 160.dp to 1f
         else     -> 200.dp to (16f / 9f)
     }
     Box(
-        Modifier
+        modifier
             .width(width)
             .aspectRatio(ratio)
             .tvFocusBorder(RoundedCornerShape(12.dp))

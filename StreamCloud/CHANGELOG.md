@@ -3,6 +3,7 @@
 ### Android TV Movies home focus
 - **Up and Down follow the next visible shelf** — moving up from Genres returns to Continue Watching, and moving down from Continue Watching lands on the first genre instead of skipping to Drama.
 - **Closing the navigation drawer restores the selected shelf** — the TV home keeps focus on the content you left rather than losing the poster highlight.
+- **The highlight returns to the selected card** — each shelf remembers its focused item, so focus restores to the same poster instead of only the row.
 
 ## Hotfix — Changes since V2409
 
