@@ -3,19 +3,13 @@ name: Fire TV focus handoff
 description: Android TV spatial focus behavior — pager trapping, drawer open trigger, and vertical scroll suppression
 ---
 
-Fire TV spatial focus search is unreliable when a persistent overlay navigation button is the only initially focused control. Down/Right must move directly to a real, visible page control; an invisible focus bridge can become a dead end instead of a useful handoff.
+Keep TV navigation hidden during normal browsing so the first focus remains on page content. Open the left drawer only when D-pad Left cannot move to another content target.
 
-**Why:** Fire Cube navigation could remain trapped on the top-left hamburger even though page controls were visible, and a hidden intermediary merely moved the trap. Touch-only clickable cards did not consistently participate in TV focus search.
+**Why:** A persistent top control trapped Fire TV users away from the content and took up screen space even when navigation was not needed.
 
-**How to apply:** Keep the TV hamburger accessible, but have Down/Right invoke directional focus movement from it. Interactive TV cards and rows must be explicit focus targets with a visible focus border, so the shared traversal works across Movies, Music, Library, and other pages.
+**How to apply:** Keep TV startup focus on the first available Movies card. When opened, focus the first enabled tab rather than the profile header; Up can reach the profile action intentionally and Up at the header is trapped. Up/Down traverses drawer rows; Right, Back, or Menu closes it and restores the previously focused page child. Do not scroll Movies to the top just because the drawer opens.
 
 Nested TV rails should rely on the focusable item's normal list reveal behavior rather than adding an unconditional `BringIntoViewRequester` to every focused card. Repeated D-pad events should also be consumed after throttled focus movement, including at a group edge.
-
-For the Nuvio-style home flow, initial TV focus belongs on the first available movie card, not the corner launcher. Pressing Left from the first movie card opens the drawer directly; the drawer begins with Home and its profile header is informational rather than the default focus target.
-
-**Why:** Starting on a persistent hamburger trapped remote users at the top of the screen and required an extra navigation step before they could browse.
-
-**How to apply:** Keep the corner control available for touch, but non-focusable while the drawer is closed. Restore the first movie card after closing Home's drawer.
 
 ## Startup focus timing fix
 
@@ -33,18 +27,6 @@ repeat(10) {
 
 **How to apply:** Always retry focus requests for items inside lazy containers. Do not gate on `startupFocusRequested` inside the retry loop — only set it on success.
 
-## Corner launcher must be truly non-focusable when drawer is closed
-
-`focusProperties { canFocus = false }` alone is insufficient to stop Android TV's native focus engine from landing on the corner launcher. The launcher also carries `.tvFocusBorder()` which internally calls `.focusable()`, overriding the property.
-
-**Fix:** Apply both `tvFocusBorder` and `focusable` conditionally:
-```kotlin
-.then(if (tvNavOpen) Modifier.tvFocusBorder(CircleShape) else Modifier.focusable(false))
-```
-`Modifier.focusable(false)` requires `import androidx.compose.foundation.focusable`.
-
-**Why:** Compose's `focusProperties { canFocus }` sets a preference on the node, but a co-located `.focusable()` modifier from `tvFocusBorder` creates a focusable node regardless. The native TV focus engine sees the focusable node before Compose enforces the property.
-
 ## HorizontalPager traps TV remote
 
 `HorizontalPager` (Compose) intercepts **all** D-pad left/right events at the Compose input level — no `onPreviewKeyEvent` modifier on a child or parent can reliably escape it. The remote gets permanently stuck on the banner.
@@ -55,11 +37,11 @@ repeat(10) {
 
 A reported Fire TV crash during D-pad dispatch says `FocusRequester is not initialized`. The top navigation's native `focusProperties.down` target can point to a lazy Movies hero before that target has been composed and attached.
 
-**Fix:** Intercept Down on the TV navigation and use its bounded `requestFocus()` retry plus spatial fallback. Do not give native focus search a directional requester that may be detached during loading or route changes.
+**Fix:** Use bounded `requestFocus()` retries for navigation-to-content handoffs and drawer entry. Do not give native focus search a directional requester that may be detached during loading or route changes.
 
 **Why:** Native focus search resolves the target synchronously and can throw before the asynchronous page target is ready.
 
-**How to apply:** For navigation-to-content handoffs across lazy screens, consume the D-pad event at the navigation boundary and retry the exact target safely; preserve a spatial fallback for screens without that target.
+**How to apply:** For drawer entry, retry focus on the first attached row. When the drawer closes, restore the saved NavHost child with bounded retries; preserve a safe fallback for screens without a saved child.
 
 ## Kotlin scope collision: key-event lambda inside LazyListScope
 
