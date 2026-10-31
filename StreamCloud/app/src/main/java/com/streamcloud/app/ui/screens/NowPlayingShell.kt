@@ -127,6 +127,12 @@ fun NowPlayingShell(
     var album by remember { mutableStateOf(controller.mediaMetadata.albumTitle?.toString().orEmpty()) }
     var artwork by remember { mutableStateOf(controller.mediaMetadata.artworkUri?.toString()) }
     var mediaId by remember { mutableStateOf(controller.currentMediaItem?.mediaId) }
+    var spotifyTrackId by remember {
+        mutableStateOf(
+            controller.currentMediaItem?.mediaMetadata?.extras
+                ?.getString(com.streamcloud.app.data.ytmusic.YtPlayback.EXTRA_SPOTIFY_TRACK_ID),
+        )
+    }
     var selectedMusicVideo by remember {
         mutableStateOf(
             controller.currentMediaItem?.mediaMetadata?.extras
@@ -147,6 +153,8 @@ fun NowPlayingShell(
 
     fun updateSelectedMusicVideo(item: MediaItem?) {
         val extras = item?.mediaMetadata?.extras
+        spotifyTrackId = extras
+            ?.getString(com.streamcloud.app.data.ytmusic.YtPlayback.EXTRA_SPOTIFY_TRACK_ID)
         selectedMusicVideo = extras?.getBoolean(
             com.streamcloud.app.data.ytmusic.YtPlayback.EXTRA_IS_MUSIC_VIDEO,
             false,
@@ -1013,6 +1021,7 @@ fun NowPlayingShell(
             currentMediaId = mediaId,
             currentTitle = title,
             currentArtist = artist,
+            spotifyTrackId = spotifyTrackId,
             isLiked = isLiked,
             isDownloaded = isDownloaded,
             sleepActive = sleepEndTs != null,

@@ -77,6 +77,7 @@ fun MusicActionsSheet(
     currentMediaId: String?,
     currentTitle: String,
     currentArtist: String,
+    spotifyTrackId: String?,
     isLiked: Boolean,
     isDownloaded: Boolean,
     sleepActive: Boolean = false,
@@ -173,7 +174,7 @@ fun MusicActionsSheet(
 
 
 
-                    if (videoId.isNullOrBlank()) {
+                    if (spotifyTrackId.isNullOrBlank() && videoId.isNullOrBlank()) {
                         toast(context, "No song playing — start a track first")
                     } else {
                         showAddToPlaylist = true
@@ -296,11 +297,19 @@ fun MusicActionsSheet(
     }
 
     if (showAddToPlaylist) {
-        AddToPlaylistSheet(
-            videoId = videoId,
-            songTitle = currentTitle,
-            onDismiss = { showAddToPlaylist = false },
-        )
+        if (!spotifyTrackId.isNullOrBlank()) {
+            SpotifyAddToPlaylistSheet(
+                spotifyTrackId = spotifyTrackId,
+                songTitle = currentTitle,
+                onDismiss = { showAddToPlaylist = false },
+            )
+        } else {
+            AddToPlaylistSheet(
+                videoId = videoId,
+                songTitle = currentTitle,
+                onDismiss = { showAddToPlaylist = false },
+            )
+        }
     }
     if (showDetails) {
         DetailsDialog(
