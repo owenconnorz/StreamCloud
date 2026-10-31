@@ -109,7 +109,6 @@ import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.rememberBannerPalette
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
-import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -1199,7 +1198,7 @@ fun MovieDetailScreen(
             val cast = remember(credits) { credits?.cast?.take(15) ?: emptyList() }
             if (cast.isNotEmpty()) {
                 LazyRow(
-                    modifier = Modifier.tvFocusGroup().tvDpadRepeatThrottle(),
+                    modifier = Modifier.tvFocusGroup(),
                     contentPadding = PaddingValues(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
@@ -1267,7 +1266,7 @@ fun MovieDetailScreen(
             }
             if (filteredVideos.isNotEmpty()) {
                 LazyRow(
-                    modifier = Modifier.tvFocusGroup().tvDpadRepeatThrottle(),
+                    modifier = Modifier.tvFocusGroup(),
                     contentPadding = PaddingValues(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -2085,7 +2084,7 @@ private fun TvEpisodesSection(
     SectionHeader("Seasons")
     Spacer(Modifier.height(12.dp))
     LazyRow(
-        modifier = Modifier.tvFocusGroup().tvDpadRepeatThrottle(),
+        modifier = Modifier.tvFocusGroup(),
         contentPadding = PaddingValues(0.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -2146,7 +2145,7 @@ private fun TvEpisodesSection(
             style = MaterialTheme.typography.bodyMedium,
         )
         else -> LazyRow(
-            modifier = Modifier.tvFocusGroup().tvDpadRepeatThrottle(),
+            modifier = Modifier.tvFocusGroup(),
             contentPadding = PaddingValues(0.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {

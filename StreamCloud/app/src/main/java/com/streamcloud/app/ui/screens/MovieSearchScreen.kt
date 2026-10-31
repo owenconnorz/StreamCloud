@@ -47,7 +47,6 @@ import com.streamcloud.app.ui.components.WatchedPosterBadge
 import com.streamcloud.app.ui.theme.LegacyMoviesThemeWrapper
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
-import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.viewmodel.CsSearchResult
@@ -313,7 +312,7 @@ private fun RecentSearches(
             top = padding.calculateTopPadding() + 8.dp,
             bottom = 32.dp,
         ),
-        modifier = Modifier.fillMaxSize().tvFocusGroup().tvDpadRepeatThrottle(),
+        modifier = Modifier.fillMaxSize().tvFocusGroup(),
         horizontalAlignment = if (isTv) Alignment.CenterHorizontally else Alignment.Start,
     ) {
         item(key = "history-header") {
@@ -438,7 +437,7 @@ private fun CombinedResultsList(
         ),
         // verticalOnly = true so held Left/Right fall through to the nested LazyRows
         // (NuvioSection card rails) instead of being consumed by this outer column.
-        modifier = Modifier.fillMaxSize().tvFocusGroup().tvDpadRepeatThrottle(verticalOnly = true),
+        modifier = Modifier.fillMaxSize().tvFocusGroup(),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         state.searchCorrection?.let { correctedQuery ->

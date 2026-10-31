@@ -86,7 +86,6 @@ import com.streamcloud.app.data.ytmusic.YtmSong
 import com.streamcloud.app.ui.viewmodel.DjSession
 import com.streamcloud.app.ui.viewmodel.DjViewModel
 import com.streamcloud.app.ui.theme.tvFocusBorder
-import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
@@ -730,8 +729,7 @@ fun YouTubeMusicHome(
         LazyColumn(
             Modifier
                 .fillMaxSize()
-                .tvFocusGroup()
-                .tvDpadRepeatThrottle(verticalOnly = true),
+                .tvFocusGroup(),
             contentPadding = PaddingValues(bottom = if (nowPlaying != null) 180.dp else 80.dp),
         ) {
             item {

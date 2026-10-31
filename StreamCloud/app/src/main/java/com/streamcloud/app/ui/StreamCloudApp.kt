@@ -159,6 +159,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyEvent
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -172,6 +173,7 @@ import dev.chrisbanes.haze.hazeSource
 import androidx.compose.ui.text.style.TextOverflow
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
+import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
 import com.streamcloud.app.ui.theme.tvUnpinnedFocusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import java.net.URLDecoder
@@ -551,6 +553,7 @@ fun StreamCloudApp(
         var tvDrawerOpen by remember { mutableStateOf(false) }
         var tvDrawerRestoreFocusVersion by remember { mutableStateOf(0) }
         var tvDrawerRestoreRoute by remember { mutableStateOf<String?>(null) }
+        var tvNavHostHasFocus by remember { mutableStateOf(false) }
         LaunchedEffect(currentRoute) {
             tvDrawerOpen = false
             tvNavHasFocus = false
@@ -605,36 +608,17 @@ fun StreamCloudApp(
                 return@LaunchedEffect
             }
             // Enter the page focus group instead of restoring its child directly.
-            // The Enter path lets nested page/row restorers recover the actual card.
+            // This mirrors Nuvio's content-focus transfer: the page's own
+            // restorer selects its saved child, instead of a second manual
+            // restore pass racing it or falling back to the first poster.
             delay(200L)
             if (tvDrawerOpen || tvDrawerRestoreRoute != currentRoute) return@LaunchedEffect
             repeat(12) {
                 runCatching {
                     navHostFocusRestoreRequester.requestFocus()
                 }
-                delay(40L)
-                val restored = runCatching {
-                    navHostFocusRestoreRequester.restoreFocusedChild()
-                }.getOrDefault(false)
-                if (restored) return@LaunchedEffect
+                if (tvNavHostHasFocus) return@LaunchedEffect
                 delay(80L)
-            }
-            if (currentRoute == Tab.Movies.route) {
-                repeat(8) {
-                    val restoredMovieContent =
-                        runCatching { firstMovieCardFocus.requestFocus() }.isSuccess
-                    if (restoredMovieContent) return@LaunchedEffect
-                    val restoredHeroAction =
-                        runCatching { tvNavHeroFocus.requestFocus() }.isSuccess
-                    if (restoredHeroAction) return@LaunchedEffect
-                    delay(100L)
-                }
-            }
-            repeat(4) {
-                val restoredNavHost =
-                    runCatching { navHostFocusRestoreRequester.requestFocus() }.isSuccess
-                if (restoredNavHost) return@LaunchedEffect
-                delay(100L)
             }
         }
         fun closeTvDrawer(restoreContentFocus: Boolean) {
@@ -643,11 +627,18 @@ fun StreamCloudApp(
             tvNavHasFocus = false
             tvNavFocusHandoffPending = false
             if (restoreContentFocus) {
+                tvNavHostHasFocus = false
                 tvDrawerRestoreRoute = currentRoute
                 tvDrawerRestoreFocusVersion += 1
             } else {
                 tvDrawerRestoreRoute = null
             }
+        }
+        fun openTvDrawerFromContent() {
+            if (tvDrawerOpen) return
+            runCatching { navHostFocusRestoreRequester.saveFocusedChild() }
+            tvDrawerOpen = true
+            tvNavFocusHandoffPending = true
         }
         BackHandler(enabled = isTv && showRail && tvDrawerOpen) {
             closeTvDrawer(restoreContentFocus = true)
@@ -669,25 +660,35 @@ fun StreamCloudApp(
                                 true
                             }
                             !tvDrawerOpen && event.key == Key.DirectionLeft -> {
-                                val movedLeft = runCatching {
-                                    focusManager.moveFocus(FocusDirection.Left)
-                                }.getOrDefault(false)
-                                if (!movedLeft) {
-                                    // Save the exact focused page child before the drawer
-                                    // takes focus; explicit requester-based focus changes do
-                                    // not reliably pass through the NavHost exit policy.
-                                    runCatching {
-                                        navHostFocusRestoreRequester.saveFocusedChild()
+                                if (event.nativeKeyEvent.repeatCount > 0) {
+                                    false
+                                } else {
+                                    val movedLeft = runCatching {
+                                        focusManager.moveFocus(FocusDirection.Left)
+                                    }.getOrDefault(false)
+                                    if (!movedLeft) {
+                                        openTvDrawerFromContent()
                                     }
-                                    tvDrawerOpen = true
-                                    tvNavFocusHandoffPending = true
+                                    true
                                 }
-                                true
                             }
                             else -> false
                         }
                     } else false
-                },
+                }
+                .tvDpadRepeatThrottle(
+                    bubblePhase = true,
+                    onMoveFocusFailed = { direction ->
+                        if (
+                            direction == FocusDirection.Left &&
+                            isTv &&
+                            showRail &&
+                            !tvDrawerOpen
+                        ) {
+                            openTvDrawerFromContent()
+                        }
+                    },
+                ),
         ) {
             if (showRail && !isTv) {
                 NavigationRail(
@@ -785,6 +786,7 @@ fun StreamCloudApp(
                                     .focusRequester(navHostFocusRestoreRequester)
                                     .tvUnpinnedFocusRestorer(navHostFocusRestoreRequester)
                                     .tvFocusGroup()
+                                    .onFocusChanged { tvNavHostHasFocus = it.hasFocus }
                             } else Modifier,
                         ),
                     ) {

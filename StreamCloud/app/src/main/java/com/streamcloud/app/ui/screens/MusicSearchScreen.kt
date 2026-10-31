@@ -67,7 +67,6 @@ import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
-import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
 import com.streamcloud.app.ui.viewmodel.MusicViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -529,8 +528,7 @@ fun MusicSearchScreen(
             ),
             modifier = Modifier
                 .fillMaxSize()
-                .tvFocusGroup()
-                .tvDpadRepeatThrottle(verticalOnly = true),
+                .tvFocusGroup(),
         ) {
             if (query.isBlank()) {
                 // ── Search history ──

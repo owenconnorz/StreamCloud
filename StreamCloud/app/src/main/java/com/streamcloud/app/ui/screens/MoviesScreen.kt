@@ -65,8 +65,8 @@ import androidx.compose.runtime.withFrameNanos
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import kotlinx.coroutines.launch
 import com.streamcloud.app.ui.theme.tvFocusGroup
-import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
-import com.streamcloud.app.ui.theme.tvDpadVerticalFocusNavigation
+import com.streamcloud.app.ui.theme.tvDpadVerticalFastScroll
+import com.streamcloud.app.ui.theme.LocalTvFastScrollActive
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -516,6 +516,7 @@ fun MoviesScreen(
     val tvHomeFocusedRowHasFocus = remember { mutableStateOf(false) }
     val tvHomeFirstGenreFocusRequester = remember { FocusRequester() }
     val tvHomeFirstGenreHasFocus = remember { mutableStateOf(false) }
+    var tvHomeFastScrolling by remember { mutableStateOf(false) }
     val tvHomeFocusScope = rememberCoroutineScope()
     fun updateTvHomeRowFocus(rowKey: String, hasFocus: Boolean) {
         if (!isTv) return
@@ -754,9 +755,7 @@ fun MoviesScreen(
                     }
                 }
             }
-            // Keep horizontal repeat throttling here; the home list handles each
-            // Up/Down press as a focus step to keep the selected card visible.
-            .tvDpadRepeatThrottle(handleInitialPresses = true, horizontalOnly = true),
+            },
     ) {
         if (showAdultCatalogAgeGate) {
             AlertDialog(
@@ -900,108 +899,87 @@ fun MoviesScreen(
             }
         }
 
-        val verticalFocusNavigationModifier = if (isTv && query.isBlank()) {
-            Modifier.tvDpadVerticalFocusNavigation { direction ->
+        fun requestTvHomeScrollLanding(direction: Int) {
+            tvHomeFocusScope.launch {
+                withFrameNanos { }
+                if (tvHomeFastScrolling) return@launch
+                if (direction < 0 && !moviesListState.canScrollBackward && hasTvHero) {
+                    requestTvHomeHeroFocus()
+                    return@launch
+                }
+
+                val layoutInfo = moviesListState.layoutInfo
+                val visibleItems = layoutInfo.visibleItemsInfo
                 val visibleRows = visibleTvHomeRows()
-                val focusedRow = visibleRows.firstOrNull {
-                    it.first == tvHomeFocusedRowKey.value
+                val partiallyVisibleTopItem = visibleItems.firstOrNull()?.takeIf {
+                    direction < 0 && it.offset > -it.size / 2
                 }
-                if (focusedRow == null) {
-                    val recoveryRow = if (direction > 0) {
-                        visibleRows.minByOrNull { it.second }
-                    } else {
-                        visibleRows.maxByOrNull { it.second }
-                    }
-                    if (recoveryRow != null) {
-                        requestTvHomeRowFocus(
-                            rowKey = recoveryRow.first,
-                            focusFirstGenre = direction > 0 &&
-                                recoveryRow.first == "home_genres",
-                        )
-                    } else if (direction < 0 && hasTvHero) {
-                        requestTvHomeHeroFocus()
-                    }
-                    return@tvDpadVerticalFocusNavigation
-                }
-                val nearbyRows = visibleRows.filter { row ->
-                    if (direction > 0) row.second > focusedRow.second
-                    else row.second < focusedRow.second
-                }
-                val nextRow = if (direction > 0) {
-                    nearbyRows.minByOrNull { it.second }
-                } else {
-                    nearbyRows.maxByOrNull { it.second }
-                } ?: if (focusedRow == null) {
-                    if (direction > 0) {
-                        visibleRows.minByOrNull { it.second }
-                    } else {
-                        visibleRows.maxByOrNull { it.second }
-                    }
-                } else {
-                    null
-                }
+                val leadingVisibleIndex = partiallyVisibleTopItem?.index
+                    ?: visibleItems.firstOrNull {
+                        it.offset >= layoutInfo.viewportStartOffset
+                    }?.index
+                    ?: moviesListState.firstVisibleItemIndex
+                val targetRow = selectTvHomeFastScrollLandingRow(
+                    visibleFocusRows = visibleRows,
+                    leadingVisibleIndex = leadingVisibleIndex,
+                    direction = direction,
+                    reachedBottom = direction > 0 && !moviesListState.canScrollForward,
+                ) ?: return@launch
 
-                if (nextRow != null) {
-                    requestTvHomeRowFocus(
-                        rowKey = nextRow.first,
-                        focusFirstGenre = direction > 0 &&
-                            focusedRow.first == "continue_watching" &&
-                            nextRow.first == "home_genres",
-                    )
-                    return@tvDpadVerticalFocusNavigation
-                }
-
-                var nextLazyItemIndex = focusedRow.second + direction
-                if (nextLazyItemIndex !in 0 until moviesListState.layoutInfo.totalItemsCount) {
-                    if (direction < 0 && hasTvHero) requestTvHomeHeroFocus()
-                    return@tvDpadVerticalFocusNavigation
-                }
-
-                val sourceIndex = focusedRow.second
-                val scanLimit = moviesListState.layoutInfo.totalItemsCount.coerceAtMost(48)
-                tvHomeFocusScope.launch {
-                    repeat(scanLimit) {
-                        val itemCount = moviesListState.layoutInfo.totalItemsCount
-                        if (nextLazyItemIndex !in 0 until itemCount) {
-                            if (direction < 0 && hasTvHero) requestTvHomeHeroFocus()
-                            return@launch
-                        }
-
-                        runCatching {
-                            moviesListState.animateScrollToItem(nextLazyItemIndex)
-                        }
-                        withFrameNanos { }
-
-                        val rowsAfterScroll = visibleTvHomeRows()
-                        val candidates = rowsAfterScroll.filter { row ->
-                            if (direction > 0) row.second > sourceIndex
-                            else row.second < sourceIndex
-                        }
-                        val targetRow = if (direction > 0) {
-                            candidates.minByOrNull { it.second }
-                        } else {
-                            candidates.maxByOrNull { it.second }
-                        }
-                        if (targetRow != null) {
-                            requestTvHomeRowFocus(
-                                rowKey = targetRow.first,
-                                focusFirstGenre = direction > 0 &&
-                                    focusedRow.first == "continue_watching" &&
-                                    targetRow.first == "home_genres",
-                            )
-                            return@launch
-                        }
-
-                        nextLazyItemIndex += direction
-                    }
-                    if (direction < 0 && hasTvHero && !moviesListState.canScrollBackward) {
-                        requestTvHomeHeroFocus()
-                    }
-                }
+                val focusFirstGenre = direction > 0 &&
+                    tvHomeFocusedRowKey.value == "continue_watching" &&
+                    targetRow.first == "home_genres"
+                requestTvHomeRowFocus(targetRow.first, focusFirstGenre)
             }
+        }
+
+        fun handleTvHomeSingleVerticalPress(direction: Int): Boolean {
+            val sourceRowKey = tvHomeFocusedRowKey.value
+            val targetRowKey = when {
+                direction > 0 &&
+                    sourceRowKey == "continue_watching" &&
+                    homeGenres.isNotEmpty() -> "home_genres"
+                direction < 0 &&
+                    sourceRowKey == "home_genres" &&
+                    visibleContinueWatching.isNotEmpty() -> "continue_watching"
+                else -> return false
+            }
+            val sourceIndex = visibleTvHomeRows()
+                .firstOrNull { it.first == sourceRowKey }
+                ?.second
+                ?: return false
+            val targetIndex = sourceIndex + direction
+            if (targetIndex !in 0 until moviesListState.layoutInfo.totalItemsCount) {
+                return false
+            }
+
+            tvHomeFocusScope.launch {
+                val targetAlreadyVisible = visibleTvHomeRows()
+                    .any { it.first == targetRowKey }
+                if (!targetAlreadyVisible) {
+                    runCatching { moviesListState.animateScrollToItem(targetIndex) }
+                }
+                repeat(2) { withFrameNanos { } }
+                if (tvHomeFastScrolling) return@launch
+                requestTvHomeRowFocus(
+                    rowKey = targetRowKey,
+                    focusFirstGenre = direction > 0 && targetRowKey == "home_genres",
+                )
+            }
+            return true
+        }
+
+        val verticalFocusNavigationModifier = if (isTv && query.isBlank()) {
+            Modifier.tvDpadVerticalFastScroll(
+                scrollableState = moviesListState,
+                onFastScrollingChanged = { tvHomeFastScrolling = it },
+                onSingleVerticalPress = ::handleTvHomeSingleVerticalPress,
+                onScrollSettled = ::requestTvHomeScrollLanding,
+            )
         } else {
             Modifier
         }
+        CompositionLocalProvider(LocalTvFastScrollActive provides tvHomeFastScrolling) {
         LazyColumn(
             moviesListModifier
                 .tvFocusGroup(restoreFocusedChild = true)
@@ -1714,6 +1692,7 @@ fun MoviesScreen(
                 }
             }
         }
+        }
 
         val cwEntry = cwSheetEntry
         if (cwEntry != null) {
@@ -1982,6 +1961,20 @@ internal fun calculateTvGenreCardWidth(screenWidth: Dp, genreCount: Int): Dp {
 
 internal fun calculateMobileGenreCardWidth(screenWidth: Dp): Dp =
     (screenWidth * 0.42f).coerceIn(144.dp, 176.dp)
+
+internal fun selectTvHomeFastScrollLandingRow(
+    visibleFocusRows: List<Pair<String, Int>>,
+    leadingVisibleIndex: Int,
+    direction: Int,
+    reachedBottom: Boolean,
+): Pair<String, Int>? {
+    if (visibleFocusRows.isEmpty()) return null
+    val orderedRows = visibleFocusRows.sortedBy { it.second }
+    if (direction > 0 && reachedBottom) return orderedRows.last()
+
+    return orderedRows.firstOrNull { it.second >= leadingVisibleIndex }
+        ?: if (direction < 0) orderedRows.first() else orderedRows.last()
+}
 
 @Composable
 private fun rememberTvHomeRowFocusRequester(
