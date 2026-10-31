@@ -217,8 +217,6 @@ fun MoviesScreen(
     navScrollToTopVersion: Int = 0,
     // Scroll Movies to the banner before retrying a TV-nav focus request.
     tvNavDownFocusHandoffVersion: Int = 0,
-    // Restore the active Movies shelf after the TV navigation drawer closes.
-    tvNavDrawerRestoreFocusVersion: Int = 0,
     onTvTopBarVisibilityChanged: (Boolean) -> Unit = {},
     onFirstMovieFocusedChanged: (Boolean) -> Unit = {},
     adultContentEnabled: Boolean = false,
@@ -886,42 +884,6 @@ fun MoviesScreen(
                     withFrameNanos { }
                     if (tvNavHeroHasFocus) return@launch
                 }
-            }
-        }
-
-        LaunchedEffect(isTv, tvNavDrawerRestoreFocusVersion, query) {
-            if (!isTv || tvNavDrawerRestoreFocusVersion == 0 || query.isNotBlank()) {
-                return@LaunchedEffect
-            }
-            // Capture the last focused shelf before the parent NavHost's fallback
-            // can move focus to its default item.
-            val savedRowKey = tvHomeFocusedRowKey.value ?: return@LaunchedEffect
-            val savedItemIndex = tvHomeFocusedItemIndices[savedRowKey] ?: 0
-            val itemRequester = if (savedRowKey == "home_genres" && savedItemIndex == 0) {
-                tvHomeFirstGenreFocusRequester
-            } else {
-                tvHomeItemFocusRequesters[savedRowKey]?.get(savedItemIndex)
-            }
-            val rowRequester = tvHomeRowFocusRequesters[savedRowKey]
-                ?: return@LaunchedEffect
-            kotlinx.coroutines.delay(260L)
-            if (
-                tvHomeFocusedRowKey.value == savedRowKey &&
-                tvHomeFocusedRowHasFocus.value
-            ) {
-                return@LaunchedEffect
-            }
-            repeat(14) { attempt ->
-                val requester = if (attempt < 8) itemRequester ?: rowRequester else rowRequester
-                runCatching { requester.requestFocus() }
-                withFrameNanos { }
-                if (
-                    tvHomeFocusedRowKey.value == savedRowKey &&
-                    tvHomeFocusedRowHasFocus.value
-                ) {
-                    return@LaunchedEffect
-                }
-                kotlinx.coroutines.delay(60L)
             }
         }
 

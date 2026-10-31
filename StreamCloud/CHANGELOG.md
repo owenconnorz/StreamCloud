@@ -1,3 +1,8 @@
+## Hotfix — Changes since V2419
+
+### Android TV navigation
+- **Menu close restores one saved focus target** — use the page’s nested focus restoration instead of a competing delayed request on Movies home.
+
 ## Hotfix — Changes since V2411
 
 ### Android TV Movies home focus
