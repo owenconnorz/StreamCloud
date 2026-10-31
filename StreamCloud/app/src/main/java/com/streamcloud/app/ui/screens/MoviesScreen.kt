@@ -54,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -794,6 +795,7 @@ fun MoviesScreen(
                     null
                 },
                 navFocusRequester = tvNavHeroFocus,
+                downFocusRequester = initialFocusRequester,
                 onCurrentItemChanged = { activeHeroBanner = it },
                 onPlayNow = playHeroNow,
                 onMoreInfo = openHeroDetails,
@@ -1124,7 +1126,10 @@ fun MoviesScreen(
                             SectionTitle(pinnedRow.collectionName)
                         }
                     }
-                    if (pinnedRow.folders.isNotEmpty()) {
+                    if (
+                        pinnedRow.folders.isNotEmpty() ||
+                        (isTv && pinnedRow.viewMode == "tabbed_grid")
+                    ) {
                         item(key = "pinned_${pinnedRow.collectionId}") {
                             val rowKey = "pinned_${pinnedRow.collectionId}"
                             val rowFocusRequester = rememberTvHomeRowFocusRequester(
@@ -1193,6 +1198,16 @@ fun MoviesScreen(
                                             }
                                         },
                                     )
+                                }
+                                if (isTv && pinnedRow.viewMode == "tabbed_grid") {
+                                    item(key = "pinned_${pinnedRow.collectionId}_viewall") {
+                                        ViewAllCard(
+                                            posterStyle = homeCardStyle,
+                                            onClick = {
+                                                onOpenCollectionTabbed(pinnedRow.collectionId)
+                                            },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1439,6 +1454,7 @@ fun MoviesScreen(
                                 )
                             }
                             TextButton(
+                                modifier = Modifier.focusProperties { canFocus = !isTv },
                                 onClick = {
                                     onViewAllCsSection(
                                         row.pluginInternalName,
@@ -1971,6 +1987,7 @@ private fun TvHeroBackdrop(
     detailsVisible: Boolean,
     initialFocusRequester: FocusRequester? = null,
     navFocusRequester: FocusRequester? = null,
+    downFocusRequester: FocusRequester? = null,
     onCurrentItemChanged: (HeroBannerItem) -> Unit,
     onPlayNow: (HeroBannerItem) -> Unit,
     onMoreInfo: (HeroBannerItem) -> Unit,
@@ -1978,6 +1995,8 @@ private fun TvHeroBackdrop(
 ) {
     var currentPage by remember(items.size) { mutableIntStateOf(0) }
     var actionsFocused by remember { mutableStateOf(false) }
+    val downFocusScope = rememberCoroutineScope()
+    val downFocusTarget = downFocusRequester
     LaunchedEffect(currentPage, items) {
         items.getOrNull(currentPage)?.let(onCurrentItemChanged)
     }
@@ -2073,6 +2092,30 @@ private fun TvHeroBackdrop(
                             .onFocusChanged {
                                 actionsFocused = it.hasFocus
                                 onActionsFocusChanged(it.hasFocus)
+                            }
+                            .onPreviewKeyEvent { event ->
+                                val native = event.nativeKeyEvent
+                                if (
+                                    downFocusTarget == null ||
+                                    native.keyCode != AndroidKeyEvent.KEYCODE_DPAD_DOWN ||
+                                    native.action != AndroidKeyEvent.ACTION_DOWN
+                                ) {
+                                    false
+                                } else {
+                                    if (native.repeatCount == 0) {
+                                        downFocusScope.launch {
+                                            repeat(16) {
+                                                withFrameNanos { }
+                                                val requested = runCatching {
+                                                    downFocusTarget.requestFocus()
+                                                }.isSuccess
+                                                if (requested) return@launch
+                                                kotlinx.coroutines.delay(80L)
+                                            }
+                                        }
+                                    }
+                                    true
+                                }
                             },
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -2817,6 +2860,7 @@ private fun SectionTitleWithViewAll(title: String, onViewAll: () -> Unit) {
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier
+                .focusProperties { canFocus = !isTv }
                 .clip(RoundedCornerShape(50))
                 .clickable(onClick = onViewAll)
                 .padding(horizontal = 10.dp, vertical = 6.dp),
@@ -2842,6 +2886,7 @@ private fun AddonSectionTitleWithViewAll(
     catalog: String,
     onViewAll: () -> Unit,
 ) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -2861,6 +2906,7 @@ private fun AddonSectionTitleWithViewAll(
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier
+                .focusProperties { canFocus = !isTv }
                 .clip(RoundedCornerShape(50))
                 .clickable(onClick = onViewAll)
                 .padding(horizontal = 10.dp, vertical = 6.dp),

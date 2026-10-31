@@ -60,3 +60,11 @@ if (value != null) {
     Composable(value.field)
 }
 ```
+
+## Hero-to-first-card handoff
+
+On TV, D-pad Down from the hero actions must focus the first actual content item, not a clickable shelf heading or a small ‘View all’ label. Keep header actions touch-clickable, but not D-pad focusable; preserve TV access through the shelf’s trailing View All card.
+
+**Why:** Spatial focus can choose an invisible header action or lose the hero button when its details hide, leaving the viewer without a visible selection.
+
+**How to apply:** Route Down through the hero action row to the existing startup focus requester, which targets the first Continue Watching card or the first genre card. Retry after layout frames because lazy content may not be attached immediately. Keep a TV View All card for shelves whose header action is no longer focusable.
