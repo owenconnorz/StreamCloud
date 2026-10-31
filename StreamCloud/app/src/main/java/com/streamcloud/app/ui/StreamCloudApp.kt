@@ -570,10 +570,8 @@ fun StreamCloudApp(
             tvMusicPlayerWasExpanded = false
             repeat(10) {
                 kotlinx.coroutines.delay(120L)
-                val focused = runCatching {
-                    tvNavHeroFocus.requestFocus()
-                    true
-                }.getOrDefault(false)
+                val focused = runCatching { tvNavHeroFocus.requestFocus() }
+                    .getOrDefault(false)
                 if (focused) return@LaunchedEffect
             }
         }
@@ -620,27 +618,22 @@ fun StreamCloudApp(
             }
             if (currentRoute == Tab.Movies.route) {
                 repeat(8) {
-                    if (
-                        runCatching {
-                            tvNavHeroFocus.requestFocus()
-                            true
-                        }.getOrDefault(false)
-                    ) {
-                        return@LaunchedEffect
-                    }
+                    val restoredMovieContent = runCatching {
+                        firstMovieCardFocus.requestFocus()
+                    }.getOrDefault(false)
+                    if (restoredMovieContent) return@LaunchedEffect
+                    val restoredHeroAction = runCatching {
+                        tvNavHeroFocus.requestFocus()
+                    }.getOrDefault(false)
+                    if (restoredHeroAction) return@LaunchedEffect
                     delay(100L)
                 }
             }
             repeat(4) {
-                if (
-                    runCatching {
-                        navHostFocusRestoreRequester.requestFocus()
-                        true
-                    }
-                        .getOrDefault(false)
-                ) {
-                    return@LaunchedEffect
-                }
+                val restoredNavHost = runCatching {
+                    navHostFocusRestoreRequester.requestFocus()
+                }.getOrDefault(false)
+                if (restoredNavHost) return@LaunchedEffect
                 delay(100L)
             }
         }

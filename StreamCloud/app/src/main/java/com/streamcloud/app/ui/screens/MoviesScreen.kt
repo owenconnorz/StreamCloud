@@ -691,10 +691,8 @@ fun MoviesScreen(
         // the node is attached and requestFocus() succeeds (up to ~2 s).
         repeat(10) {
             kotlinx.coroutines.delay(200L)
-            val ok = runCatching {
-                initialFocusRequester.requestFocus()
-                true
-            }.getOrDefault(false)
+            val ok = runCatching { initialFocusRequester.requestFocus() }
+                .getOrDefault(false)
             if (ok) {
                 startupFocusRequested = true
                 recoveryHeldStartupFocus = startupFocusTarget == "recovery"
