@@ -1,3 +1,9 @@
+## Hotfix — Changes since V2399
+
+### Android TV home
+- **Focus returns to the selected poster after scrolling** — closing the drawer restores the card you left on the scrolled Movies page.
+- **Clock restored in the TV home header** — the top-right clock updates every minute.
+
 ## Hotfix — Changes since V2397
 
 ### Android TV navigation
