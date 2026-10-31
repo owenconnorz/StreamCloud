@@ -570,8 +570,7 @@ fun StreamCloudApp(
             tvMusicPlayerWasExpanded = false
             repeat(10) {
                 kotlinx.coroutines.delay(120L)
-                val focused = runCatching { tvNavHeroFocus.requestFocus() }
-                    .getOrDefault(false)
+                val focused = runCatching { tvNavHeroFocus.requestFocus() }.isSuccess
                 if (focused) return@LaunchedEffect
             }
         }
@@ -618,21 +617,18 @@ fun StreamCloudApp(
             }
             if (currentRoute == Tab.Movies.route) {
                 repeat(8) {
-                    val restoredMovieContent = runCatching {
-                        firstMovieCardFocus.requestFocus()
-                    }.getOrDefault(false)
+                    val restoredMovieContent =
+                        runCatching { firstMovieCardFocus.requestFocus() }.isSuccess
                     if (restoredMovieContent) return@LaunchedEffect
-                    val restoredHeroAction = runCatching {
-                        tvNavHeroFocus.requestFocus()
-                    }.getOrDefault(false)
+                    val restoredHeroAction =
+                        runCatching { tvNavHeroFocus.requestFocus() }.isSuccess
                     if (restoredHeroAction) return@LaunchedEffect
                     delay(100L)
                 }
             }
             repeat(4) {
-                val restoredNavHost = runCatching {
-                    navHostFocusRestoreRequester.requestFocus()
-                }.getOrDefault(false)
+                val restoredNavHost =
+                    runCatching { navHostFocusRestoreRequester.requestFocus() }.isSuccess
                 if (restoredNavHost) return@LaunchedEffect
                 delay(100L)
             }
