@@ -1,4 +1,7 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
+@file:OptIn(
+    androidx.media3.common.util.UnstableApi::class,
+    androidx.compose.ui.ExperimentalComposeUiApi::class,
+)
 package com.streamcloud.app.ui.screens
 
 import android.os.SystemClock
@@ -47,6 +50,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -57,10 +61,12 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.runtime.withFrameNanos
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import kotlinx.coroutines.launch
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
+import com.streamcloud.app.ui.theme.tvDpadVerticalFastScroll
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -503,6 +509,9 @@ fun MoviesScreen(
         }
     }
     val moviesListState = rememberLazyListState()
+    val tvHomeRowFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val tvHomeFocusedRowKey = remember { mutableStateOf<String?>(null) }
+    val tvHomeFocusScope = rememberCoroutineScope()
     val tvHeroDetailsVisible by remember(moviesListState, query) {
         derivedStateOf {
             query.isBlank() &&
@@ -731,9 +740,9 @@ fun MoviesScreen(
                     }
                 }
             }
-            // Keep vertical D-pad movement in focus traversal instead of
-            // letting the parent list scroll independently.
-            .tvDpadRepeatThrottle(handleInitialPresses = true),
+            // Keep repeat throttling on horizontal navigation. Vertical repeats
+            // are handled by the home list so held Up/Down can land in another row.
+            .tvDpadRepeatThrottle(handleInitialPresses = true, horizontalOnly = true),
     ) {
         if (showAdultCatalogAgeGate) {
             AlertDialog(
@@ -804,8 +813,49 @@ fun MoviesScreen(
         } else {
             Modifier.fillMaxSize()
         }
+        val verticalFastScrollModifier = if (isTv && query.isBlank()) {
+            Modifier.tvDpadVerticalFastScroll(moviesListState) { direction ->
+                val layoutInfo = moviesListState.layoutInfo
+                val visibleRows = layoutInfo.visibleItemsInfo.mapNotNull { item ->
+                    val key = item.key as? String ?: return@mapNotNull null
+                    if (tvHomeRowFocusRequesters.containsKey(key)) key to item else null
+                }
+                val orderedRows = if (direction < 0) {
+                    visibleRows.sortedBy { it.second.index }
+                } else {
+                    visibleRows.sortedByDescending { it.second.index }
+                }
+                val landingRow = if (direction < 0) {
+                    orderedRows.firstOrNull { it.second.offset + it.second.size > 0 }
+                } else {
+                    orderedRows.firstOrNull {
+                        it.second.offset + it.second.size <= layoutInfo.viewportEndOffset
+                    }
+                } ?: orderedRows.firstOrNull()
+                val candidates = listOfNotNull(landingRow) +
+                    orderedRows.filterNot { it.first == landingRow?.first }
+
+                tvHomeFocusScope.launch {
+                    for ((rowKey, _) in candidates) {
+                        val requester = tvHomeRowFocusRequesters[rowKey] ?: continue
+                        repeat(6) {
+                            withFrameNanos { }
+                            runCatching {
+                                requester.requestFocus(FocusDirection.Enter)
+                            }
+                            withFrameNanos { }
+                            if (tvHomeFocusedRowKey.value == rowKey) return@launch
+                        }
+                    }
+                }
+            }
+        } else {
+            Modifier
+        }
         LazyColumn(
-            moviesListModifier.tvFocusGroup(restoreFocusedChild = true),
+            moviesListModifier
+                .tvFocusGroup(restoreFocusedChild = true)
+                .then(verticalFastScrollModifier),
             state = moviesListState,
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
@@ -932,6 +982,10 @@ fun MoviesScreen(
                 }
                 if (visibleContinueWatching.isNotEmpty()) {
                     item(key = "continue_watching") {
+                        val rowFocusRequester = rememberTvHomeRowFocusRequester(
+                            tvHomeRowFocusRequesters,
+                            "continue_watching",
+                        )
                         Column {
                             if (isTv) {
                                 TvHomeSectionTitle("Continue Watching")
@@ -947,7 +1001,16 @@ fun MoviesScreen(
                             )
                             LazyRow(
                                 state = continueRowState,
-                                modifier = Modifier.tvFocusGroup(restoreFocusedChild = true),
+                                modifier = Modifier
+                                    .onFocusChanged {
+                                        if (isTv && it.hasFocus) {
+                                            tvHomeFocusedRowKey.value = "continue_watching"
+                                        }
+                                    }
+                                    .tvFocusGroup(
+                                        restoreFocusedChild = true,
+                                        focusRequester = rowFocusRequester,
+                                    ),
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
@@ -1016,9 +1079,17 @@ fun MoviesScreen(
                 }
                 if (homeGenres.isNotEmpty()) {
                     item(key = "home_genres") {
+                        val rowFocusRequester = rememberTvHomeRowFocusRequester(
+                            tvHomeRowFocusRequesters,
+                            "home_genres",
+                        )
                         HomeGenresRow(
                             genres = homeGenres,
                             isTv = isTv,
+                            rowFocusRequester = rowFocusRequester,
+                            onRowFocusChanged = { focused ->
+                                if (isTv && focused) tvHomeFocusedRowKey.value = "home_genres"
+                            },
                             initialFocusRequester = if (startupFocusTarget == "genre") {
                                 initialFocusRequester
                             } else {
@@ -1056,8 +1127,20 @@ fun MoviesScreen(
                     }
                     if (pinnedRow.folders.isNotEmpty()) {
                         item(key = "pinned_${pinnedRow.collectionId}") {
+                            val rowKey = "pinned_${pinnedRow.collectionId}"
+                            val rowFocusRequester = rememberTvHomeRowFocusRequester(
+                                tvHomeRowFocusRequesters,
+                                rowKey,
+                            )
                             LazyRow(
-                                modifier = Modifier.tvFocusGroup(restoreFocusedChild = true),
+                                modifier = Modifier
+                                    .onFocusChanged {
+                                        if (isTv && it.hasFocus) tvHomeFocusedRowKey.value = rowKey
+                                    }
+                                    .tvFocusGroup(
+                                        restoreFocusedChild = true,
+                                        focusRequester = rowFocusRequester,
+                                    ),
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
@@ -1132,10 +1215,11 @@ fun MoviesScreen(
                         )
                     }
                     item(key = "col_${row.id}") {
-
-
-
-
+                        val rowKey = "col_${row.id}"
+                        val rowFocusRequester = rememberTvHomeRowFocusRequester(
+                            tvHomeRowFocusRequesters,
+                            rowKey,
+                        )
                         val collectionRowState = rememberLazyListState()
                         var focusedPosterIndex by remember { mutableIntStateOf(-1) }
                         KeepTvFocusedItemAtStart(
@@ -1146,7 +1230,13 @@ fun MoviesScreen(
                         LazyRow(
                             state = collectionRowState,
                             modifier = Modifier
-                                .tvFocusGroup(restoreFocusedChild = true)
+                                .onFocusChanged {
+                                    if (isTv && it.hasFocus) tvHomeFocusedRowKey.value = rowKey
+                                }
+                                .tvFocusGroup(
+                                    restoreFocusedChild = true,
+                                    focusRequester = rowFocusRequester,
+                                )
                                 .then(if (isTv) Modifier else Modifier.animateContentSize(animationSpec = tween(durationMillis = 260))),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1224,6 +1314,11 @@ fun MoviesScreen(
                         )
                     }
                     item(key = "stremio_${row.rowKey}") {
+                        val rowKey = "stremio_${row.rowKey}"
+                        val rowFocusRequester = rememberTvHomeRowFocusRequester(
+                            tvHomeRowFocusRequesters,
+                            rowKey,
+                        )
                         val stremioRowState = rememberLazyListState()
                         var focusedPosterIndex by remember { mutableIntStateOf(-1) }
                         KeepTvFocusedItemAtStart(
@@ -1233,7 +1328,14 @@ fun MoviesScreen(
                         )
                         LazyRow(
                             state = stremioRowState,
-                            modifier = Modifier.tvFocusGroup(restoreFocusedChild = true),
+                            modifier = Modifier
+                                .onFocusChanged {
+                                    if (isTv && it.hasFocus) tvHomeFocusedRowKey.value = rowKey
+                                }
+                                .tvFocusGroup(
+                                    restoreFocusedChild = true,
+                                    focusRequester = rowFocusRequester,
+                                ),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -1355,6 +1457,11 @@ fun MoviesScreen(
                         }
                     }
                     item(key = "cshome_${row.pluginInternalName}_${row.sectionName}") {
+                        val rowKey = "cshome_${row.pluginInternalName}_${row.sectionName}"
+                        val rowFocusRequester = rememberTvHomeRowFocusRequester(
+                            tvHomeRowFocusRequesters,
+                            rowKey,
+                        )
                         val csLandscape = homeCardStyle == "landscape"
                         val csAspect = if (csLandscape) 16f / 9f else 2f / 3f
                         val csRowState = rememberLazyListState()
@@ -1366,7 +1473,14 @@ fun MoviesScreen(
                         )
                         LazyRow(
                             state = csRowState,
-                            modifier = Modifier.tvFocusGroup(restoreFocusedChild = true),
+                            modifier = Modifier
+                                .onFocusChanged {
+                                    if (isTv && it.hasFocus) tvHomeFocusedRowKey.value = rowKey
+                                }
+                                .tvFocusGroup(
+                                    restoreFocusedChild = true,
+                                    focusRequester = rowFocusRequester,
+                                ),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -1717,9 +1831,19 @@ internal fun calculateMobileGenreCardWidth(screenWidth: Dp): Dp =
     (screenWidth * 0.42f).coerceIn(144.dp, 176.dp)
 
 @Composable
+private fun rememberTvHomeRowFocusRequester(
+    registry: MutableMap<String, FocusRequester>,
+    rowKey: String,
+): FocusRequester = remember(registry, rowKey) {
+    registry.getOrPut(rowKey) { FocusRequester() }
+}
+
+@Composable
 private fun HomeGenresRow(
     genres: List<TvGenreShortcut>,
     isTv: Boolean,
+    rowFocusRequester: FocusRequester? = null,
+    onRowFocusChanged: (Boolean) -> Unit = {},
     initialFocusRequester: FocusRequester? = null,
     navFocusRequester: FocusRequester? = null,
     onFirstItemFocusChanged: (Boolean) -> Unit = {},
@@ -1743,7 +1867,12 @@ private fun HomeGenresRow(
             SectionTitle("Genres")
         }
         LazyRow(
-            modifier = Modifier.tvFocusGroup(restoreFocusedChild = true),
+            modifier = Modifier
+                .onFocusChanged { onRowFocusChanged(it.hasFocus) }
+                .tvFocusGroup(
+                    restoreFocusedChild = true,
+                    focusRequester = rowFocusRequester,
+                )
             contentPadding = PaddingValues(horizontal = if (isTv) 24.dp else 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {

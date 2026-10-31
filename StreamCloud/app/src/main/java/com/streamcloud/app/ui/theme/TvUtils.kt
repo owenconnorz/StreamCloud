@@ -9,13 +9,18 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.composed
@@ -27,9 +32,17 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 val TvOverscanPadding = 24.dp
 val LocalTvFocusColor = staticCompositionLocalOf { Color.White }
@@ -87,16 +100,20 @@ fun Modifier.tvFocusBorder(
  * focus to the next region. This is a no-op for touch-first form factors.
  */
 @OptIn(ExperimentalComposeUiApi::class)
-fun Modifier.tvFocusGroup(restoreFocusedChild: Boolean = false): Modifier = composed {
+fun Modifier.tvFocusGroup(
+    restoreFocusedChild: Boolean = false,
+    focusRequester: FocusRequester? = null,
+): Modifier = composed {
     if (LocalUiFormFactor.current == UiFormFactor.Tv) {
-        if (restoreFocusedChild) {
-            val requester = remember { FocusRequester() }
-            this
-                .focusRequester(requester)
+        val internalRequester = remember { FocusRequester() }
+        val requester = focusRequester ?: internalRequester.takeIf { restoreFocusedChild }
+        val withRequester = if (requester != null) this.focusRequester(requester) else this
+        if (restoreFocusedChild && requester != null) {
+            withRequester
                 .tvUnpinnedFocusRestorer(requester)
                 .focusGroup()
         } else {
-            this.focusGroup()
+            withRequester.focusGroup()
         }
     } else {
         this
@@ -116,6 +133,7 @@ fun Modifier.tvDpadRepeatThrottle(
     verticalGateMs: Long = TvVerticalRepeatGateMs,
     handleInitialPresses: Boolean = false,
     verticalOnly: Boolean = false,
+    horizontalOnly: Boolean = false,
 ): Modifier = composed {
     if (LocalUiFormFactor.current != UiFormFactor.Tv) return@composed this
     val focusManager = LocalFocusManager.current
@@ -130,8 +148,10 @@ fun Modifier.tvDpadRepeatThrottle(
             return@onPreviewKeyEvent false
         }
         val direction = when (native.keyCode) {
-            AndroidKeyEvent.KEYCODE_DPAD_DOWN -> FocusDirection.Down
-            AndroidKeyEvent.KEYCODE_DPAD_UP -> FocusDirection.Up
+            AndroidKeyEvent.KEYCODE_DPAD_DOWN ->
+                if (horizontalOnly) null else FocusDirection.Down
+            AndroidKeyEvent.KEYCODE_DPAD_UP ->
+                if (horizontalOnly) null else FocusDirection.Up
             // When verticalOnly, let Left/Right fall through to nested LazyRows.
             AndroidKeyEvent.KEYCODE_DPAD_LEFT -> if (verticalOnly) null else FocusDirection.Left
             AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> if (verticalOnly) null else FocusDirection.Right
@@ -151,5 +171,112 @@ fun Modifier.tvDpadRepeatThrottle(
         // example, returning from a rail to the top TV navigation) instead of
         // trapping the remote at the edge of a nested list.
         focusManager.moveFocus(direction)
+    }
+}
+
+/**
+ * Lets normal focus traversal handle a single Up/Down press. Held repeats
+ * scroll the parent TV list, then [onVerticalLanding] returns focus to the
+ * closest visible row. This avoids trapping focus in a row after the parent
+ * list has moved far enough to recycle it.
+ */
+fun Modifier.tvDpadVerticalFastScroll(
+    listState: LazyListState,
+    onVerticalLanding: (direction: Int) -> Unit,
+): Modifier = composed {
+    if (LocalUiFormFactor.current != UiFormFactor.Tv) return@composed this
+
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val scrollJob = remember { AtomicReference<Job?>(null) }
+    val idleTimer = remember { AtomicReference<Job?>(null) }
+    val active = remember { AtomicBoolean(false) }
+    val direction = remember { AtomicInteger(0) }
+
+    fun finish(cancelScroll: Boolean = true) {
+        val wasActive = active.getAndSet(false)
+        val lastDirection = direction.getAndSet(0)
+        idleTimer.getAndSet(null)?.cancel()
+        val job = scrollJob.getAndSet(null)
+        if (cancelScroll) job?.cancel()
+        if (wasActive) onVerticalLanding(if (lastDirection == 0) 1 else lastDirection)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            active.set(false)
+            scrollJob.getAndSet(null)?.cancel()
+            idleTimer.getAndSet(null)?.cancel()
+        }
+    }
+
+    onPreviewKeyEvent { event ->
+        val native = event.nativeKeyEvent
+        val keyCode = native.keyCode
+        val sign = when (keyCode) {
+            AndroidKeyEvent.KEYCODE_DPAD_UP -> -1
+            AndroidKeyEvent.KEYCODE_DPAD_DOWN -> 1
+            else -> 0
+        }
+        if (sign == 0) return@onPreviewKeyEvent false
+
+        if (native.action == AndroidKeyEvent.ACTION_UP) {
+            if (active.get()) finish()
+            return@onPreviewKeyEvent false
+        }
+        if (native.action != AndroidKeyEvent.ACTION_DOWN || native.repeatCount == 0) {
+            return@onPreviewKeyEvent false
+        }
+
+        val atEdge = if (sign > 0) !listState.canScrollForward else !listState.canScrollBackward
+        if (atEdge) {
+            if (active.get()) finish()
+            return@onPreviewKeyEvent true
+        }
+
+        val needsNewScroll = !active.get() ||
+            direction.get() != sign ||
+            scrollJob.get()?.isActive != true
+        if (needsNewScroll) {
+            if (active.get()) finish()
+            direction.set(sign)
+            active.set(true)
+            val velocityPxPerSecond = with(density) { 2200.dp.toPx() }
+            scrollJob.set(
+                scope.launch {
+                    try {
+                        listState.scroll {
+                            var previousFrame = withFrameNanos { it }
+                            while (active.get()) {
+                                val frame = withFrameNanos { it }
+                                val deltaSeconds = ((frame - previousFrame) / 1_000_000_000f)
+                                    .coerceAtMost(0.048f)
+                                previousFrame = frame
+                                val canContinue = if (sign > 0) {
+                                    listState.canScrollForward
+                                } else {
+                                    listState.canScrollBackward
+                                }
+                                if (!canContinue) break
+                                val consumed = scrollBy(sign * velocityPxPerSecond * deltaSeconds)
+                                if (consumed == 0f) break
+                            }
+                        }
+                        finish(cancelScroll = false)
+                    } catch (_: CancellationException) {
+                        // Expected when the D-pad is released or the direction changes.
+                    }
+                },
+            )
+        }
+
+        idleTimer.getAndSet(null)?.cancel()
+        idleTimer.set(
+            scope.launch {
+                delay(180L)
+                finish()
+            },
+        )
+        true
     }
 }

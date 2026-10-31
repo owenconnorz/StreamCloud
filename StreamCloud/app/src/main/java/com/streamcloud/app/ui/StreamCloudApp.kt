@@ -604,11 +604,15 @@ fun StreamCloudApp(
             ) {
                 return@LaunchedEffect
             }
-            // Let the drawer finish closing before asking the NavHost focus group
-            // to restore the exact child that was focused underneath it.
+            // Enter the page focus group instead of restoring its child directly.
+            // The Enter path lets nested page/row restorers recover the actual card.
             delay(200L)
             if (tvDrawerOpen || tvDrawerRestoreRoute != currentRoute) return@LaunchedEffect
             repeat(12) {
+                runCatching {
+                    navHostFocusRestoreRequester.requestFocus(FocusDirection.Enter)
+                }
+                delay(40L)
                 val restored = runCatching {
                     navHostFocusRestoreRequester.restoreFocusedChild()
                 }.getOrDefault(false)
