@@ -1,3 +1,9 @@
+## Hotfix — Changes since V2407
+
+### Android TV home navigation
+- **D-pad Down from the hero lands on the first home card** — focus moves to the first Continue Watching item, or the first genre card when Continue Watching is empty, and retries while lazy content attaches so the highlight stays visible.
+- **Small “View all” headings no longer steal remote focus** — D-pad navigation targets content cards; TV users can still open tabbed shelves from the trailing View All card.
+
 ## Hotfix — Changes since V2402
 
 ### Android TV and build reliability
