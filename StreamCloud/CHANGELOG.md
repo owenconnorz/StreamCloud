@@ -1,3 +1,8 @@
+## Hotfix — Changes since V2402
+
+### Android TV and build reliability
+- **Focus recovery compiles on Mobile and TV** — corrected the Compose focus request API while preserving return-to-page focus restoration.
+
 ## Hotfix — Changes since V2399
 
 ### Android TV home
