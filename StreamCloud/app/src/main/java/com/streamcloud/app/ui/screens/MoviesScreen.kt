@@ -1540,10 +1540,10 @@ fun MoviesScreen(
             )
         }
 
-        // On TV the TvNetflixTopNav in StreamCloudApp already provides the header
-        // (with "StreamCloud" title + tabs). Rendering MoviesHeader here too
-        // causes the double "StreamCloud" text visible in the top-left corner.
-        if (!isTv) {
+        // TV uses a compact Home location marker instead of the StreamCloud wordmark.
+        if (isTv && query.isBlank()) {
+            TvHomeLocationIndicator()
+        } else if (!isTv) {
             MoviesHeader(
                 onProfileClick = onProfileClick,
                 onOpenCollections = onOpenCollections,
@@ -1575,6 +1575,36 @@ fun MoviesScreen(
         }
     }
     } // MoviesThemeWrapper
+}
+
+@Composable
+private fun TvHomeLocationIndicator() {
+    Row(
+        modifier = Modifier.padding(start = 24.dp, top = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(50))
+                .background(Color.Black.copy(alpha = 0.4f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = androidx.compose.material.icons.Icons.Filled.Home,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Text(
+            text = "Home",
+            color = Color.White,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
 }
 
 @Composable
