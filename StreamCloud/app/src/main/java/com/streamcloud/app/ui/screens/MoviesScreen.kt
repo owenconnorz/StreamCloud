@@ -755,7 +755,6 @@ fun MoviesScreen(
                     }
                 }
             }
-            },
     ) {
         if (showAdultCatalogAgeGate) {
             AlertDialog(
