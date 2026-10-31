@@ -8,6 +8,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -38,12 +39,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.streamcloud.app.R
 import kotlinx.coroutines.launch
 import com.streamcloud.app.data.plugins.CloudStreamPlugin
 import com.streamcloud.app.data.plugins.CloudStreamRepo
@@ -238,7 +241,7 @@ private fun PluginsHubPage(
                 description = "Add Stremio-compatible addons via manifest URL. " +
                     "Works with Torrentio, Cinemeta, and more.",
                 badgeText   = if (stremioCount > 0) "$stremioCount addons" else null,
-                logoUrl     = "https://www.stremio.com/website/stremio-logo-small.png",
+                logoRes     = R.drawable.stremio_app_logo,
                 onClick     = onStremio,
             )
 
@@ -249,7 +252,7 @@ private fun PluginsHubPage(
                 description = "Browse and install Nuvio JavaScript providers " +
                     "from community repositories.",
                 badgeText   = if (nuvioCount > 0) "$nuvioCount providers" else null,
-                logoUrl     = "https://raw.githubusercontent.com/Nuvio-Streams/nuvio-streams/main/app/src/main/ic_launcher-playstore.png",
+                logoRes     = R.drawable.nuvio_app_logo,
                 onClick     = onNuvio,
             )
 
@@ -276,6 +279,7 @@ private fun AddonHubCard(
     title: String,
     description: String,
     badgeText: String?,
+    logoRes: Int? = null,
     logoUrl: String? = null,
     onClick: () -> Unit,
 ) {
@@ -296,7 +300,17 @@ private fun AddonHubCard(
             contentAlignment = Alignment.Center,
         ) {
             var imageOk by remember(logoUrl) { mutableStateOf(logoUrl != null) }
-            if (logoUrl != null && imageOk) {
+            if (logoRes != null) {
+                Image(
+                    painter = painterResource(id = logoRes),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(5.dp)
+                        .clip(RoundedCornerShape(11.dp)),
+                )
+            } else if (logoUrl != null && imageOk) {
                 coil.compose.AsyncImage(
                     model = logoUrl,
                     contentDescription = null,
