@@ -816,6 +816,7 @@ fun StreamCloudApp(
                         initialFocusEnabled = !showProfilePicker,
                         allowTvIdleScreen = !showMiniPlayer,
                         tvNavHeroFocus = tvNavHeroFocus,
+                        tvNavDrawerRestoreFocusVersion = tvDrawerRestoreFocusVersion,
                         adultContentEnabled = nsfwEnabled,
                         onOpenAdultContent = { navigateToTab(nav, Tab.Adult.route) },
                         onMovieClick = { id -> nav.navigate("movie/$id") },

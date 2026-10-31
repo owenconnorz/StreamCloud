@@ -217,6 +217,8 @@ fun MoviesScreen(
     navScrollToTopVersion: Int = 0,
     // Scroll Movies to the banner before retrying a TV-nav focus request.
     tvNavDownFocusHandoffVersion: Int = 0,
+    // Restore the active Movies shelf after the TV navigation drawer closes.
+    tvNavDrawerRestoreFocusVersion: Int = 0,
     onTvTopBarVisibilityChanged: (Boolean) -> Unit = {},
     onFirstMovieFocusedChanged: (Boolean) -> Unit = {},
     adultContentEnabled: Boolean = false,
@@ -511,7 +513,19 @@ fun MoviesScreen(
     val moviesListState = rememberLazyListState()
     val tvHomeRowFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val tvHomeFocusedRowKey = remember { mutableStateOf<String?>(null) }
+    val tvHomeFocusedRowHasFocus = remember { mutableStateOf(false) }
+    val tvHomeFirstGenreFocusRequester = remember { FocusRequester() }
+    val tvHomeFirstGenreHasFocus = remember { mutableStateOf(false) }
     val tvHomeFocusScope = rememberCoroutineScope()
+    fun updateTvHomeRowFocus(rowKey: String, hasFocus: Boolean) {
+        if (!isTv) return
+        if (hasFocus) {
+            tvHomeFocusedRowKey.value = rowKey
+            tvHomeFocusedRowHasFocus.value = true
+        } else if (tvHomeFocusedRowKey.value == rowKey) {
+            tvHomeFocusedRowHasFocus.value = false
+        }
+    }
     val tvHeroDetailsVisible by remember(moviesListState, query) {
         derivedStateOf {
             query.isBlank() &&
@@ -820,15 +834,69 @@ fun MoviesScreen(
                 if (tvHomeRowFocusRequesters.containsKey(key)) key to item.index else null
             }
 
-        fun requestTvHomeRowFocus(rowKey: String) {
-            val requester = tvHomeRowFocusRequesters[rowKey] ?: return
+        fun requestTvHomeRowFocus(
+            rowKey: String,
+            focusFirstGenre: Boolean = false,
+        ) {
+            val requester = if (focusFirstGenre && rowKey == "home_genres") {
+                tvHomeFirstGenreFocusRequester
+            } else {
+                tvHomeRowFocusRequesters[rowKey]
+            } ?: return
             tvHomeFocusScope.launch {
-                repeat(8) {
+                repeat(12) {
                     withFrameNanos { }
                     runCatching { requester.requestFocus() }
                     withFrameNanos { }
-                    if (tvHomeFocusedRowKey.value == rowKey) return@launch
+                    val hasFocus = if (focusFirstGenre && rowKey == "home_genres") {
+                        tvHomeFirstGenreHasFocus.value
+                    } else {
+                        tvHomeFocusedRowKey.value == rowKey &&
+                            tvHomeFocusedRowHasFocus.value
+                    }
+                    if (hasFocus) return@launch
                 }
+            }
+        }
+
+        fun requestTvHomeHeroFocus() {
+            val heroRequester = tvNavHeroFocus ?: return
+            tvHomeFocusScope.launch {
+                repeat(12) {
+                    withFrameNanos { }
+                    runCatching { heroRequester.requestFocus() }
+                    withFrameNanos { }
+                    if (tvNavHeroHasFocus) return@launch
+                }
+            }
+        }
+
+        LaunchedEffect(isTv, tvNavDrawerRestoreFocusVersion, query) {
+            if (!isTv || tvNavDrawerRestoreFocusVersion == 0 || query.isNotBlank()) {
+                return@LaunchedEffect
+            }
+            // Capture the last focused shelf before the parent NavHost's fallback
+            // can move focus to its default item.
+            val savedRowKey = tvHomeFocusedRowKey.value ?: return@LaunchedEffect
+            val requester = tvHomeRowFocusRequesters[savedRowKey]
+                ?: return@LaunchedEffect
+            kotlinx.coroutines.delay(260L)
+            if (
+                tvHomeFocusedRowKey.value == savedRowKey &&
+                tvHomeFocusedRowHasFocus.value
+            ) {
+                return@LaunchedEffect
+            }
+            repeat(14) {
+                runCatching { requester.requestFocus() }
+                withFrameNanos { }
+                if (
+                    tvHomeFocusedRowKey.value == savedRowKey &&
+                    tvHomeFocusedRowHasFocus.value
+                ) {
+                    return@LaunchedEffect
+                }
+                kotlinx.coroutines.delay(60L)
             }
         }
 
@@ -838,12 +906,27 @@ fun MoviesScreen(
                 val focusedRow = visibleRows.firstOrNull {
                     it.first == tvHomeFocusedRowKey.value
                 }
-                val nearbyRows = focusedRow?.let { current ->
-                    visibleRows.filter { row ->
-                        if (direction > 0) row.second > current.second
-                        else row.second < current.second
+                if (focusedRow == null) {
+                    val recoveryRow = if (direction > 0) {
+                        visibleRows.minByOrNull { it.second }
+                    } else {
+                        visibleRows.maxByOrNull { it.second }
                     }
-                }.orEmpty()
+                    if (recoveryRow != null) {
+                        requestTvHomeRowFocus(
+                            rowKey = recoveryRow.first,
+                            focusFirstGenre = direction > 0 &&
+                                recoveryRow.first == "home_genres",
+                        )
+                    } else if (direction < 0 && hasTvHero) {
+                        requestTvHomeHeroFocus()
+                    }
+                    return@tvDpadVerticalFocusNavigation
+                }
+                val nearbyRows = visibleRows.filter { row ->
+                    if (direction > 0) row.second > focusedRow.second
+                    else row.second < focusedRow.second
+                }
                 val nextRow = if (direction > 0) {
                     nearbyRows.minByOrNull { it.second }
                 } else {
@@ -859,39 +942,30 @@ fun MoviesScreen(
                 }
 
                 if (nextRow != null) {
-                    requestTvHomeRowFocus(nextRow.first)
+                    requestTvHomeRowFocus(
+                        rowKey = nextRow.first,
+                        focusFirstGenre = direction > 0 &&
+                            focusedRow.first == "continue_watching" &&
+                            nextRow.first == "home_genres",
+                    )
                     return@tvDpadVerticalFocusNavigation
                 }
 
-                if (
-                    direction < 0 &&
-                    hasTvHero &&
-                    !moviesListState.canScrollBackward
-                ) {
-                    val heroRequester = tvNavHeroFocus
-                    if (heroRequester != null) {
-                        tvHomeFocusScope.launch {
-                            repeat(12) {
-                                withFrameNanos { }
-                                runCatching { heroRequester.requestFocus() }
-                                withFrameNanos { }
-                                if (tvNavHeroHasFocus) return@launch
-                            }
-                        }
-                    }
-                    return@tvDpadVerticalFocusNavigation
-                }
-
-                val sourceRow = focusedRow ?: return@tvDpadVerticalFocusNavigation
-                var nextLazyItemIndex = sourceRow.second + direction
+                var nextLazyItemIndex = focusedRow.second + direction
                 if (nextLazyItemIndex !in 0 until moviesListState.layoutInfo.totalItemsCount) {
+                    if (direction < 0 && hasTvHero) requestTvHomeHeroFocus()
                     return@tvDpadVerticalFocusNavigation
                 }
 
+                val sourceIndex = focusedRow.second
+                val scanLimit = moviesListState.layoutInfo.totalItemsCount.coerceAtMost(48)
                 tvHomeFocusScope.launch {
-                    repeat(12) {
+                    repeat(scanLimit) {
                         val itemCount = moviesListState.layoutInfo.totalItemsCount
-                        if (nextLazyItemIndex !in 0 until itemCount) return@launch
+                        if (nextLazyItemIndex !in 0 until itemCount) {
+                            if (direction < 0 && hasTvHero) requestTvHomeHeroFocus()
+                            return@launch
+                        }
 
                         runCatching {
                             moviesListState.animateScrollToItem(nextLazyItemIndex)
@@ -900,8 +974,8 @@ fun MoviesScreen(
 
                         val rowsAfterScroll = visibleTvHomeRows()
                         val candidates = rowsAfterScroll.filter { row ->
-                            if (direction > 0) row.second > sourceRow.second
-                            else row.second < sourceRow.second
+                            if (direction > 0) row.second > sourceIndex
+                            else row.second < sourceIndex
                         }
                         val targetRow = if (direction > 0) {
                             candidates.minByOrNull { it.second }
@@ -909,20 +983,19 @@ fun MoviesScreen(
                             candidates.maxByOrNull { it.second }
                         }
                         if (targetRow != null) {
-                            val requester = tvHomeRowFocusRequesters[targetRow.first]
-                            if (requester != null) {
-                                repeat(8) {
-                                    withFrameNanos { }
-                                    runCatching { requester.requestFocus() }
-                                    withFrameNanos { }
-                                    if (tvHomeFocusedRowKey.value == targetRow.first) {
-                                        return@launch
-                                    }
-                                }
-                            }
+                            requestTvHomeRowFocus(
+                                rowKey = targetRow.first,
+                                focusFirstGenre = direction > 0 &&
+                                    focusedRow.first == "continue_watching" &&
+                                    targetRow.first == "home_genres",
+                            )
+                            return@launch
                         }
 
                         nextLazyItemIndex += direction
+                    }
+                    if (direction < 0 && hasTvHero && !moviesListState.canScrollBackward) {
+                        requestTvHomeHeroFocus()
                     }
                 }
             }
@@ -1080,9 +1153,7 @@ fun MoviesScreen(
                                 state = continueRowState,
                                 modifier = Modifier
                                     .onFocusChanged {
-                                        if (isTv && it.hasFocus) {
-                                            tvHomeFocusedRowKey.value = "continue_watching"
-                                        }
+                                        updateTvHomeRowFocus("continue_watching", it.hasFocus)
                                     }
                                     .tvFocusGroup(
                                         restoreFocusedChild = true,
@@ -1164,9 +1235,10 @@ fun MoviesScreen(
                             genres = homeGenres,
                             isTv = isTv,
                             rowFocusRequester = rowFocusRequester,
-                            onRowFocusChanged = { focused ->
-                                if (isTv && focused) tvHomeFocusedRowKey.value = "home_genres"
+                            onRowFocusChanged = {
+                                updateTvHomeRowFocus("home_genres", it)
                             },
+                            firstItemFocusRequester = tvHomeFirstGenreFocusRequester,
                             initialFocusRequester = if (startupFocusTarget == "genre") {
                                 initialFocusRequester
                             } else {
@@ -1182,11 +1254,9 @@ fun MoviesScreen(
                                 null
                             },
                             onFirstItemFocusChanged = { focused ->
-
+                                if (isTv) tvHomeFirstGenreHasFocus.value = focused
                                 tvNavHeroHasFocus = focused
-
                                 onFirstMovieFocusedChanged(focused)
-
                             },
                         )
                     }
@@ -1214,9 +1284,7 @@ fun MoviesScreen(
                             )
                             LazyRow(
                                 modifier = Modifier
-                                    .onFocusChanged {
-                                        if (isTv && it.hasFocus) tvHomeFocusedRowKey.value = rowKey
-                                    }
+                                    .onFocusChanged { updateTvHomeRowFocus(rowKey, it.hasFocus) }
                                     .tvFocusGroup(
                                         restoreFocusedChild = true,
                                         focusRequester = rowFocusRequester,
@@ -1320,9 +1388,7 @@ fun MoviesScreen(
                         LazyRow(
                             state = collectionRowState,
                             modifier = Modifier
-                                .onFocusChanged {
-                                    if (isTv && it.hasFocus) tvHomeFocusedRowKey.value = rowKey
-                                }
+                                .onFocusChanged { updateTvHomeRowFocus(rowKey, it.hasFocus) }
                                 .tvFocusGroup(
                                     restoreFocusedChild = true,
                                     focusRequester = rowFocusRequester,
@@ -1419,9 +1485,7 @@ fun MoviesScreen(
                         LazyRow(
                             state = stremioRowState,
                             modifier = Modifier
-                                .onFocusChanged {
-                                    if (isTv && it.hasFocus) tvHomeFocusedRowKey.value = rowKey
-                                }
+                                .onFocusChanged { updateTvHomeRowFocus(rowKey, it.hasFocus) }
                                 .tvFocusGroup(
                                     restoreFocusedChild = true,
                                     focusRequester = rowFocusRequester,
@@ -1565,9 +1629,7 @@ fun MoviesScreen(
                         LazyRow(
                             state = csRowState,
                             modifier = Modifier
-                                .onFocusChanged {
-                                    if (isTv && it.hasFocus) tvHomeFocusedRowKey.value = rowKey
-                                }
+                                .onFocusChanged { updateTvHomeRowFocus(rowKey, it.hasFocus) }
                                 .tvFocusGroup(
                                     restoreFocusedChild = true,
                                     focusRequester = rowFocusRequester,
@@ -1935,6 +1997,7 @@ private fun HomeGenresRow(
     isTv: Boolean,
     rowFocusRequester: FocusRequester? = null,
     onRowFocusChanged: (Boolean) -> Unit = {},
+    firstItemFocusRequester: FocusRequester? = null,
     initialFocusRequester: FocusRequester? = null,
     navFocusRequester: FocusRequester? = null,
     onFirstItemFocusChanged: (Boolean) -> Unit = {},
@@ -1970,6 +2033,13 @@ private fun HomeGenresRow(
             itemsIndexed(genres, key = { _, genre -> genre.id }) { index, genre ->
                 val shape = RoundedCornerShape(12.dp)
                 val focusModifier = Modifier
+                    .then(
+                        if (index == 0 && firstItemFocusRequester != null) {
+                            Modifier.focusRequester(firstItemFocusRequester)
+                        } else {
+                            Modifier
+                        },
+                    )
                     .then(
                         if (index == 0 && navFocusRequester != null) {
                             Modifier.focusRequester(navFocusRequester)

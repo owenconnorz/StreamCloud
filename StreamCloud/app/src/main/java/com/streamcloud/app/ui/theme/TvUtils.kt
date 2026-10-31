@@ -162,16 +162,15 @@ fun Modifier.tvDpadRepeatThrottle(
 }
 
 /**
- * Moves TV focus one step for each Up/Down press or repeat. If normal spatial
- * traversal cannot leave a nested row, [onVerticalFocusUnavailable] can move
- * focus to a nearby row without scrolling the focused item out of view.
+ * Gives the page explicit control of each Up/Down press and held repeat.
+ * Nested lazy shelves can then move focus to the exact adjacent row instead
+ * of relying on spatial search to guess between cards at different heights.
  */
 fun Modifier.tvDpadVerticalFocusNavigation(
-    onVerticalFocusUnavailable: (direction: Int) -> Unit,
+    onVerticalNavigation: (direction: Int) -> Unit,
 ): Modifier = composed {
     if (LocalUiFormFactor.current != UiFormFactor.Tv) return@composed this
 
-    val focusManager = LocalFocusManager.current
     val lastVerticalEventAt = remember { longArrayOf(0L) }
 
     onPreviewKeyEvent { event ->
@@ -195,14 +194,10 @@ fun Modifier.tvDpadVerticalFocusNavigation(
         }
         lastVerticalEventAt[0] = now
 
-        val focusDirection = if (sign < 0) FocusDirection.Up else FocusDirection.Down
-        val moved = runCatching {
-            focusManager.moveFocus(focusDirection)
-        }.getOrDefault(false)
-        if (!moved) onVerticalFocusUnavailable(sign)
+        onVerticalNavigation(sign)
 
-        // We have already performed focus search; consuming prevents Compose from
-        // running a second, competing traversal for the same remote press.
+        // The page performs explicit row navigation; don't let Compose run a
+        // second spatial search for this same remote press.
         true
     }
 }
