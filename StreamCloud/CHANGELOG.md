@@ -1,3 +1,9 @@
+## Hotfix — Changes since V2409
+
+### Android TV Movies home remote
+- **Up and Down work one press at a time** — focus advances on a single press, and held repeats move in controlled steps instead of scrolling the page underneath the selected card.
+- **Focus stays visible between shelves** — when spatial navigation cannot leave a row, focus is restored to the nearest shelf; at the top it returns to the hero, and the page scrolls only when the next shelf is offscreen.
+
 ## Hotfix — Changes since V2407
 
 ### Android TV home navigation

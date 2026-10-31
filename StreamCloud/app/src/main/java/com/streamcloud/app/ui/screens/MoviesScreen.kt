@@ -66,7 +66,7 @@ import com.streamcloud.app.ui.theme.tvFocusBorder
 import kotlinx.coroutines.launch
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
-import com.streamcloud.app.ui.theme.tvDpadVerticalFastScroll
+import com.streamcloud.app.ui.theme.tvDpadVerticalFocusNavigation
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -740,8 +740,8 @@ fun MoviesScreen(
                     }
                 }
             }
-            // Keep repeat throttling on horizontal navigation. Vertical repeats
-            // are handled by the home list so held Up/Down can land in another row.
+            // Keep horizontal repeat throttling here; the home list handles each
+            // Up/Down press as a focus step to keep the selected card visible.
             .tvDpadRepeatThrottle(handleInitialPresses = true, horizontalOnly = true),
     ) {
         if (showAdultCatalogAgeGate) {
@@ -814,39 +814,115 @@ fun MoviesScreen(
         } else {
             Modifier.fillMaxSize()
         }
-        val verticalFastScrollModifier = if (isTv && query.isBlank()) {
-            Modifier.tvDpadVerticalFastScroll(moviesListState) { direction ->
-                val layoutInfo = moviesListState.layoutInfo
-                val visibleRows = layoutInfo.visibleItemsInfo.mapNotNull { item ->
-                    val key = item.key as? String ?: return@mapNotNull null
-                    if (tvHomeRowFocusRequesters.containsKey(key)) key to item else null
+        fun visibleTvHomeRows(): List<Pair<String, Int>> =
+            moviesListState.layoutInfo.visibleItemsInfo.mapNotNull { item ->
+                val key = item.key as? String ?: return@mapNotNull null
+                if (tvHomeRowFocusRequesters.containsKey(key)) key to item.index else null
+            }
+
+        fun requestTvHomeRowFocus(rowKey: String) {
+            val requester = tvHomeRowFocusRequesters[rowKey] ?: return
+            tvHomeFocusScope.launch {
+                repeat(8) {
+                    withFrameNanos { }
+                    runCatching { requester.requestFocus() }
+                    withFrameNanos { }
+                    if (tvHomeFocusedRowKey.value == rowKey) return@launch
                 }
-                val orderedRows = if (direction < 0) {
-                    visibleRows.sortedBy { it.second.index }
-                } else {
-                    visibleRows.sortedByDescending { it.second.index }
+            }
+        }
+
+        val verticalFocusNavigationModifier = if (isTv && query.isBlank()) {
+            Modifier.tvDpadVerticalFocusNavigation { direction ->
+                val visibleRows = visibleTvHomeRows()
+                val focusedRow = visibleRows.firstOrNull {
+                    it.first == tvHomeFocusedRowKey.value
                 }
-                val landingRow = if (direction < 0) {
-                    orderedRows.firstOrNull { it.second.offset + it.second.size > 0 }
-                } else {
-                    orderedRows.firstOrNull {
-                        it.second.offset + it.second.size <= layoutInfo.viewportEndOffset
+                val nearbyRows = focusedRow?.let { current ->
+                    visibleRows.filter { row ->
+                        if (direction > 0) row.second > current.second
+                        else row.second < current.second
                     }
-                } ?: orderedRows.firstOrNull()
-                val candidates = listOfNotNull(landingRow) +
-                    orderedRows.filterNot { it.first == landingRow?.first }
+                }.orEmpty()
+                val nextRow = if (direction > 0) {
+                    nearbyRows.minByOrNull { it.second }
+                } else {
+                    nearbyRows.maxByOrNull { it.second }
+                } ?: if (focusedRow == null) {
+                    if (direction > 0) {
+                        visibleRows.minByOrNull { it.second }
+                    } else {
+                        visibleRows.maxByOrNull { it.second }
+                    }
+                } else {
+                    null
+                }
+
+                if (nextRow != null) {
+                    requestTvHomeRowFocus(nextRow.first)
+                    return@tvDpadVerticalFocusNavigation
+                }
+
+                if (
+                    direction < 0 &&
+                    hasTvHero &&
+                    !moviesListState.canScrollBackward
+                ) {
+                    val heroRequester = tvNavHeroFocus
+                    if (heroRequester != null) {
+                        tvHomeFocusScope.launch {
+                            repeat(12) {
+                                withFrameNanos { }
+                                runCatching { heroRequester.requestFocus() }
+                                withFrameNanos { }
+                                if (tvNavHeroHasFocus) return@launch
+                            }
+                        }
+                    }
+                    return@tvDpadVerticalFocusNavigation
+                }
+
+                val sourceRow = focusedRow ?: return@tvDpadVerticalFocusNavigation
+                var nextLazyItemIndex = sourceRow.second + direction
+                if (nextLazyItemIndex !in 0 until moviesListState.layoutInfo.totalItemsCount) {
+                    return@tvDpadVerticalFocusNavigation
+                }
 
                 tvHomeFocusScope.launch {
-                    for ((rowKey, _) in candidates) {
-                        val requester = tvHomeRowFocusRequesters[rowKey] ?: continue
-                        repeat(6) {
-                            withFrameNanos { }
-                            runCatching {
-                                requester.requestFocus()
-                            }
-                            withFrameNanos { }
-                            if (tvHomeFocusedRowKey.value == rowKey) return@launch
+                    repeat(12) {
+                        val itemCount = moviesListState.layoutInfo.totalItemsCount
+                        if (nextLazyItemIndex !in 0 until itemCount) return@launch
+
+                        runCatching {
+                            moviesListState.animateScrollToItem(nextLazyItemIndex)
                         }
+                        withFrameNanos { }
+
+                        val rowsAfterScroll = visibleTvHomeRows()
+                        val candidates = rowsAfterScroll.filter { row ->
+                            if (direction > 0) row.second > sourceRow.second
+                            else row.second < sourceRow.second
+                        }
+                        val targetRow = if (direction > 0) {
+                            candidates.minByOrNull { it.second }
+                        } else {
+                            candidates.maxByOrNull { it.second }
+                        }
+                        if (targetRow != null) {
+                            val requester = tvHomeRowFocusRequesters[targetRow.first]
+                            if (requester != null) {
+                                repeat(8) {
+                                    withFrameNanos { }
+                                    runCatching { requester.requestFocus() }
+                                    withFrameNanos { }
+                                    if (tvHomeFocusedRowKey.value == targetRow.first) {
+                                        return@launch
+                                    }
+                                }
+                            }
+                        }
+
+                        nextLazyItemIndex += direction
                     }
                 }
             }
@@ -856,7 +932,7 @@ fun MoviesScreen(
         LazyColumn(
             moviesListModifier
                 .tvFocusGroup(restoreFocusedChild = true)
-                .then(verticalFastScrollModifier),
+                .then(verticalFocusNavigationModifier),
             state = moviesListState,
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
