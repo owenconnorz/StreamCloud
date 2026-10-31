@@ -615,7 +615,12 @@ fun StreamCloudApp(
             }
             if (currentRoute == Tab.Movies.route) {
                 repeat(8) {
-                    if (runCatching { tvNavHeroFocus.requestFocus() }.getOrDefault(false)) {
+                    if (
+                        runCatching {
+                            tvNavHeroFocus.requestFocus()
+                            true
+                        }.getOrDefault(false)
+                    ) {
                         return@LaunchedEffect
                     }
                     delay(100L)
@@ -623,7 +628,10 @@ fun StreamCloudApp(
             }
             repeat(4) {
                 if (
-                    runCatching { navHostFocusRestoreRequester.requestFocus() }
+                    runCatching {
+                        navHostFocusRestoreRequester.requestFocus()
+                        true
+                    }
                         .getOrDefault(false)
                 ) {
                     return@LaunchedEffect

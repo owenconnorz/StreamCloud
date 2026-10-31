@@ -39,8 +39,10 @@ import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.Icons as MaterialIcons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -1592,7 +1594,7 @@ private fun TvHomeLocationIndicator() {
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = androidx.compose.material.icons.Icons.Filled.Home,
+                imageVector = MaterialIcons.Filled.Home,
                 contentDescription = null,
                 tint = Color.White,
                 modifier = Modifier.size(18.dp),
