@@ -1872,7 +1872,7 @@ private fun HomeGenresRow(
                 .tvFocusGroup(
                     restoreFocusedChild = true,
                     focusRequester = rowFocusRequester,
-                )
+                ),
             contentPadding = PaddingValues(horizontal = if (isTv) 24.dp else 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
