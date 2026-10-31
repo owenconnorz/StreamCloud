@@ -669,6 +669,12 @@ fun StreamCloudApp(
                                     focusManager.moveFocus(FocusDirection.Left)
                                 }.getOrDefault(false)
                                 if (!movedLeft) {
+                                    // Save the exact focused page child before the drawer
+                                    // takes focus; explicit requester-based focus changes do
+                                    // not reliably pass through the NavHost exit policy.
+                                    runCatching {
+                                        navHostFocusRestoreRequester.saveFocusedChild()
+                                    }
                                     tvDrawerOpen = true
                                     tvNavFocusHandoffPending = true
                                 }
@@ -2964,7 +2970,6 @@ private fun TvSideNavigationDrawer(
                     .padding(start = TvOverscanPadding, top = TvOverscanPadding, bottom = TvOverscanPadding)
                     .fillMaxHeight(0.9f)
                     .width(282.dp)
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), shape)
                     .tvFocusGroup()
                     .onFocusChanged { onNavFocusChanged(it.hasFocus) },
                 shape = shape,
@@ -3040,14 +3045,6 @@ private fun TvSideNavigationDrawer(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-
-                    Spacer(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .padding(horizontal = 6.dp)
-                            .background(Color.White.copy(alpha = 0.1f)),
-                    )
 
                     Spacer(Modifier.height(48.dp))
 
@@ -3132,15 +3129,6 @@ private fun TvNavRow(
                 color = selectedColor,
                 showOutline = false,
                 showFocusFill = false,
-            )
-            .border(
-                width = when {
-                    selected -> 0.dp
-                    focused -> 2.dp
-                    else -> 1.dp
-                },
-                color = Color.White.copy(alpha = if (focused) 0.78f else 0.38f),
-                shape = rowShape,
             )
             .onPreviewKeyEvent { event ->
                 if (

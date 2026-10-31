@@ -1,4 +1,10 @@
-## Latest — Changes since V2390
+## Quick fix — Changes since V2395
+
+### Android TV navigation
+- **Cleaner TV drawer** — removed the white outlines around the panel and menu rows, plus the divider beneath the profile.
+- **Right returns to the same page item** — save the focused item before opening the drawer so D-pad Right restores its highlight when you close it.
+
+## Changes since V2390
 
 ### Android TV navigation
 - **The TV drawer works across browsing pages** — open navigation from Movies, Search, title details, Library, Music, and Settings rather than only top-level pages.
