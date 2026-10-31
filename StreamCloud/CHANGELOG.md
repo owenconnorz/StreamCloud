@@ -1,4 +1,13 @@
-## Latest — Changes since V2378
+## Latest — Changes since V2390
+
+### Android TV navigation
+- **The TV drawer works across browsing pages** — open navigation from Movies, Search, title details, Library, Music, and Settings rather than only top-level pages.
+- **Remote selection activates destinations** — D-pad Center/Select opens Home, Search, Library, Music, and Settings.
+- **The drawer better matches the reference** — updated the Home label, panel height and translucency, profile spacing, and inactive-row outlines; the selected pill still follows the chosen theme color.
+- **Focus returns to Movies after closing the drawer** — restores the previous content target and retries with a Movies-home fallback when content is not ready.
+- **Playback controls stay in charge during video** — the drawer does not intercept the video player’s remote controls.
+
+## Changes since V2378
 
 ### Movies home and Android TV
 - **Compact TV hero actions are back** — the TV hero shows a short description, Play Now, and More Info just above Continue Watching; Play Now opens source selection, and More Info opens the title details.
