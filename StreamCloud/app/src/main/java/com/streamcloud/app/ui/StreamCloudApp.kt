@@ -2953,7 +2953,7 @@ private fun TvSideNavigationDrawer(
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.2f))
+                .background(Color.Black.copy(alpha = 0.14f))
                 .clickable(onClick = onDismiss)
                 .focusable(false),
         ) {
@@ -2968,17 +2968,18 @@ private fun TvSideNavigationDrawer(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .padding(start = TvOverscanPadding, top = TvOverscanPadding, bottom = TvOverscanPadding)
+                    .fillMaxHeight(0.9f)
                     .width(282.dp)
                     .border(1.dp, Color.White.copy(alpha = 0.12f), shape)
                     .tvFocusGroup()
                     .onFocusChanged { onNavFocusChanged(it.hasFocus) },
                 shape = shape,
-                color = Color(0xEE18253A),
+                color = Color(0xCC101B38),
                 shadowElevation = 18.dp,
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp),
                 ) {
                     var profileFocused by remember { mutableStateOf(false) }
                     val profileShape = RoundedCornerShape(22.dp)
@@ -3054,11 +3055,13 @@ private fun TvSideNavigationDrawer(
                             .background(Color.White.copy(alpha = 0.1f)),
                     )
 
+                    Spacer(Modifier.height(48.dp))
+
                     var isFirstRow = true
                     if (firstTab != null) {
                         TvNavRow(
                             icon = firstTab.icon,
-                            label = firstTab.label,
+                            label = if (firstTab.route == Tab.Movies.route) "Home" else firstTab.label,
                             selected = currentRoute == firstTab.route,
                             selectedColor = selectedTabColor,
                             modifier = Modifier.focusRequester(firstItemFocus),
@@ -3137,8 +3140,12 @@ private fun TvNavRow(
                 showFocusFill = false,
             )
             .border(
-                width = if (focused && !selected) 1.5.dp else 0.dp,
-                color = Color.White.copy(alpha = 0.7f),
+                width = when {
+                    selected -> 0.dp
+                    focused -> 2.dp
+                    else -> 1.dp
+                },
+                color = Color.White.copy(alpha = if (focused) 0.78f else 0.38f),
                 shape = rowShape,
             )
             .onKeyEvent { event ->
