@@ -610,7 +610,7 @@ fun StreamCloudApp(
             if (tvDrawerOpen || tvDrawerRestoreRoute != currentRoute) return@LaunchedEffect
             repeat(12) {
                 runCatching {
-                    navHostFocusRestoreRequester.requestFocus(FocusDirection.Enter)
+                    navHostFocusRestoreRequester.requestFocus()
                 }
                 delay(40L)
                 val restored = runCatching {
