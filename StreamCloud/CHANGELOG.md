@@ -1,3 +1,8 @@
+## Hotfix — Changes since V2397
+
+### Android TV navigation
+- **Return to the exact movie card** — pressing Left to open the navigation drawer and Right to close it restores focus to the poster you left, not just its rail.
+
 ## Quick fix — Changes since V2395
 
 ### Android TV navigation
