@@ -20,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.composed
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -85,9 +87,17 @@ fun Modifier.tvFocusBorder(
  * focus to the next region. This is a no-op for touch-first form factors.
  */
 @OptIn(ExperimentalComposeUiApi::class)
-fun Modifier.tvFocusGroup(): Modifier = composed {
+fun Modifier.tvFocusGroup(restoreFocusedChild: Boolean = false): Modifier = composed {
     if (LocalUiFormFactor.current == UiFormFactor.Tv) {
-        this.focusGroup()
+        if (restoreFocusedChild) {
+            val requester = remember { FocusRequester() }
+            this
+                .focusRequester(requester)
+                .tvUnpinnedFocusRestorer(requester)
+                .focusGroup()
+        } else {
+            this.focusGroup()
+        }
     } else {
         this
     }

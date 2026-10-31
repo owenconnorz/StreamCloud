@@ -947,7 +947,7 @@ fun MoviesScreen(
                             )
                             LazyRow(
                                 state = continueRowState,
-                                modifier = Modifier.tvFocusGroup(),
+                                modifier = Modifier.tvFocusGroup(restoreFocusedChild = true),
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
@@ -1057,7 +1057,7 @@ fun MoviesScreen(
                     if (pinnedRow.folders.isNotEmpty()) {
                         item(key = "pinned_${pinnedRow.collectionId}") {
                             LazyRow(
-                                modifier = Modifier.tvFocusGroup(),
+                                modifier = Modifier.tvFocusGroup(restoreFocusedChild = true),
                                 contentPadding = PaddingValues(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
@@ -1146,7 +1146,7 @@ fun MoviesScreen(
                         LazyRow(
                             state = collectionRowState,
                             modifier = Modifier
-                                .tvFocusGroup()
+                                .tvFocusGroup(restoreFocusedChild = true)
                                 .then(if (isTv) Modifier else Modifier.animateContentSize(animationSpec = tween(durationMillis = 260))),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -1233,7 +1233,7 @@ fun MoviesScreen(
                         )
                         LazyRow(
                             state = stremioRowState,
-                            modifier = Modifier.tvFocusGroup(),
+                            modifier = Modifier.tvFocusGroup(restoreFocusedChild = true),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -1366,7 +1366,7 @@ fun MoviesScreen(
                         )
                         LazyRow(
                             state = csRowState,
-                            modifier = Modifier.tvFocusGroup(),
+                            modifier = Modifier.tvFocusGroup(restoreFocusedChild = true),
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
@@ -1711,7 +1711,7 @@ private fun HomeGenresRow(
             SectionTitle("Genres")
         }
         LazyRow(
-            modifier = Modifier.tvFocusGroup(),
+            modifier = Modifier.tvFocusGroup(restoreFocusedChild = true),
             contentPadding = PaddingValues(horizontal = if (isTv) 24.dp else 16.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -1909,7 +1909,7 @@ private fun TvHeroBackdrop(
                     }
                     Row(
                         modifier = Modifier
-                            .tvFocusGroup()
+                            .tvFocusGroup(restoreFocusedChild = true)
                             .onFocusChanged {
                                 actionsFocused = it.hasFocus
                                 onActionsFocusChanged(it.hasFocus)
@@ -3383,12 +3383,12 @@ private fun PosterGrid(
     Column(
         modifier = Modifier
             .padding(horizontal = 16.dp)
-            .tvFocusGroup(),
+            .tvFocusGroup(restoreFocusedChild = true),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         movies.chunked(chunkSize).forEach { row ->
             Row(
-                modifier = Modifier.tvFocusGroup(),
+                modifier = Modifier.tvFocusGroup(restoreFocusedChild = true),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 row.forEach { m ->
