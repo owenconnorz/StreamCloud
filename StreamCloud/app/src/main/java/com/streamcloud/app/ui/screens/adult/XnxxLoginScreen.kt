@@ -11,7 +11,6 @@ import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
-import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
@@ -27,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
+import com.streamcloud.app.data.api.XnxxRepository
 import com.streamcloud.app.ui.icons.AppIcons as Icons
 import kotlinx.coroutines.delay
 import java.util.concurrent.atomic.AtomicBoolean
@@ -172,10 +172,7 @@ fun XnxxLoginScreen(
                             view.settings.domStorageEnabled = true
                             view.settings.useWideViewPort = true
                             view.settings.loadWithOverviewMode = true
-                            view.settings.userAgentString =
-                                WebSettings.getDefaultUserAgent(context)
-                                    .replace("; wv", "")
-                                    .replace(" Version/4.0", "")
+                            view.settings.userAgentString = XnxxRepository.browserUserAgent(context)
                             CookieManager.getInstance().setAcceptCookie(true)
                             CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
                             view.webChromeClient = WebChromeClient()

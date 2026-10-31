@@ -4260,12 +4260,12 @@ private fun XnxxAccountRow(onLogin: () -> Unit) {
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                if (sessionSaved) "XNXX session saved" else "Sign in to XNXX",
+                if (sessionSaved) "XNXX session stored" else "Sign in to XNXX",
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Text(
-                if (sessionSaved) "Session stays on this device — tap to manage"
+                if (sessionSaved) "Stored on this device — tap to verify or manage"
                 else "Use XNXX’s official sign-in and verification page",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

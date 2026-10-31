@@ -1,6 +1,8 @@
 package com.streamcloud.app.data.api
 
+import android.content.Context
 import android.webkit.CookieManager
+import android.webkit.WebSettings
 import com.streamcloud.app.data.network.BrowserHeaders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -74,20 +76,20 @@ object XnxxRepository {
         parseListing(html, cleanQuery.isBlank(), page)
     }
 
-    suspend fun resolvePlayback(pageUrl: String): XnxxResolvedPlayback =
+    suspend fun resolvePlayback(pageUrl: String, userAgent: String): XnxxResolvedPlayback =
         withContext(Dispatchers.IO) {
             val safePageUrl = normalizeXnxxVideoPageUrl(pageUrl)
                 ?: throw IOException("XNXX did not provide a valid video page.")
-            val html = requestHtml(safePageUrl)
+            val html = requestHtml(safePageUrl, userAgent)
             val stream = parseXnxxStreamSources(html).firstOrNull()
                 ?: throw IOException(
                     "XNXX did not expose a native video stream. Complete any official " +
-                        "age or browser check on XNXX and retry.",
+                        "age or browser check on XNXX, then retry.",
                 )
             XnxxResolvedPlayback(
                 url = stream.url,
                 headers = mapOf(
-                    "User-Agent" to BrowserHeaders.USER_AGENT,
+                    "User-Agent" to userAgent,
                     "Referer" to safePageUrl,
                     "Origin" to "https://www.xnxx.com",
                     "Accept" to "*/*",
@@ -156,6 +158,11 @@ object XnxxRepository {
             .build()
             .toString()
     }
+
+    internal fun browserUserAgent(context: Context): String =
+        WebSettings.getDefaultUserAgent(context.applicationContext)
+            .replace("; wv", "")
+            .replace(" Version/4.0", "")
 
     internal fun parseListing(
         html: String,
@@ -239,7 +246,10 @@ object XnxxRepository {
         )
     }
 
-    private fun requestHtml(url: String): String {
+    private fun requestHtml(
+        url: String,
+        userAgent: String = BrowserHeaders.USER_AGENT,
+    ): String {
         val safeUrl = normalizeXnxxRequestUrl(url)
             ?: throw IOException("XNXX returned a link outside its secure site.")
         var currentUrl = safeUrl
@@ -248,7 +258,7 @@ object XnxxRepository {
             var responseBody: String? = null
             val requestBuilder = Request.Builder()
                 .url(currentUrl)
-                .header("User-Agent", BrowserHeaders.USER_AGENT)
+                .header("User-Agent", userAgent)
                 .header("Accept-Language", BrowserHeaders.ACCEPT_LANGUAGE)
                 .header("Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8")
                 .header("Referer", BASE_URL)

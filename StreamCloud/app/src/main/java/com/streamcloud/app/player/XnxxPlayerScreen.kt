@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.streamcloud.app.data.api.XnxxResolvedPlayback
@@ -37,14 +38,16 @@ fun XnxxPlayerScreen(
     title: String,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val userAgent = remember(context) { XnxxRepository.browserUserAgent(context) }
     var playback by remember(pageUrl) { mutableStateOf<XnxxResolvedPlayback?>(null) }
     var error by remember(pageUrl) { mutableStateOf<String?>(null) }
     var attempt by remember(pageUrl) { mutableIntStateOf(0) }
 
-    LaunchedEffect(pageUrl, attempt) {
+    LaunchedEffect(pageUrl, attempt, userAgent) {
         playback = null
         error = null
-        runCatching { XnxxRepository.resolvePlayback(pageUrl) }
+        runCatching { XnxxRepository.resolvePlayback(pageUrl, userAgent) }
             .onSuccess { playback = it }
             .onFailure {
                 error = it.message?.takeIf(String::isNotBlank)
