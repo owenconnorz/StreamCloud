@@ -805,7 +805,7 @@ fun MoviesScreen(
             Modifier.fillMaxSize()
         }
         LazyColumn(
-            moviesListModifier,
+            moviesListModifier.tvFocusGroup(restoreFocusedChild = true),
             state = moviesListState,
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
@@ -1578,30 +1578,62 @@ fun MoviesScreen(
 
 @Composable
 private fun TvHomeLocationIndicator() {
+    val clockFormatter = remember {
+        java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+    }
+    var clockText by remember {
+        mutableStateOf(clockFormatter.format(java.util.Date()))
+    }
+    LaunchedEffect(clockFormatter) {
+        while (true) {
+            val millisUntilNextMinute = 60_000L - (System.currentTimeMillis() % 60_000L)
+            kotlinx.coroutines.delay(millisUntilNextMinute)
+            clockText = clockFormatter.format(java.util.Date())
+        }
+    }
+
     Row(
-        modifier = Modifier.padding(start = 24.dp, top = 18.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 24.dp, top = 18.dp, end = 24.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(RoundedCornerShape(50))
-                .background(Color.Black.copy(alpha = 0.4f)),
-            contentAlignment = Alignment.Center,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(
-                imageVector = MaterialIcons.Filled.Home,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(18.dp),
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.Black.copy(alpha = 0.4f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = MaterialIcons.Filled.Home,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            Text(
+                text = "Home",
+                color = Color.White,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
             )
         }
+        Spacer(Modifier.weight(1f))
         Text(
-            text = "Home",
+            text = clockText,
             color = Color.White,
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .clip(RoundedCornerShape(50.dp))
+                .background(Color.Black.copy(alpha = 0.4f))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
         )
     }
 }
