@@ -525,9 +525,14 @@ fun StreamCloudApp(
     ) { padding ->
         val useRail = LocalUiFormFactor.current != UiFormFactor.Mobile
         val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-        val showRail = useRail &&
+        val showRail = useRail && if (isTv) {
+            // Keep the TV drawer available from detail, search, library, and
+            // settings sub-pages, but let the video player own remote controls.
+            !isVideoPlayerRoute
+        } else {
             (currentRoute == null || tabs.any { it.route == currentRoute }) &&
-            (currentRoute != Tab.Adult.route || adultHomeNavigationVisible)
+                (currentRoute != Tab.Adult.route || adultHomeNavigationVisible)
+        }
         val firstRailFocus = remember { FocusRequester() }
         val firstTvNavFocus = remember { FocusRequester() }
         val firstMovieCardFocus = remember { FocusRequester() }
@@ -3148,6 +3153,17 @@ private fun TvNavRow(
                 color = Color.White.copy(alpha = if (focused) 0.78f else 0.38f),
                 shape = rowShape,
             )
+            .onPreviewKeyEvent { event ->
+                if (
+                    event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.DirectionCenter || event.key == Key.Enter)
+                ) {
+                    onClick()
+                    true
+                } else {
+                    false
+                }
+            }
             .onKeyEvent { event ->
                 event.type == KeyEventType.KeyDown && (
                     (trapUp && event.key == Key.DirectionUp) ||
