@@ -53,10 +53,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -250,6 +252,7 @@ fun MoviesScreen(
     )
     val state by vm.state.collectAsState()
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val focusManager = LocalFocusManager.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val adultGenreScope = rememberCoroutineScope()
     DisposableEffect(lifecycleOwner, vm) {
@@ -833,6 +836,18 @@ fun MoviesScreen(
                         tvHomeFirstGenreHasFocus.value
                     }
                 },
+                prepareDownFocus = {
+                    val targetRowKey = if (visibleContinueWatching.isNotEmpty()) {
+                        "continue_watching"
+                    } else {
+                        "home_genres"
+                    }
+                    tvHomeRowListStates[targetRowKey]?.scrollToItem(0)
+                },
+                onDownFocusFailed = {
+                    runCatching { focusManager.moveFocus(FocusDirection.Down) }
+                    Unit
+                },
                 onCurrentItemChanged = { activeHeroBanner = it },
                 onPlayNow = playHeroNow,
                 onMoreInfo = openHeroDetails,
@@ -949,10 +964,20 @@ fun MoviesScreen(
             tvHomeFocusTransferInProgress = true
             tvHomeFocusScope.launch {
                 try {
-                    requestTvHomeRowFocus(
+                    val targetFocused = requestTvHomeRowFocus(
                         rowKey = targetRow.first,
                         focusFirstItem = direction > 0,
                     )
+                    if (!targetFocused) {
+                        // A lazy-row target can be detached when the asynchronous handoff runs.
+                        // Restore the source child, then let Compose perform its native move.
+                        requestTvHomeRowFocus(sourceRowKey)
+                        runCatching {
+                            focusManager.moveFocus(
+                                if (direction > 0) FocusDirection.Down else FocusDirection.Up,
+                            )
+                        }
+                    }
                 } finally {
                     tvHomeFocusTransferInProgress = false
                 }
@@ -2304,6 +2329,8 @@ private fun TvHeroBackdrop(
     navFocusRequester: FocusRequester? = null,
     downFocusRequester: FocusRequester? = null,
     downFocusIsConfirmed: () -> Boolean = { false },
+    prepareDownFocus: suspend () -> Unit = {},
+    onDownFocusFailed: () -> Unit = {},
     onCurrentItemChanged: (HeroBannerItem) -> Unit,
     onPlayNow: (HeroBannerItem) -> Unit,
     onMoreInfo: (HeroBannerItem) -> Unit,
@@ -2420,6 +2447,7 @@ private fun TvHeroBackdrop(
                                 } else {
                                     if (native.repeatCount == 0) {
                                         downFocusScope.launch {
+                                            runCatching { prepareDownFocus() }
                                             repeat(16) {
                                                 if (downFocusIsConfirmed()) return@launch
                                                 withFrameNanos { }
@@ -2428,7 +2456,8 @@ private fun TvHeroBackdrop(
                                                 if (downFocusIsConfirmed()) return@launch
                                                 kotlinx.coroutines.delay(80L)
                                             }
-                                        }
+                                                    if (!downFocusIsConfirmed()) onDownFocusFailed()
+}
                                     }
                                     true
                                 }
