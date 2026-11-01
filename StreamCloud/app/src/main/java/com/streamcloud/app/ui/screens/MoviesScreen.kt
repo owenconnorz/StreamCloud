@@ -65,8 +65,6 @@ import androidx.compose.runtime.withFrameNanos
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import kotlinx.coroutines.launch
 import com.streamcloud.app.ui.theme.tvFocusGroup
-import com.streamcloud.app.ui.theme.tvDpadVerticalFastScroll
-import com.streamcloud.app.ui.theme.LocalTvFastScrollActive
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -957,21 +955,9 @@ fun MoviesScreen(
             return true
         }
 
-        val verticalFocusNavigationModifier = if (isTv && query.isBlank()) {
-            Modifier.tvDpadVerticalFastScroll(
-                scrollableState = moviesListState,
-                onFastScrollingChanged = { tvHomeFastScrolling = it },
-                onSingleVerticalPress = ::handleTvHomeSingleVerticalPress,
-                onScrollSettled = ::requestTvHomeScrollLanding,
-            )
-        } else {
-            Modifier
-        }
-        CompositionLocalProvider(LocalTvFastScrollActive provides tvHomeFastScrolling) {
         LazyColumn(
             moviesListModifier
-                .tvFocusGroup(restoreFocusedChild = true)
-                .then(verticalFocusNavigationModifier),
+                .tvFocusGroup(restoreFocusedChild = true),
             state = moviesListState,
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
@@ -1144,6 +1130,15 @@ fun MoviesScreen(
                                     }
                                     val focusModifier = Modifier
                                         .then(
+                                            if (isTv && homeGenres.isNotEmpty()) {
+                                                Modifier.focusProperties {
+                                                    down = tvHomeFirstGenreFocusRequester
+                                                }
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
+                                        .then(
                                             itemFocusRequester?.let { Modifier.focusRequester(it) }
                                                 ?: Modifier,
                                         )
@@ -1224,6 +1219,8 @@ fun MoviesScreen(
                             },
                             itemFocusRequesters = tvHomeItemFocusRequesters.takeIf { isTv },
                             firstItemFocusRequester = tvHomeFirstGenreFocusRequester,
+                            upFocusRequester = tvHomeRowFocusRequesters["continue_watching"]
+                                .takeIf { isTv && visibleContinueWatching.isNotEmpty() },
                             onItemFocusChanged = { index, focused ->
                                 updateTvHomeItemFocus("home_genres", index, focused)
                             },
@@ -1781,10 +1778,7 @@ fun MoviesScreen(
                     }
                 }
             }
-        }
-        }
 
-        val cwEntry = cwSheetEntry
         if (cwEntry != null) {
             val goToDetails = {
                 cwSheetEntry = null
@@ -2092,6 +2086,7 @@ private fun HomeGenresRow(
     onRowFocusChanged: (Boolean) -> Unit = {},
     itemFocusRequesters: MutableMap<String, MutableMap<Int, FocusRequester>>? = null,
     firstItemFocusRequester: FocusRequester? = null,
+    upFocusRequester: FocusRequester? = null,
     initialFocusRequester: FocusRequester? = null,
     navFocusRequester: FocusRequester? = null,
     onItemFocusChanged: (Int, Boolean) -> Unit = { _, _ -> },
@@ -2137,6 +2132,13 @@ private fun HomeGenresRow(
                     .then(
                         if (itemFocusRequester != null) {
                             Modifier.focusRequester(itemFocusRequester)
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .then(
+                        if (upFocusRequester != null) {
+                            Modifier.focusProperties { up = upFocusRequester }
                         } else {
                             Modifier
                         },

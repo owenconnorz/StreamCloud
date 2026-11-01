@@ -173,7 +173,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.tvDpadRepeatThrottle
-import com.streamcloud.app.ui.theme.tvUnpinnedFocusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -552,7 +551,6 @@ fun StreamCloudApp(
         var tvDrawerOpen by remember { mutableStateOf(false) }
         var tvDrawerRestoreFocusVersion by remember { mutableStateOf(0) }
         var tvDrawerRestoreRoute by remember { mutableStateOf<String?>(null) }
-        var tvNavHostHasFocus by remember { mutableStateOf(false) }
         LaunchedEffect(currentRoute) {
             tvDrawerOpen = false
             tvNavHasFocus = false
@@ -606,18 +604,19 @@ fun StreamCloudApp(
             ) {
                 return@LaunchedEffect
             }
-            // Enter the page focus group instead of restoring its child directly.
-            // This mirrors Nuvio's content-focus transfer: the page's own
-            // restorer selects its saved child, instead of a second manual
-            // restore pass racing it or falling back to the first poster.
+            // Restore the exact child saved before opening the drawer, instead of
+            // repeatedly focusing the container and selecting a default card.
             delay(200L)
             if (tvDrawerOpen || tvDrawerRestoreRoute != currentRoute) return@LaunchedEffect
             repeat(12) {
-                runCatching {
-                    navHostFocusRestoreRequester.requestFocus()
-                }
-                if (tvNavHostHasFocus) return@LaunchedEffect
+                val restored = runCatching {
+                    navHostFocusRestoreRequester.restoreFocusedChild()
+                }.getOrDefault(false)
+                if (restored) return@LaunchedEffect
                 delay(80L)
+            }
+            if (!tvDrawerOpen && tvDrawerRestoreRoute == currentRoute) {
+                runCatching { navHostFocusRestoreRequester.requestFocus() }
             }
         }
         fun closeTvDrawer(restoreContentFocus: Boolean) {
@@ -626,7 +625,6 @@ fun StreamCloudApp(
             tvNavHasFocus = false
             tvNavFocusHandoffPending = false
             if (restoreContentFocus) {
-                tvNavHostHasFocus = false
                 tvDrawerRestoreRoute = currentRoute
                 tvDrawerRestoreFocusVersion += 1
             } else {
@@ -783,9 +781,7 @@ fun StreamCloudApp(
                             if (isTv) {
                                 Modifier
                                     .focusRequester(navHostFocusRestoreRequester)
-                                    .tvUnpinnedFocusRestorer(navHostFocusRestoreRequester)
                                     .tvFocusGroup()
-                                    .onFocusChanged { tvNavHostHasFocus = it.hasFocus }
                             } else Modifier,
                         ),
                     ) {
