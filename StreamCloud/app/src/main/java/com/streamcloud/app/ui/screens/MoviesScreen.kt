@@ -510,6 +510,8 @@ fun MoviesScreen(
     val tvHomeRowFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val tvHomeItemFocusRequesters =
         remember { mutableMapOf<String, MutableMap<Int, FocusRequester>>() }
+    val tvHomeRowListStates =
+        remember { mutableMapOf<String, androidx.compose.foundation.lazy.LazyListState>() }
     val tvHomeFocusedItemIndices = remember { mutableMapOf<String, Int>() }
     val tvHomeFocusedRowKey = remember { mutableStateOf<String?>(null) }
     val tvHomeFocusedRowHasFocus = remember { mutableStateOf(false) }
@@ -859,6 +861,10 @@ fun MoviesScreen(
             rowKey: String,
             focusFirstItem: Boolean = false,
         ): Boolean {
+            if (focusFirstItem) {
+                runCatching { tvHomeRowListStates[rowKey]?.scrollToItem(0) }
+                withFrameNanos { }
+            }
             val itemIndex = if (focusFirstItem) 0 else tvHomeFocusedItemIndices[rowKey] ?: 0
             val isFirstGenre = rowKey == "home_genres" && itemIndex == 0
             val itemRequester = when {
@@ -1108,6 +1114,7 @@ fun MoviesScreen(
                                 SectionTitle("Continue Watching")
                             }
                             val continueRowState = rememberLazyListState()
+                            tvHomeRowListStates["continue_watching"] = continueRowState
                             var focusedContinueIndex by remember { mutableIntStateOf(-1) }
                             KeepTvFocusedItemAtStart(
                                 listState = continueRowState,
@@ -1237,10 +1244,13 @@ fun MoviesScreen(
                             tvHomeRowFocusRequesters,
                             "home_genres",
                         )
+                        val genreRowState = rememberLazyListState()
+                        tvHomeRowListStates["home_genres"] = genreRowState
                         HomeGenresRow(
                             genres = homeGenres,
                             isTv = isTv,
                             rowFocusRequester = rowFocusRequester,
+                            listState = genreRowState,
                             onRowFocusChanged = {
                                 updateTvHomeRowFocus("home_genres", it)
                             },
@@ -1294,7 +1304,10 @@ fun MoviesScreen(
                                 tvHomeRowFocusRequesters,
                                 rowKey,
                             )
+                            val pinnedRowState = rememberLazyListState()
+                            tvHomeRowListStates[rowKey] = pinnedRowState
                             LazyRow(
+                                state = pinnedRowState,
                                 modifier = Modifier
                                     .onFocusChanged { updateTvHomeRowFocus(rowKey, it.hasFocus) }
                                     .tvFocusGroup(
@@ -1420,6 +1433,7 @@ fun MoviesScreen(
                             rowKey,
                         )
                         val collectionRowState = rememberLazyListState()
+                        tvHomeRowListStates[rowKey] = collectionRowState
                         var focusedPosterIndex by remember { mutableIntStateOf(-1) }
                         KeepTvFocusedItemAtStart(
                             listState = collectionRowState,
@@ -1535,6 +1549,7 @@ fun MoviesScreen(
                             rowKey,
                         )
                         val stremioRowState = rememberLazyListState()
+                        tvHomeRowListStates[rowKey] = stremioRowState
                         var focusedPosterIndex by remember { mutableIntStateOf(-1) }
                         KeepTvFocusedItemAtStart(
                             listState = stremioRowState,
@@ -1697,6 +1712,7 @@ fun MoviesScreen(
                         val csLandscape = homeCardStyle == "landscape"
                         val csAspect = if (csLandscape) 16f / 9f else 2f / 3f
                         val csRowState = rememberLazyListState()
+                        tvHomeRowListStates[rowKey] = csRowState
                         var focusedPosterIndex by remember { mutableIntStateOf(-1) }
                         KeepTvFocusedItemAtStart(
                             listState = csRowState,
@@ -2130,6 +2146,7 @@ private fun HomeGenresRow(
     genres: List<TvGenreShortcut>,
     isTv: Boolean,
     rowFocusRequester: FocusRequester? = null,
+    listState: androidx.compose.foundation.lazy.LazyListState,
     onRowFocusChanged: (Boolean) -> Unit = {},
     itemFocusRequesters: MutableMap<String, MutableMap<Int, FocusRequester>>? = null,
     firstItemFocusRequester: FocusRequester? = null,
@@ -2158,6 +2175,7 @@ private fun HomeGenresRow(
             SectionTitle("Genres")
         }
         LazyRow(
+            state = listState,
             modifier = Modifier
                 .onFocusChanged { onRowFocusChanged(it.hasFocus) }
                 .tvFocusGroup(
