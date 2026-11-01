@@ -1,6 +1,8 @@
 package com.streamcloud.app.ui.screens
 
 import androidx.compose.ui.unit.dp
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -34,5 +36,31 @@ class TvGenreLayoutTest {
             assertTrue(cardWidth <= 176.dp)
             assertTrue(cardWidth < screenWidth)
         }
+    }
+
+    @Test
+    fun downTargetsNextActualFocusableRowAndSkipsHeadings() {
+        val rows = listOf(
+            "continue_watching" to 4,
+            "home_genres" to 6,
+            "col_movies" to 9,
+        )
+
+        assertEquals("home_genres" to 6, selectAdjacentTvHomeFocusRow(rows, "continue_watching", 1))
+        assertEquals("col_movies" to 9, selectAdjacentTvHomeFocusRow(rows, "home_genres", 1))
+    }
+
+    @Test
+    fun upReturnsToPreviousFocusableRow() {
+        val rows = listOf(
+            "continue_watching" to 4,
+            "home_genres" to 6,
+            "col_movies" to 9,
+        )
+
+        assertEquals("home_genres" to 6, selectAdjacentTvHomeFocusRow(rows, "col_movies", -1))
+        assertEquals("continue_watching" to 4, selectAdjacentTvHomeFocusRow(rows, "home_genres", -1))
+        assertNull(selectAdjacentTvHomeFocusRow(rows, "missing", -1))
+        assertNull(selectAdjacentTvHomeFocusRow(rows, "home_genres", 0))
     }
 }
