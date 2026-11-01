@@ -514,6 +514,7 @@ fun MoviesScreen(
     val tvHomeFocusedRowKey = remember { mutableStateOf<String?>(null) }
     val tvHomeFocusedRowHasFocus = remember { mutableStateOf(false) }
     val tvHomeFirstGenreFocusRequester = remember { FocusRequester() }
+    val tvHomeFirstContinueFocusRequester = remember { FocusRequester() }
     val tvHomeFirstGenreHasFocus = remember { mutableStateOf(false) }
     var tvHomeFastScrolling by remember { mutableStateOf(false) }
     val tvHomeFocusScope = rememberCoroutineScope()
@@ -811,7 +812,11 @@ fun MoviesScreen(
                     null
                 },
                 navFocusRequester = tvNavHeroFocus,
-                downFocusRequester = initialFocusRequester,
+                downFocusRequester = when {
+                    visibleContinueWatching.isNotEmpty() -> tvHomeFirstContinueFocusRequester
+                    homeGenres.isNotEmpty() -> tvHomeFirstGenreFocusRequester
+                    else -> null
+                },
                 onCurrentItemChanged = { activeHeroBanner = it },
                 onPlayNow = playHeroNow,
                 onMoreInfo = openHeroDetails,
@@ -1129,6 +1134,13 @@ fun MoviesScreen(
                                         null
                                     }
                                     val focusModifier = Modifier
+                                        .then(
+                                            if (isTv && index == 0) {
+                                                Modifier.focusRequester(tvHomeFirstContinueFocusRequester)
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
                                         .then(
                                             if (isTv && homeGenres.isNotEmpty()) {
                                                 Modifier.focusProperties {
