@@ -1779,6 +1779,9 @@ fun MoviesScreen(
                 }
             }
 
+        }
+
+        val cwEntry = cwSheetEntry
         if (cwEntry != null) {
             val goToDetails = {
                 cwSheetEntry = null
