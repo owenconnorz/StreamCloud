@@ -517,6 +517,7 @@ fun MoviesScreen(
     val tvHomeFirstContinueFocusRequester = remember { FocusRequester() }
     val tvHomeFirstGenreHasFocus = remember { mutableStateOf(false) }
     var tvHomeFastScrolling by remember { mutableStateOf(false) }
+    var tvHomeFocusTransferInProgress by remember { mutableStateOf(false) }
     val tvHomeFocusScope = rememberCoroutineScope()
     fun updateTvHomeRowFocus(rowKey: String, hasFocus: Boolean) {
         if (!isTv) return
@@ -821,6 +822,15 @@ fun MoviesScreen(
                     homeGenres.isNotEmpty() -> tvHomeFirstGenreFocusRequester
                     else -> null
                 },
+                downFocusIsConfirmed = {
+                    if (visibleContinueWatching.isNotEmpty()) {
+                        tvHomeFocusedRowKey.value == "continue_watching" &&
+                            tvHomeFocusedRowHasFocus.value &&
+                            tvHomeFocusedItemIndices["continue_watching"] == 0
+                    } else {
+                        tvHomeFirstGenreHasFocus.value
+                    }
+                },
                 onCurrentItemChanged = { activeHeroBanner = it },
                 onPlayNow = playHeroNow,
                 onMoreInfo = openHeroDetails,
@@ -845,41 +855,37 @@ fun MoviesScreen(
                 if (tvHomeRowFocusRequesters.containsKey(key)) key to item.index else null
             }
 
-        fun requestTvHomeRowFocus(
+        suspend fun requestTvHomeRowFocus(
             rowKey: String,
-            focusFirstGenre: Boolean = false,
-        ) {
-            val itemIndex = if (focusFirstGenre && rowKey == "home_genres") {
-                0
-            } else {
-                tvHomeFocusedItemIndices[rowKey] ?: 0
-            }
+            focusFirstItem: Boolean = false,
+        ): Boolean {
+            val itemIndex = if (focusFirstItem) 0 else tvHomeFocusedItemIndices[rowKey] ?: 0
             val isFirstGenre = rowKey == "home_genres" && itemIndex == 0
-            val itemRequester = if (isFirstGenre) {
-                tvHomeFirstGenreFocusRequester
-            } else {
-                tvHomeItemFocusRequesters[rowKey]?.get(itemIndex)
+            val itemRequester = when {
+                isFirstGenre -> tvHomeFirstGenreFocusRequester
+                rowKey == "continue_watching" && itemIndex == 0 ->
+                    tvHomeFirstContinueFocusRequester
+                else -> tvHomeItemFocusRequesters[rowKey]?.get(itemIndex)
             }
-            val rowRequester = tvHomeRowFocusRequesters[rowKey] ?: return
-            tvHomeFocusScope.launch {
-                repeat(12) { attempt ->
-                    withFrameNanos { }
-                    val requester = when {
-                        focusFirstGenre && isFirstGenre -> itemRequester ?: rowRequester
-                        attempt < 4 -> itemRequester ?: rowRequester
-                        else -> rowRequester
-                    }
-                    runCatching { requester.requestFocus() }
-                    withFrameNanos { }
-                    val hasFocus = if (focusFirstGenre && isFirstGenre) {
-                        tvHomeFirstGenreHasFocus.value
-                    } else {
-                        tvHomeFocusedRowKey.value == rowKey &&
-                            tvHomeFocusedRowHasFocus.value
-                    }
-                    if (hasFocus) return@launch
+            val rowRequester = tvHomeRowFocusRequesters[rowKey] ?: return false
+            repeat(12) { attempt ->
+                withFrameNanos { }
+                val requester = when {
+                    itemRequester != null && (focusFirstItem || attempt < 4) -> itemRequester
+                    else -> rowRequester
                 }
+                runCatching { requester.requestFocus() }
+                withFrameNanos { }
+                val hasFocus = if (isFirstGenre) {
+                    tvHomeFirstGenreHasFocus.value
+                } else {
+                    tvHomeFocusedRowKey.value == rowKey &&
+                        tvHomeFocusedRowHasFocus.value &&
+                        tvHomeFocusedItemIndices[rowKey] == itemIndex
+                }
+                if (hasFocus) return true
             }
+            return false
         }
 
         fun requestTvHomeHeroFocus() {
@@ -921,52 +927,50 @@ fun MoviesScreen(
                     reachedBottom = direction > 0 && !moviesListState.canScrollForward,
                 ) ?: return@launch
 
-                val focusFirstGenre = direction > 0 &&
-                    tvHomeFocusedRowKey.value == "continue_watching" &&
-                    targetRow.first == "home_genres"
-                requestTvHomeRowFocus(targetRow.first, focusFirstGenre)
+                val focusFirstItem = direction > 0
+                requestTvHomeRowFocus(targetRow.first, focusFirstItem)
             }
         }
 
         fun handleTvHomeSingleVerticalPress(direction: Int): Boolean {
-            val sourceRowKey = tvHomeFocusedRowKey.value
-            val targetRowKey = when {
-                direction > 0 &&
-                    sourceRowKey == "continue_watching" &&
-                    homeGenres.isNotEmpty() -> "home_genres"
-                direction < 0 &&
-                    sourceRowKey == "home_genres" &&
-                    visibleContinueWatching.isNotEmpty() -> "continue_watching"
-                else -> return false
-            }
-            val sourceIndex = visibleTvHomeRows()
-                .firstOrNull { it.first == sourceRowKey }
-                ?.second
-                ?: return false
-            val targetIndex = sourceIndex + direction
-            if (targetIndex !in 0 until moviesListState.layoutInfo.totalItemsCount) {
-                return false
-            }
-
+            if (tvHomeFocusTransferInProgress) return true
+            val sourceRowKey = tvHomeFocusedRowKey.value ?: return false
+            val targetRow = selectAdjacentTvHomeFocusRow(
+                visibleRows = visibleTvHomeRows(),
+                sourceRowKey = sourceRowKey,
+                direction = direction,
+            ) ?: return false
+            tvHomeFocusTransferInProgress = true
             tvHomeFocusScope.launch {
-                val targetAlreadyVisible = visibleTvHomeRows()
-                    .any { it.first == targetRowKey }
-                if (!targetAlreadyVisible) {
-                    runCatching { moviesListState.animateScrollToItem(targetIndex) }
+                try {
+                    requestTvHomeRowFocus(
+                        rowKey = targetRow.first,
+                        focusFirstItem = direction > 0,
+                    )
+                } finally {
+                    tvHomeFocusTransferInProgress = false
                 }
-                repeat(2) { withFrameNanos { } }
-                if (tvHomeFastScrolling) return@launch
-                requestTvHomeRowFocus(
-                    rowKey = targetRowKey,
-                    focusFirstGenre = direction > 0 && targetRowKey == "home_genres",
-                )
             }
             return true
         }
 
         LazyColumn(
             moviesListModifier
-                .tvFocusGroup(restoreFocusedChild = true),
+                .tvFocusGroup(restoreFocusedChild = true)
+                .onPreviewKeyEvent { event ->
+                    val native = event.nativeKeyEvent
+                    val direction = when (native.keyCode) {
+                        AndroidKeyEvent.KEYCODE_DPAD_DOWN -> 1
+                        AndroidKeyEvent.KEYCODE_DPAD_UP -> -1
+                        else -> 0
+                    }
+                    when {
+                        !isTv || native.action != AndroidKeyEvent.ACTION_DOWN || direction == 0 -> false
+                        tvHomeFocusTransferInProgress -> true
+                        native.repeatCount > 0 -> false
+                        else -> handleTvHomeSingleVerticalPress(direction)
+                    }
+                },
             state = moviesListState,
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {
@@ -2072,6 +2076,23 @@ internal fun calculateTvGenreCardWidth(screenWidth: Dp, genreCount: Int): Dp {
 internal fun calculateMobileGenreCardWidth(screenWidth: Dp): Dp =
     (screenWidth * 0.42f).coerceIn(144.dp, 176.dp)
 
+internal fun selectAdjacentTvHomeFocusRow(
+    visibleRows: List<Pair<String, Int>>,
+    sourceRowKey: String,
+    direction: Int,
+): Pair<String, Int>? {
+    if (direction == 0) return null
+    val rows = visibleRows.sortedBy { it.second }
+    val sourceIndex = rows.indexOfFirst { it.first == sourceRowKey }
+    if (sourceIndex < 0) return null
+    val sourceListIndex = rows[sourceIndex].second
+    return if (direction > 0) {
+        rows.firstOrNull { it.second > sourceListIndex }
+    } else {
+        rows.lastOrNull { it.second < sourceListIndex }
+    }
+}
+
 internal fun selectTvHomeFastScrollLandingRow(
     visibleFocusRows: List<Pair<String, Int>>,
     leadingVisibleIndex: Int,
@@ -2264,6 +2285,7 @@ private fun TvHeroBackdrop(
     initialFocusRequester: FocusRequester? = null,
     navFocusRequester: FocusRequester? = null,
     downFocusRequester: FocusRequester? = null,
+    downFocusIsConfirmed: () -> Boolean = { false },
     onCurrentItemChanged: (HeroBannerItem) -> Unit,
     onPlayNow: (HeroBannerItem) -> Unit,
     onMoreInfo: (HeroBannerItem) -> Unit,
@@ -2381,11 +2403,11 @@ private fun TvHeroBackdrop(
                                     if (native.repeatCount == 0) {
                                         downFocusScope.launch {
                                             repeat(16) {
+                                                if (downFocusIsConfirmed()) return@launch
                                                 withFrameNanos { }
-                                                val requested = runCatching {
-                                                    downFocusTarget.requestFocus()
-                                                }.isSuccess
-                                                if (requested) return@launch
+                                                runCatching { downFocusTarget.requestFocus() }
+                                                withFrameNanos { }
+                                                if (downFocusIsConfirmed()) return@launch
                                                 kotlinx.coroutines.delay(80L)
                                             }
                                         }
