@@ -971,11 +971,31 @@ fun MoviesScreen(
                     if (!targetFocused) {
                         // A lazy-row target can be detached when the asynchronous handoff runs.
                         // Restore the source child, then let Compose perform its native move.
-                        requestTvHomeRowFocus(sourceRowKey)
+                        val sourceRestored = requestTvHomeRowFocus(sourceRowKey) ||
+                            requestTvHomeRowFocus(sourceRowKey, focusFirstItem = true)
                         runCatching {
                             focusManager.moveFocus(
                                 if (direction > 0) FocusDirection.Down else FocusDirection.Up,
                             )
+                        }
+                        var visibleDestinationFocused = false
+                        repeat(3) {
+                            withFrameNanos { }
+                            visibleDestinationFocused =
+                                (tvHomeFocusedRowHasFocus.value &&
+                                    tvHomeFocusedRowKey.value != sourceRowKey) ||
+                                    tvNavHeroHasFocus
+                            if (visibleDestinationFocused) return@repeat
+                        }
+                        if (!visibleDestinationFocused) {
+                            // Native focus search can also fail at a lazy-row
+                            // boundary. Never leave the remote without a visible
+                            // card highlight after consuming its original press.
+                            if (!sourceRestored) {
+                                requestTvHomeRowFocus(sourceRowKey, focusFirstItem = true)
+                            } else {
+                                requestTvHomeRowFocus(sourceRowKey)
+                            }
                         }
                     }
                 } finally {
