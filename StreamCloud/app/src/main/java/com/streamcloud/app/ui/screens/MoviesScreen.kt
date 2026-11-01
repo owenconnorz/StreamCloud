@@ -532,11 +532,15 @@ fun MoviesScreen(
         tvHomeFocusedItemIndices[rowKey] = itemIndex
         updateTvHomeRowFocus(rowKey, true)
     }
-    val tvHeroDetailsVisible by remember(moviesListState, query) {
+    val tvHeroDetailsVisible by remember(moviesListState, query, focusedCwEntry) {
         derivedStateOf {
-            query.isBlank() &&
-                moviesListState.firstVisibleItemIndex == 0 &&
-                moviesListState.firstVisibleItemScrollOffset <= 16
+            query.isBlank() && (
+                focusedCwEntry != null ||
+                    (
+                        moviesListState.firstVisibleItemIndex == 0 &&
+                            moviesListState.firstVisibleItemScrollOffset <= 16
+                        )
+                )
         }
     }
         val topBarVisibilityChanged by rememberUpdatedState(onTvTopBarVisibilityChanged)
@@ -1133,6 +1137,8 @@ fun MoviesScreen(
                                     } else {
                                         null
                                     }
+                                    val heroUpFocusRequester = tvNavHeroFocus
+                                        .takeIf { isTv && hasTvHero }
                                     val focusModifier = Modifier
                                         .then(
                                             if (isTv && index == 0) {
@@ -1142,9 +1148,14 @@ fun MoviesScreen(
                                             },
                                         )
                                         .then(
-                                            if (isTv && homeGenres.isNotEmpty()) {
+                                            if (isTv && (homeGenres.isNotEmpty() || heroUpFocusRequester != null)) {
                                                 Modifier.focusProperties {
-                                                    down = tvHomeFirstGenreFocusRequester
+                                                    if (heroUpFocusRequester != null) {
+                                                        up = heroUpFocusRequester
+                                                    }
+                                                    if (homeGenres.isNotEmpty()) {
+                                                        down = tvHomeFirstGenreFocusRequester
+                                                    }
                                                 }
                                             } else {
                                                 Modifier

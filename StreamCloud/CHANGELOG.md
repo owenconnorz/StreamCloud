@@ -1,3 +1,8 @@
+## Hotfix — TV home focus
+
+### Android TV Movies home
+- **Up from Continue Watching returns to Play Now** — the hero action remains available while a Continue Watching card is focused, then hides again after focus leaves and you scroll down.
+
 ## Hotfix — Changes since V2419
 
 ### Android TV navigation
