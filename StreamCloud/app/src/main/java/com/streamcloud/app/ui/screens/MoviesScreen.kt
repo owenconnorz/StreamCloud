@@ -522,6 +522,7 @@ fun MoviesScreen(
     val tvHomeFirstGenreFocusRequester = remember { FocusRequester() }
     val tvHomeFirstContinueFocusRequester = remember { FocusRequester() }
     val tvHomeFirstGenreHasFocus = remember { mutableStateOf(false) }
+    val tvHomeFirstContinueHasFocus = remember { mutableStateOf(false) }
     var tvHomeFastScrolling by remember { mutableStateOf(false) }
     var tvHomeFocusTransferInProgress by remember { mutableStateOf(false) }
     val tvHomeFocusScope = rememberCoroutineScope()
@@ -888,32 +889,46 @@ fun MoviesScreen(
             if (focusFirstItem) {
                 runCatching { tvHomeRowListStates[rowKey]?.scrollToItem(0) }
                 withFrameNanos { }
+                withFrameNanos { }
             }
             val itemIndex = if (focusFirstItem) 0 else tvHomeFocusedItemIndices[rowKey] ?: 0
             val isFirstGenre = rowKey == "home_genres" && itemIndex == 0
-            val itemRequester = when {
-                isFirstGenre -> tvHomeFirstGenreFocusRequester
-                rowKey == "continue_watching" && itemIndex == 0 ->
-                    tvHomeFirstContinueFocusRequester
-                else -> tvHomeItemFocusRequesters[rowKey]?.get(itemIndex)
-            }
-            val rowRequester = tvHomeRowFocusRequesters[rowKey] ?: return false
-            repeat(12) { attempt ->
+            val isFirstContinue =
+                rowKey == "continue_watching" && itemIndex == 0
+            repeat(24) { attempt ->
                 withFrameNanos { }
+                // A newly revealed LazyRow may be laid out before its first card
+                // has composed. Look up the card requester on every attempt rather
+                // than caching null and focusing the invisible row container.
+                val itemRequester = when {
+                    isFirstGenre -> tvHomeFirstGenreFocusRequester
+                    isFirstContinue -> tvHomeFirstContinueFocusRequester
+                    else -> tvHomeItemFocusRequesters[rowKey]?.get(itemIndex)
+                }
                 val requester = when {
-                    itemRequester != null && (focusFirstItem || attempt < 4) -> itemRequester
-                    else -> rowRequester
+                    itemRequester != null &&
+                        (focusFirstItem || attempt < TV_HOME_ITEM_FOCUS_RETRY_COUNT) ->
+                        itemRequester
+                    shouldFallbackToTvHomeRowFocus(focusFirstItem, attempt) ->
+                        tvHomeRowFocusRequesters[rowKey]
+                    focusFirstItem -> null
+                    else -> null
+                }
+                if (requester == null) {
+                    kotlinx.coroutines.delay(16L)
+                    return@repeat
                 }
                 runCatching { requester.requestFocus() }
                 withFrameNanos { }
-                val hasFocus = if (isFirstGenre) {
-                    tvHomeFirstGenreHasFocus.value
-                } else {
-                    tvHomeFocusedRowKey.value == rowKey &&
+                val hasFocus = when {
+                    isFirstGenre -> tvHomeFirstGenreHasFocus.value
+                    isFirstContinue -> tvHomeFirstContinueHasFocus.value
+                    else -> tvHomeFocusedRowKey.value == rowKey &&
                         tvHomeFocusedRowHasFocus.value &&
                         tvHomeFocusedItemIndices[rowKey] == itemIndex
                 }
                 if (hasFocus) return true
+                kotlinx.coroutines.delay(16L)
             }
             return false
         }
@@ -1120,9 +1135,7 @@ fun MoviesScreen(
                 downFocusIsConfirmed = {
                     when (tvHeroFirstFocusRowKey) {
                         "continue_watching" ->
-                            tvHomeFocusedRowKey.value == "continue_watching" &&
-                                tvHomeFocusedRowHasFocus.value &&
-                                tvHomeFocusedItemIndices["continue_watching"] == 0
+                            tvHomeFirstContinueHasFocus.value
                         "home_genres" -> tvHomeFirstGenreHasFocus.value
                         else -> false
                     }
@@ -1411,6 +1424,7 @@ fun MoviesScreen(
                                                 hasFocus,
                                             )
                                             if (isTv && index == 0) {
+                                                tvHomeFirstContinueHasFocus.value = hasFocus
                                                 onFirstMovieFocusedChanged(hasFocus)
                                             }
                                             if (hasFocus) {
@@ -2326,6 +2340,13 @@ internal fun selectNextTvHomeFocusRowAfter(
     .asSequence()
     .filter { it.second > sourceListIndex }
     .minByOrNull { it.second }
+
+internal const val TV_HOME_ITEM_FOCUS_RETRY_COUNT = 12
+
+internal fun shouldFallbackToTvHomeRowFocus(
+    focusFirstItem: Boolean,
+    attempt: Int,
+): Boolean = !focusFirstItem && attempt >= TV_HOME_ITEM_FOCUS_RETRY_COUNT
 
 internal fun selectTvHomeFastScrollLandingRow(
     visibleFocusRows: List<Pair<String, Int>>,

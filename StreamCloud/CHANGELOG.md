@@ -1,3 +1,9 @@
+## Hotfix — TV Movies home focus retention
+
+### Android TV
+- **Continue Watching regains its highlight after returning from the hero** — the first card now has an explicit focus confirmation instead of relying on stale row focus.
+- **Movies shelves keep a visible selection after scrolling into view** — focus waits for the first card to attach and never falls back to an invisible row container.
+
 ## Hotfix — TV Movies home navigation
 
 ### Android TV

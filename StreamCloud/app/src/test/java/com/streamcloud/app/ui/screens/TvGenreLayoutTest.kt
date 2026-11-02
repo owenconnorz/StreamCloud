@@ -2,6 +2,7 @@ package com.streamcloud.app.ui.screens
 
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -79,6 +80,13 @@ class TvGenreLayoutTest {
             selectFirstTvHomeFocusRowKey(hasContinueWatching = false, hasGenres = true),
         )
         assertNull(selectFirstTvHomeFocusRowKey(hasContinueWatching = false, hasGenres = false))
+    }
+
+    @Test
+    fun firstCardHandoffNeverFallsBackToAnInvisibleRowContainer() {
+        assertFalse(shouldFallbackToTvHomeRowFocus(focusFirstItem = true, attempt = 24))
+        assertFalse(shouldFallbackToTvHomeRowFocus(focusFirstItem = false, attempt = 11))
+        assertTrue(shouldFallbackToTvHomeRowFocus(focusFirstItem = false, attempt = 12))
     }
 
     @Test

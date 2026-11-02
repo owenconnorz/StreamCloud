@@ -68,3 +68,11 @@ On TV, D-pad Down from the hero actions must focus the first actual content item
 **Why:** Spatial focus can choose an invisible header action or lose the hero button when its details hide, leaving the viewer without a visible selection. Native focus search can also skip a shelf when the next lazy row is detached.
 
 **How to apply:** Route Down through the hero action row to the first Continue Watching card, or the first genre card when Continue Watching is empty. Retry after layout frames because lazy content may not be attached immediately. For later Down presses, reveal the nearest later focusable row in the parent list, skipping headings; do not fall through to native focus search when a lazy target is detached. Consume D-pad repeats during the handoff and keep actual hero focus state separate from first-card focus state. Keep a TV View All card for shelves whose header action is no longer focusable.
+
+## Wait for nested row focus targets
+
+When a parent lazy list reveals a nested horizontal row, do not cache a missing first-card `FocusRequester` or fall back to focusing the row container during a first-card handoff. Re-read the item requester while waiting for the card to compose, then confirm focus from the card itself.
+
+**Why:** The parent row can be visible before its first card is attached. Focusing only the row container scrolls content into view but leaves no visible selection; reusing row-level state can also misreport restored focus after leaving the first card.
+
+**How to apply:** For explicit first-item navigation, wait for the item requester and its focus callback. Reserve row-container restoration for returning to a remembered child, not for initial navigation to a newly revealed shelf.
