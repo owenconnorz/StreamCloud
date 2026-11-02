@@ -65,6 +65,6 @@ if (value != null) {
 
 On TV, D-pad Down from the hero actions must focus the first actual content item, not a clickable shelf heading or a small ‘View all’ label. Keep header actions touch-clickable, but not D-pad focusable; preserve TV access through the shelf’s trailing View All card.
 
-**Why:** Spatial focus can choose an invisible header action or lose the hero button when its details hide, leaving the viewer without a visible selection.
+**Why:** Spatial focus can choose an invisible header action or lose the hero button when its details hide, leaving the viewer without a visible selection. Native focus search can also skip a shelf when the next lazy row is detached.
 
-**How to apply:** Route Down through the hero action row to the existing startup focus requester, which targets the first Continue Watching card or the first genre card. Retry after layout frames because lazy content may not be attached immediately. Keep a TV View All card for shelves whose header action is no longer focusable.
+**How to apply:** Route Down through the hero action row to the first Continue Watching card, or the first genre card when Continue Watching is empty. Retry after layout frames because lazy content may not be attached immediately. For later Down presses, reveal the nearest later focusable row in the parent list, skipping headings; do not fall through to native focus search when a lazy target is detached. Consume D-pad repeats during the handoff and keep actual hero focus state separate from first-card focus state. Keep a TV View All card for shelves whose header action is no longer focusable.

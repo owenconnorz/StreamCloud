@@ -1,3 +1,9 @@
+## Hotfix — TV Movies home navigation
+
+### Android TV
+- **Down moves through every home section** — Play Now lands on Continue Watching when available, and later presses reach Genres and movie shelves without skipping the first card.
+- **Focus stays on visible content** — D-pad repeats cannot trigger an extra shelf jump, and detached lazy-row targets no longer fall through to native focus search.
+
 ## Hotfix — TV Movies home focus
 
 ### Android TV

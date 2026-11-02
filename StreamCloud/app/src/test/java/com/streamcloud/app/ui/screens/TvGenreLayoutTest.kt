@@ -51,6 +51,37 @@ class TvGenreLayoutTest {
     }
 
     @Test
+    fun downFindsNearestFocusableRowAfterTheSourceLeavesTheViewport() {
+        val visibleRows = listOf(
+            "home_genres" to 6,
+            "col_movies" to 9,
+        )
+
+        assertEquals(
+            "home_genres" to 6,
+            selectNextTvHomeFocusRowAfter(visibleRows, sourceListIndex = 4),
+        )
+        assertEquals(
+            "col_movies" to 9,
+            selectNextTvHomeFocusRowAfter(visibleRows, sourceListIndex = 6),
+        )
+        assertNull(selectNextTvHomeFocusRowAfter(visibleRows, sourceListIndex = 9))
+    }
+
+    @Test
+    fun heroDownPrefersContinueWatchingBeforeGenres() {
+        assertEquals(
+            "continue_watching",
+            selectFirstTvHomeFocusRowKey(hasContinueWatching = true, hasGenres = true),
+        )
+        assertEquals(
+            "home_genres",
+            selectFirstTvHomeFocusRowKey(hasContinueWatching = false, hasGenres = true),
+        )
+        assertNull(selectFirstTvHomeFocusRowKey(hasContinueWatching = false, hasGenres = false))
+    }
+
+    @Test
     fun upReturnsToPreviousFocusableRow() {
         val rows = listOf(
             "continue_watching" to 4,

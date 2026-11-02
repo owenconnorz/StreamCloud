@@ -816,52 +816,6 @@ fun MoviesScreen(
                 },
             )
         }
-        if (hasTvHero) {
-            TvHeroBackdrop(
-                items = state.heroBanner,
-                rowsViewportHeight = tvHomeRowsViewportHeight,
-                initialFocusRequester = if (startupFocusTarget == "hero") {
-                    initialFocusRequester
-                } else {
-                    null
-                },
-                navFocusRequester = tvNavHeroFocus,
-                downFocusRequester = when {
-                    visibleContinueWatching.isNotEmpty() -> tvHomeFirstContinueFocusRequester
-                    homeGenres.isNotEmpty() -> tvHomeFirstGenreFocusRequester
-                    else -> null
-                },
-                downFocusIsConfirmed = {
-                    if (visibleContinueWatching.isNotEmpty()) {
-                        tvHomeFocusedRowKey.value == "continue_watching" &&
-                            tvHomeFocusedRowHasFocus.value &&
-                            tvHomeFocusedItemIndices["continue_watching"] == 0
-                    } else {
-                        tvHomeFirstGenreHasFocus.value
-                    }
-                },
-                prepareDownFocus = {
-                    val targetRowKey = if (visibleContinueWatching.isNotEmpty()) {
-                        "continue_watching"
-                    } else {
-                        "home_genres"
-                    }
-                    tvHomeRowListStates[targetRowKey]?.scrollToItem(0)
-                },
-                onDownFocusFailed = {
-                    runCatching { focusManager.moveFocus(FocusDirection.Down) }
-                    Unit
-                },
-                onCurrentItemChanged = { activeHeroBanner = it },
-                onPlayNow = playHeroNow,
-                onMoreInfo = openHeroDetails,
-                detailsVisible = tvHeroDetailsVisible,
-                onActionsFocusChanged = { focused ->
-                    tvNavHeroHasFocus = focused
-                    onFirstMovieFocusedChanged(focused)
-                },
-            )
-        }
         val moviesListModifier = if (isTv && query.isBlank()) {
             Modifier
                 .align(Alignment.BottomCenter)
@@ -881,10 +835,56 @@ fun MoviesScreen(
                 key to item.index
             }
 
+        suspend fun ensureTvHomeRowVisible(rowKey: String): Boolean {
+            moviesListState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.key == rowKey }
+                ?.let {
+                    tvHomeRowParentListIndices[rowKey] = it.index
+                    return true
+                }
+
+            val itemCount = moviesListState.layoutInfo.totalItemsCount
+            if (itemCount <= 0) return false
+
+            val originalIndex = moviesListState.firstVisibleItemIndex
+            val rememberedIndex = tvHomeRowParentListIndices[rowKey]
+                ?.takeIf { it in 0 until itemCount }
+            val indices = if (rememberedIndex == null) {
+                (0 until itemCount).asSequence()
+            } else {
+                sequence {
+                    yield(rememberedIndex)
+                    for (distance in 1 until itemCount) {
+                        val before = rememberedIndex - distance
+                        val after = rememberedIndex + distance
+                        if (before >= 0) yield(before)
+                        if (after < itemCount) yield(after)
+                    }
+                }
+            }
+
+            for (listIndex in indices) {
+                moviesListState.scrollToItem(listIndex)
+                withFrameNanos { }
+                withFrameNanos { }
+                val target = moviesListState.layoutInfo.visibleItemsInfo
+                    .firstOrNull { it.key == rowKey }
+                if (target != null) {
+                    tvHomeRowParentListIndices[rowKey] = target.index
+                    return true
+                }
+            }
+
+            moviesListState.scrollToItem(originalIndex)
+            withFrameNanos { }
+            return false
+        }
+
         suspend fun requestTvHomeRowFocus(
             rowKey: String,
             focusFirstItem: Boolean = false,
         ): Boolean {
+            if (!ensureTvHomeRowVisible(rowKey)) return false
             if (focusFirstItem) {
                 runCatching { tvHomeRowListStates[rowKey]?.scrollToItem(0) }
                 withFrameNanos { }
@@ -977,6 +977,40 @@ fun MoviesScreen(
             return false
         }
 
+        suspend fun requestNextTvHomeRowFocus(sourceRowKey: String): Boolean {
+            val sourceListIndex = moviesListState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.key == sourceRowKey }
+                ?.index
+                ?: tvHomeRowParentListIndices[sourceRowKey]
+                ?: return false
+
+            val initiallyVisibleTarget = selectNextTvHomeFocusRowAfter(
+                visibleFocusRows = visibleTvHomeRows(),
+                sourceListIndex = sourceListIndex,
+            )
+            if (initiallyVisibleTarget != null) {
+                return requestTvHomeRowFocus(
+                    initiallyVisibleTarget.first,
+                    focusFirstItem = true,
+                )
+            }
+
+            // The next shelf is often below the compact TV viewport. Scroll the
+            // parent list until a real card row is composed; headings are skipped.
+            val totalItems = moviesListState.layoutInfo.totalItemsCount
+            for (listIndex in sourceListIndex + 1 until totalItems) {
+                moviesListState.scrollToItem(listIndex)
+                withFrameNanos { }
+                withFrameNanos { }
+                val target = selectNextTvHomeFocusRowAfter(
+                    visibleFocusRows = visibleTvHomeRows(),
+                    sourceListIndex = sourceListIndex,
+                ) ?: continue
+                return requestTvHomeRowFocus(target.first, focusFirstItem = true)
+            }
+            return false
+        }
+
         fun requestTvHomeScrollLanding(direction: Int) {
             tvHomeFocusScope.launch {
                 withFrameNanos { }
@@ -1009,6 +1043,11 @@ fun MoviesScreen(
             }
         }
 
+        val tvHeroFirstFocusRowKey = selectFirstTvHomeFocusRowKey(
+            hasContinueWatching = visibleContinueWatching.isNotEmpty(),
+            hasGenres = homeGenres.isNotEmpty(),
+        )
+
         fun handleTvHomeSingleVerticalPress(direction: Int): Boolean {
             if (tvHomeFocusTransferInProgress) return true
             val sourceRowKey = tvHomeFocusedRowKey.value ?: return false
@@ -1016,55 +1055,44 @@ fun MoviesScreen(
                 .firstOrNull { it.key == sourceRowKey }
                 ?.index
                 ?: tvHomeRowParentListIndices[sourceRowKey]
-            val targetRow = selectAdjacentTvHomeFocusRow(
-                visibleRows = visibleTvHomeRows(),
-                sourceRowKey = sourceRowKey,
-                direction = direction,
-            )
-            if (direction > 0 && targetRow == null) return false
             tvHomeFocusTransferInProgress = true
             tvHomeFocusScope.launch {
                 try {
                     val targetFocused = if (direction < 0) {
                         requestPreviousTvHomeRowFocus(sourceRowKey)
                     } else {
-                        requestTvHomeRowFocus(
-                            rowKey = targetRow!!.first,
-                            focusFirstItem = true,
-                        )
+                        requestNextTvHomeRowFocus(sourceRowKey)
                     }
                     if (!targetFocused) {
                         // A lazy-row target can be detached when the asynchronous handoff runs.
-                        // Restore the source child, then let Compose perform its native move.
-                        if (direction < 0 && sourceListIndex != null) {
+                        // Restore the source; native fallback is used only for Up into the hero.
+                        if (sourceListIndex != null) {
                             moviesListState.scrollToItem(sourceListIndex)
                             withFrameNanos { }
                         }
                         val sourceRestored = requestTvHomeRowFocus(sourceRowKey) ||
                             requestTvHomeRowFocus(sourceRowKey, focusFirstItem = true)
-                        runCatching {
-                            focusManager.moveFocus(
-                                if (direction > 0) FocusDirection.Down else FocusDirection.Up,
-                            )
-                        }
-                        var visibleDestinationFocused = false
-                        repeat(3) {
-                            withFrameNanos { }
-                            visibleDestinationFocused =
-                                (tvHomeFocusedRowHasFocus.value &&
-                                    tvHomeFocusedRowKey.value != sourceRowKey) ||
-                                    tvNavHeroHasFocus
-                            if (visibleDestinationFocused) return@repeat
-                        }
-                        if (!visibleDestinationFocused) {
-                            // Native focus search can also fail at a lazy-row
-                            // boundary. Never leave the remote without a visible
-                            // card highlight after consuming its original press.
-                            if (!sourceRestored) {
-                                requestTvHomeRowFocus(sourceRowKey, focusFirstItem = true)
-                            } else {
-                                requestTvHomeRowFocus(sourceRowKey)
+                        if (direction < 0) {
+                            runCatching { focusManager.moveFocus(FocusDirection.Up) }
+                            var visibleDestinationFocused = false
+                            repeat(3) {
+                                withFrameNanos { }
+                                visibleDestinationFocused =
+                                    (tvHomeFocusedRowHasFocus.value &&
+                                        tvHomeFocusedRowKey.value != sourceRowKey) ||
+                                        tvNavHeroHasFocus
+                                if (visibleDestinationFocused) return@repeat
                             }
+                            if (!visibleDestinationFocused) {
+                                if (!sourceRestored) {
+                                    requestTvHomeRowFocus(sourceRowKey, focusFirstItem = true)
+                                } else {
+                                    requestTvHomeRowFocus(sourceRowKey)
+                                }
+                            }
+                        } else if (!sourceRestored) {
+                            // At the end of the content, keep focus on the current card.
+                            requestTvHomeRowFocus(sourceRowKey, focusFirstItem = true)
                         }
                     }
                 } finally {
@@ -1072,6 +1100,59 @@ fun MoviesScreen(
                 }
             }
             return true
+        }
+
+        if (hasTvHero) {
+            TvHeroBackdrop(
+                items = state.heroBanner,
+                rowsViewportHeight = tvHomeRowsViewportHeight,
+                initialFocusRequester = if (startupFocusTarget == "hero") {
+                    initialFocusRequester
+                } else {
+                    null
+                },
+                navFocusRequester = tvNavHeroFocus,
+                downFocusRequester = when (tvHeroFirstFocusRowKey) {
+                    "continue_watching" -> tvHomeFirstContinueFocusRequester
+                    "home_genres" -> tvHomeFirstGenreFocusRequester
+                    else -> null
+                },
+                downFocusIsConfirmed = {
+                    when (tvHeroFirstFocusRowKey) {
+                        "continue_watching" ->
+                            tvHomeFocusedRowKey.value == "continue_watching" &&
+                                tvHomeFocusedRowHasFocus.value &&
+                                tvHomeFocusedItemIndices["continue_watching"] == 0
+                        "home_genres" -> tvHomeFirstGenreHasFocus.value
+                        else -> false
+                    }
+                },
+                prepareDownFocus = {
+                    val targetRowKey = tvHeroFirstFocusRowKey
+                    if (targetRowKey != null) {
+                        ensureTvHomeRowVisible(targetRowKey)
+                        tvHomeRowListStates[targetRowKey]?.scrollToItem(0)
+                    }
+                },
+                onDownFocusFailed = {
+                    tvHomeFocusScope.launch {
+                        val targetRowKey = tvHeroFirstFocusRowKey ?: return@launch
+                        val focused = requestTvHomeRowFocus(
+                            targetRowKey,
+                            focusFirstItem = true,
+                        )
+                        if (!focused) requestTvHomeHeroFocus()
+                    }
+                },
+                onCurrentItemChanged = { activeHeroBanner = it },
+                onPlayNow = playHeroNow,
+                onMoreInfo = openHeroDetails,
+                detailsVisible = tvHeroDetailsVisible,
+                onActionsFocusChanged = { focused ->
+                    tvNavHeroHasFocus = focused
+                    onFirstMovieFocusedChanged(focused)
+                },
+            )
         }
 
         LazyColumn(
@@ -1087,7 +1168,7 @@ fun MoviesScreen(
                     when {
                         !isTv || native.action != AndroidKeyEvent.ACTION_DOWN || direction == 0 -> false
                         tvHomeFocusTransferInProgress -> true
-                        native.repeatCount > 0 -> false
+                        native.repeatCount > 0 -> true
                         else -> handleTvHomeSingleVerticalPress(direction)
                     }
                 },
@@ -1329,8 +1410,7 @@ fun MoviesScreen(
                                                 index,
                                                 hasFocus,
                                             )
-                                            if (isTv && index == 0) {tvNavHeroHasFocus = hasFocus
-
+                                            if (isTv && index == 0) {
                                                 onFirstMovieFocusedChanged(hasFocus)
                                             }
                                             if (hasFocus) {
@@ -1391,7 +1471,6 @@ fun MoviesScreen(
                             },
                             onFirstItemFocusChanged = { focused ->
                                 if (isTv) tvHomeFirstGenreHasFocus.value = focused
-                                tvNavHeroHasFocus = focused
                                 onFirstMovieFocusedChanged(focused)
                             },
                         )
@@ -2223,6 +2302,15 @@ internal fun selectAdjacentTvHomeFocusRow(
     }
 }
 
+internal fun selectFirstTvHomeFocusRowKey(
+    hasContinueWatching: Boolean,
+    hasGenres: Boolean,
+): String? = when {
+    hasContinueWatching -> "continue_watching"
+    hasGenres -> "home_genres"
+    else -> null
+}
+
 internal fun selectPreviousTvHomeFocusRowBefore(
     visibleFocusRows: List<Pair<String, Int>>,
     sourceListIndex: Int,
@@ -2230,6 +2318,14 @@ internal fun selectPreviousTvHomeFocusRowBefore(
     .asSequence()
     .filter { it.second < sourceListIndex }
     .maxByOrNull { it.second }
+
+internal fun selectNextTvHomeFocusRowAfter(
+    visibleFocusRows: List<Pair<String, Int>>,
+    sourceListIndex: Int,
+): Pair<String, Int>? = visibleFocusRows
+    .asSequence()
+    .filter { it.second > sourceListIndex }
+    .minByOrNull { it.second }
 
 internal fun selectTvHomeFastScrollLandingRow(
     visibleFocusRows: List<Pair<String, Int>>,
