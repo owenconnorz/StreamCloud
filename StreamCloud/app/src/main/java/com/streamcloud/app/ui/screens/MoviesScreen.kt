@@ -891,12 +891,35 @@ fun MoviesScreen(
                 withFrameNanos { }
                 withFrameNanos { }
             }
-            val itemIndex = if (focusFirstItem) 0 else tvHomeFocusedItemIndices[rowKey] ?: 0
-            val isFirstGenre = rowKey == "home_genres" && itemIndex == 0
-            val isFirstContinue =
-                rowKey == "continue_watching" && itemIndex == 0
             repeat(24) { attempt ->
                 withFrameNanos { }
+                val rowListState = tvHomeRowListStates[rowKey]
+                val itemIndex = resolveTvHomeFocusItemIndex(
+                    focusFirstItem = focusFirstItem,
+                    rememberedItemIndex = tvHomeFocusedItemIndices[rowKey] ?: 0,
+                    itemCount = rowListState?.layoutInfo?.totalItemsCount ?: 0,
+                )
+                if (itemIndex == null) {
+                    kotlinx.coroutines.delay(16L)
+                    return@repeat
+                }
+                val isFirstGenre = rowKey == "home_genres" && itemIndex == 0
+                val isFirstContinue =
+                    rowKey == "continue_watching" && itemIndex == 0
+                if (
+                    rowListState != null &&
+                    shouldRevealTvHomeFocusItem(
+                        itemIndex = itemIndex,
+                        visibleItemIndices = rowListState.layoutInfo.visibleItemsInfo.map { it.index },
+                    )
+                ) {
+                    // The remembered child may have been recycled horizontally even
+                    // though its parent shelf is visible. Reveal it before requesting
+                    // focus so Up restores a real, visibly highlighted card.
+                    runCatching { rowListState.scrollToItem(itemIndex) }
+                    withFrameNanos { }
+                    withFrameNanos { }
+                }
                 // A newly revealed LazyRow may be laid out before its first card
                 // has composed. Look up the card requester on every attempt rather
                 // than caching null and focusing the invisible row container.
@@ -1464,7 +1487,7 @@ fun MoviesScreen(
                             },
                             itemFocusRequesters = tvHomeItemFocusRequesters.takeIf { isTv },
                             firstItemFocusRequester = tvHomeFirstGenreFocusRequester,
-                            upFocusRequester = tvHomeRowFocusRequesters["continue_watching"]
+                            upFocusRequester = tvHomeFirstContinueFocusRequester
                                 .takeIf { isTv && visibleContinueWatching.isNotEmpty() },
                             onItemFocusChanged = { index, focused ->
                                 updateTvHomeItemFocus("home_genres", index, focused)
@@ -2332,6 +2355,21 @@ internal fun selectPreviousTvHomeFocusRowBefore(
     .asSequence()
     .filter { it.second < sourceListIndex }
     .maxByOrNull { it.second }
+
+internal fun resolveTvHomeFocusItemIndex(
+    focusFirstItem: Boolean,
+    rememberedItemIndex: Int,
+    itemCount: Int,
+): Int? {
+    if (itemCount <= 0) return null
+    return (if (focusFirstItem) 0 else rememberedItemIndex)
+        .coerceIn(0, itemCount - 1)
+}
+
+internal fun shouldRevealTvHomeFocusItem(
+    itemIndex: Int,
+    visibleItemIndices: List<Int>,
+): Boolean = itemIndex !in visibleItemIndices
 
 internal fun selectNextTvHomeFocusRowAfter(
     visibleFocusRows: List<Pair<String, Int>>,

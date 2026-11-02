@@ -1,3 +1,8 @@
+## Hotfix — TV Movies home Up focus
+
+### Android TV
+- **Up restores the previous shelf's highlighted card** — if the selected card was recycled offscreen, the row reveals it before requesting focus; Genres now targets the Continue Watching card rather than its non-highlighted row container.
+
 ## Hotfix — TV Movies home focus retention
 
 ### Android TV

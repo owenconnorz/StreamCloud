@@ -76,3 +76,11 @@ When a parent lazy list reveals a nested horizontal row, do not cache a missing 
 **Why:** The parent row can be visible before its first card is attached. Focusing only the row container scrolls content into view but leaves no visible selection; reusing row-level state can also misreport restored focus after leaving the first card.
 
 **How to apply:** For explicit first-item navigation, wait for the item requester and its focus callback. Reserve row-container restoration for returning to a remembered child, not for initial navigation to a newly revealed shelf.
+
+## Restore Up focus to a recycled card
+
+Before requesting focus on a remembered card in a previous horizontal shelf, make sure its index is visible in that shelf's LazyRow. An attached parent shelf does not guarantee the remembered child is still composed.
+
+**Why:** Up navigation could scroll to the previous shelf but leave no visible highlight when its previously selected card had been recycled outside the horizontal viewport.
+
+**How to apply:** Resolve remembered indices against the current item count, reveal offscreen items, then confirm focus from the card callback. Use a card requester—not a shelf-container requester—as a static directional fallback.

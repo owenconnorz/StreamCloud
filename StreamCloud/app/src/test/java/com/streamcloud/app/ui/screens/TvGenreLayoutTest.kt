@@ -90,6 +90,17 @@ class TvGenreLayoutTest {
     }
 
     @Test
+    fun upRestoresTheRememberedCardAndRevealsItIfItWasRecycled() {
+        assertEquals(4, resolveTvHomeFocusItemIndex(false, rememberedItemIndex = 4, itemCount = 8))
+        assertEquals(0, resolveTvHomeFocusItemIndex(true, rememberedItemIndex = 4, itemCount = 8))
+        assertEquals(3, resolveTvHomeFocusItemIndex(false, rememberedItemIndex = 7, itemCount = 4))
+        assertNull(resolveTvHomeFocusItemIndex(false, rememberedItemIndex = 0, itemCount = 0))
+
+        assertTrue(shouldRevealTvHomeFocusItem(itemIndex = 4, visibleItemIndices = listOf(5, 6)))
+        assertFalse(shouldRevealTvHomeFocusItem(itemIndex = 4, visibleItemIndices = listOf(3, 4, 5)))
+    }
+
+    @Test
     fun upReturnsToPreviousFocusableRow() {
         val rows = listOf(
             "continue_watching" to 4,
