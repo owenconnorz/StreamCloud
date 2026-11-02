@@ -1,3 +1,8 @@
+## Hotfix — TV Movies home focus
+
+### Android TV
+- **Up returns to the previous movie shelf** — focus now reveals the nearest earlier shelf and restores its selected card when it has scrolled out of view.
+
 ## Hotfix — TV home focus
 
 ### Android TV Movies home

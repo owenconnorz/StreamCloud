@@ -63,4 +63,31 @@ class TvGenreLayoutTest {
         assertNull(selectAdjacentTvHomeFocusRow(rows, "missing", -1))
         assertNull(selectAdjacentTvHomeFocusRow(rows, "home_genres", 0))
     }
+
+    @Test
+    fun upFindsNearestEarlierShelfAfterSourceHasScrolledOutOfView() {
+        val visibleRows = listOf(
+            "older_shelf" to 2,
+            "nearest_shelf" to 7,
+        )
+
+        assertEquals(
+            "nearest_shelf" to 7,
+            selectPreviousTvHomeFocusRowBefore(visibleRows, sourceListIndex = 9),
+        )
+    }
+
+    @Test
+    fun upSkipsVisibleRowsThatAreAfterTheRememberedSourcePosition() {
+        val visibleRows = listOf(
+            "target_shelf" to 5,
+            "later_shelf" to 8,
+        )
+
+        assertEquals(
+            "target_shelf" to 5,
+            selectPreviousTvHomeFocusRowBefore(visibleRows, sourceListIndex = 7),
+        )
+        assertNull(selectPreviousTvHomeFocusRowBefore(visibleRows, sourceListIndex = 5))
+    }
 }

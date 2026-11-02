@@ -515,6 +515,7 @@ fun MoviesScreen(
         remember { mutableMapOf<String, MutableMap<Int, FocusRequester>>() }
     val tvHomeRowListStates =
         remember { mutableMapOf<String, androidx.compose.foundation.lazy.LazyListState>() }
+    val tvHomeRowParentListIndices = remember { mutableMapOf<String, Int>() }
     val tvHomeFocusedItemIndices = remember { mutableMapOf<String, Int>() }
     val tvHomeFocusedRowKey = remember { mutableStateOf<String?>(null) }
     val tvHomeFocusedRowHasFocus = remember { mutableStateOf(false) }
@@ -527,6 +528,9 @@ fun MoviesScreen(
     fun updateTvHomeRowFocus(rowKey: String, hasFocus: Boolean) {
         if (!isTv) return
         if (hasFocus) {
+            moviesListState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.key == rowKey }
+                ?.let { tvHomeRowParentListIndices[rowKey] = it.index }
             tvHomeFocusedRowKey.value = rowKey
             tvHomeFocusedRowHasFocus.value = true
         } else if (tvHomeFocusedRowKey.value == rowKey) {
@@ -869,7 +873,12 @@ fun MoviesScreen(
         fun visibleTvHomeRows(): List<Pair<String, Int>> =
             moviesListState.layoutInfo.visibleItemsInfo.mapNotNull { item ->
                 val key = item.key as? String ?: return@mapNotNull null
-                if (tvHomeRowFocusRequesters.containsKey(key)) key to item.index else null
+                if (!tvHomeRowFocusRequesters.containsKey(key)) return@mapNotNull null
+                val hasFocusableItems =
+                    tvHomeRowListStates[key]?.layoutInfo?.totalItemsCount?.let { it > 0 } == true
+                if (!hasFocusableItems) return@mapNotNull null
+                tvHomeRowParentListIndices[key] = item.index
+                key to item.index
             }
 
         suspend fun requestTvHomeRowFocus(
@@ -921,6 +930,53 @@ fun MoviesScreen(
             }
         }
 
+        suspend fun requestPreviousTvHomeRowFocus(sourceRowKey: String): Boolean {
+            val sourceListIndex = moviesListState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.key == sourceRowKey }
+                ?.index
+                ?: tvHomeRowParentListIndices[sourceRowKey]
+                ?: return false
+
+            val initiallyVisibleTarget = selectPreviousTvHomeFocusRowBefore(
+                visibleFocusRows = visibleTvHomeRows(),
+                sourceListIndex = sourceListIndex,
+            )
+            if (
+                initiallyVisibleTarget != null &&
+                requestTvHomeRowFocus(initiallyVisibleTarget.first)
+            ) {
+                return true
+            }
+
+            // The previous shelf may have been recycled just outside the small
+            // TV viewport. Reveal earlier LazyColumn items until the closest
+            // real focusable shelf is composed, then restore its remembered card.
+            for (listIndex in sourceListIndex - 1 downTo 0) {
+                moviesListState.scrollToItem(listIndex)
+                withFrameNanos { }
+                withFrameNanos { }
+                val target = selectPreviousTvHomeFocusRowBefore(
+                    visibleFocusRows = visibleTvHomeRows(),
+                    sourceListIndex = sourceListIndex,
+                ) ?: continue
+                if (requestTvHomeRowFocus(target.first)) return true
+            }
+
+            if (hasTvHero) {
+                moviesListState.scrollToItem(0)
+                val heroRequester = tvNavHeroFocus
+                if (heroRequester != null) {
+                    repeat(12) {
+                        withFrameNanos { }
+                        runCatching { heroRequester.requestFocus() }
+                        withFrameNanos { }
+                        if (tvNavHeroHasFocus) return true
+                    }
+                }
+            }
+            return false
+        }
+
         fun requestTvHomeScrollLanding(direction: Int) {
             tvHomeFocusScope.launch {
                 withFrameNanos { }
@@ -956,21 +1012,34 @@ fun MoviesScreen(
         fun handleTvHomeSingleVerticalPress(direction: Int): Boolean {
             if (tvHomeFocusTransferInProgress) return true
             val sourceRowKey = tvHomeFocusedRowKey.value ?: return false
+            val sourceListIndex = moviesListState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.key == sourceRowKey }
+                ?.index
+                ?: tvHomeRowParentListIndices[sourceRowKey]
             val targetRow = selectAdjacentTvHomeFocusRow(
                 visibleRows = visibleTvHomeRows(),
                 sourceRowKey = sourceRowKey,
                 direction = direction,
-            ) ?: return false
+            )
+            if (direction > 0 && targetRow == null) return false
             tvHomeFocusTransferInProgress = true
             tvHomeFocusScope.launch {
                 try {
-                    val targetFocused = requestTvHomeRowFocus(
-                        rowKey = targetRow.first,
-                        focusFirstItem = direction > 0,
-                    )
+                    val targetFocused = if (direction < 0) {
+                        requestPreviousTvHomeRowFocus(sourceRowKey)
+                    } else {
+                        requestTvHomeRowFocus(
+                            rowKey = targetRow!!.first,
+                            focusFirstItem = true,
+                        )
+                    }
                     if (!targetFocused) {
                         // A lazy-row target can be detached when the asynchronous handoff runs.
                         // Restore the source child, then let Compose perform its native move.
+                        if (direction < 0 && sourceListIndex != null) {
+                            moviesListState.scrollToItem(sourceListIndex)
+                            withFrameNanos { }
+                        }
                         val sourceRestored = requestTvHomeRowFocus(sourceRowKey) ||
                             requestTvHomeRowFocus(sourceRowKey, focusFirstItem = true)
                         runCatching {
@@ -2153,6 +2222,14 @@ internal fun selectAdjacentTvHomeFocusRow(
         rows.lastOrNull { it.second < sourceListIndex }
     }
 }
+
+internal fun selectPreviousTvHomeFocusRowBefore(
+    visibleFocusRows: List<Pair<String, Int>>,
+    sourceListIndex: Int,
+): Pair<String, Int>? = visibleFocusRows
+    .asSequence()
+    .filter { it.second < sourceListIndex }
+    .maxByOrNull { it.second }
 
 internal fun selectTvHomeFastScrollLandingRow(
     visibleFocusRows: List<Pair<String, Int>>,
