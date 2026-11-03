@@ -37,3 +37,4 @@
 - [Stremio adult home genre](stremio-adult-home-genre.md) — The 18+ home genre should browse adult Stremio catalogs, not open the Adult sources hub, and must honor the existing age gate.
 - [TV ABI APK updates](tv-apk-abi-splits.md) — Keep the universal TV APK for older updater compatibility while offering architecture-specific downloads.
 - [SC Engine branding](sc-engine-branding.md) — Call the torrent integration SC Engine in StreamCloud, while retaining Nuvio Engine upstream attribution in legal notices.
+- [Beeg native playback](beeg-native-playback.md) — Use Beeg's official player stream response for native playback and preserve provider verification failures.

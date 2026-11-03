@@ -1,5 +1,8 @@
 package com.streamcloud.app.data.api
 
+import android.content.Context
+import android.webkit.CookieManager
+import android.webkit.WebSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -32,15 +35,21 @@ data class BeegPage(
     val hasMore: Boolean,
 )
 
+data class BeegResolvedPlayback(
+    val url: String,
+    val headers: Map<String, String>,
+)
+
 /**
  * Reads Beeg's public video index and tag-search results using the same public
- * endpoints as its website. Playback opens Beeg's own video page in a WebView,
- * preserving its player and any site verification or access checks.
+ * endpoints as its website. Playback uses the stream URL returned by Beeg's
+ * own play_url endpoint and does not bypass provider verification checks.
  */
 object BeegRepository {
     private const val STORE_URL = "https://store.externulls.com/"
     private const val SEARCH_SOCKET_URL = "wss://search.externulls.com"
-    private const val VIDEO_PAGE_BASE_URL = "https://beeg.com/-0"
+    private const val VIDEO_PAGE_BASE_URL = "https://beeg.com/"
+    private const val VIDEO_STREAM_BASE_URL = "https://video.beeg.com/"
     private const val THUMBNAIL_BASE_URL = "https://thumbs.externulls.com"
     private const val PAGE_SIZE = 20
     private const val SEARCH_RESULT_LIMIT = 10
@@ -63,6 +72,114 @@ object BeegRepository {
             .callTimeout(15, TimeUnit.SECONDS)
             .build()
     }
+
+    private val playbackClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .callTimeout(25, TimeUnit.SECONDS)
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build()
+    }
+
+    suspend fun resolvePlayback(
+        pageUrl: String,
+        userAgent: String,
+    ): BeegResolvedPlayback = withContext(Dispatchers.IO) {
+        val safePageUrl = normalizeBeegVideoPageUrl(pageUrl)
+            ?: throw IOException("Beeg did not provide a valid video page.")
+        val videoId = safePageUrl.toHttpUrl().encodedPath
+            .removePrefix("/-0")
+            .toLongOrNull()
+            ?.takeIf { it > 0 }
+            ?.toString()
+            ?: throw IOException("Beeg did not provide a valid video ID.")
+        val request = Request.Builder()
+            .url("$STORE_URL/video/play_url/$videoId")
+            .header("Accept", "text/plain, */*")
+            .header("Origin", "https://beeg.com")
+            .header("Referer", safePageUrl)
+            .header("User-Agent", userAgent)
+            .apply {
+                runCatching { CookieManager.getInstance().getCookie(safePageUrl) }
+                    .getOrNull()
+                    ?.takeIf(String::isNotBlank)
+                    ?.let { header("Cookie", it) }
+            }
+            .get()
+            .build()
+
+        playbackClient.newCall(request).execute().use { response ->
+            if (response.isRedirect) {
+                throw IOException("Beeg redirected playback. Open the official page and retry.")
+            }
+            if (response.code == 403) {
+                throw IOException(
+                    "Beeg requires official age or browser verification. Complete it on Beeg, " +
+                        "then retry; StreamCloud does not bypass those checks.",
+                )
+            }
+            if (response.code == 429) {
+                throw IOException("Beeg is rate-limiting playback requests. Wait and try again.")
+            }
+            if (!response.isSuccessful) {
+                throw IOException("Beeg could not prepare playback (HTTP ${response.code}).")
+            }
+
+            val body = response.body?.string()
+                ?.takeIf(String::isNotBlank)
+                ?: throw IOException("Beeg returned an empty playback response.")
+            val streamUrl = buildNativeStreamUrl(body)
+                ?: throw IOException(
+                    "Beeg did not provide a supported native stream. Complete any official " +
+                        "verification on Beeg, then retry.",
+                )
+            BeegResolvedPlayback(
+                url = streamUrl,
+                headers = buildPlaybackHeaders(userAgent, safePageUrl),
+            )
+        }
+    }
+
+    internal fun browserUserAgent(context: Context): String =
+        WebSettings.getDefaultUserAgent(context.applicationContext)
+            .replace("; wv", "")
+            .replace(" Version/4.0", "")
+
+    internal fun buildNativeStreamUrl(playUrlResponse: String): String? {
+        val path = playUrlResponse.trim()
+            .removePrefix("/")
+            .takeIf { PLAY_URL_PATH_PATTERN.matches(it) }
+            ?: return null
+        return "$VIDEO_STREAM_BASE_URL$path"
+    }
+
+    internal fun normalizeBeegVideoPageUrl(rawUrl: String): String? {
+        val value = rawUrl.trim().takeIf(String::isNotBlank) ?: return null
+        val url = runCatching { VIDEO_PAGE_BASE_URL.toHttpUrl().resolve(value) }.getOrNull()
+            ?: return null
+        return url.toString().takeIf {
+            url.scheme == "https" &&
+                url.port == 443 &&
+                url.host in setOf("beeg.com", "www.beeg.com") &&
+                url.username.isBlank() &&
+                url.password.isBlank() &&
+                BEEG_VIDEO_ID_PATTERN.matches(url.encodedPath)
+        }
+    }
+
+    internal fun buildPlaybackHeaders(userAgent: String, pageUrl: String): Map<String, String> =
+        buildMap {
+            put("User-Agent", userAgent)
+            put("Referer", pageUrl)
+            put("Origin", "https://beeg.com")
+            put("Accept", "*/*")
+            runCatching { CookieManager.getInstance().getCookie(pageUrl) }
+                .getOrNull()
+                ?.takeIf(String::isNotBlank)
+                ?.let { put("Cookie", it) }
+        }
 
     suspend fun fetchPage(query: String, page: Int): BeegPage {
         require(page > 0) { "Page must be positive." }
@@ -253,7 +370,7 @@ object BeegRepository {
             durationLabel = duration?.let(::formatDuration),
             streamUrl = null,
             source = AdultSource.Beeg,
-            embedUrl = "$VIDEO_PAGE_BASE_URL$id",
+            embedUrl = "$VIDEO_PAGE_BASE_URL-0$id",
             views = recordObject["fc_facts"]
                 ?.jsonArray
                 ?.firstOrNull()
@@ -277,4 +394,7 @@ object BeegRepository {
 
     private val TAG_SLUG_PATTERN = Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,99}")
     private val THUMB_OFFSET_PATTERN = Regex("\\d{1,18}")
+    private val BEEG_VIDEO_ID_PATTERN = Regex("/-0[1-9]\\d{0,17}/?")
+    private val PLAY_URL_PATH_PATTERN =
+        Regex("key=[A-Za-z0-9_-]{8,128},end=\\d{1,12},limit=\\d{1,4}/data=[A-Za-z0-9._-]{1,160}\\.(?:m3u8|mp4)")
 }

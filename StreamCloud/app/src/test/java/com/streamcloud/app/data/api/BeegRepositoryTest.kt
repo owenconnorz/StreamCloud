@@ -84,4 +84,48 @@ class BeegRepositoryTest {
         assertEquals("40", next.queryParameter("offset"))
         assertEquals("20", next.queryParameter("limit"))
     }
+
+    @Test
+    fun `play url response becomes secure Beeg-hosted native stream`() {
+        val url = BeegRepository.buildNativeStreamUrl(
+            "key=MOvnrjZiJkpBZicVEJyTWA,end=1793814578,limit=10/data=a038903d34.m3u8",
+        )
+
+        assertEquals(
+            "https://video.beeg.com/key=MOvnrjZiJkpBZicVEJyTWA,end=1793814578,limit=10/data=a038903d34.m3u8",
+            url,
+        )
+    }
+
+    @Test
+    fun `play url parser rejects non-provider paths and malformed values`() {
+        assertEquals(
+            null,
+            BeegRepository.buildNativeStreamUrl(
+                "https://untrusted.example/video.m3u8",
+            ),
+        )
+        assertEquals(
+            null,
+            BeegRepository.buildNativeStreamUrl(
+                "key=abc,end=1,limit=10/data=../../video.m3u8",
+            ),
+        )
+    }
+
+    @Test
+    fun `only secure Beeg video page URLs are accepted for stream resolution`() {
+        assertEquals(
+            "https://beeg.com/-012345",
+            BeegRepository.normalizeBeegVideoPageUrl("https://beeg.com/-012345"),
+        )
+        assertEquals(
+            null,
+            BeegRepository.normalizeBeegVideoPageUrl("https://example.com/-012345"),
+        )
+        assertEquals(
+            null,
+            BeegRepository.normalizeBeegVideoPageUrl("https://beeg.com/account"),
+        )
+    }
 }
