@@ -138,7 +138,7 @@ fun SpotifyArtistScreen(
                         Toast.LENGTH_SHORT,
                     ).show()
                 } else {
-                    YtPlayback.playSong(context, match.toSpotifyDetailSong())
+                    YtPlayback.playSong(context, match.toSpotifyDetailSong(track.id))
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -536,7 +536,7 @@ private fun SpotifyArtistAbout(
     }
 }
 
-private fun YtTrack.toSpotifyDetailSong() = YtmSong(
+private fun YtTrack.toSpotifyDetailSong(spotifyTrackId: String) = YtmSong(
     videoId = url.substringAfter("v=").substringBefore("&")
         .ifBlank { url.substringAfterLast("/") },
     title = title,
@@ -545,4 +545,5 @@ private fun YtTrack.toSpotifyDetailSong() = YtmSong(
     thumbnail = thumbnail,
     durationSeconds = durationSec,
     isVideo = isVideo,
+    spotifyTrackId = spotifyTrackId,
 )

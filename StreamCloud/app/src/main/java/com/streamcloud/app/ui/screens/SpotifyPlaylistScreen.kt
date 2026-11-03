@@ -40,6 +40,7 @@ import com.streamcloud.app.data.newpipe.YtTrack
 import com.streamcloud.app.data.spotify.SpotifyPlaylist
 import com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
 import com.streamcloud.app.data.spotify.SpotifyTrack
+import com.streamcloud.app.data.spotify.SpotifyTrackDownloadMatches
 import com.streamcloud.app.data.spotify.SpotifyWebPlayerRepository
 import com.streamcloud.app.data.ytmusic.YtMusicSearchRepository
 import com.streamcloud.app.data.ytmusic.YtPlayback
@@ -52,10 +53,13 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import com.streamcloud.app.ui.util.verticalScrollbar
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -109,6 +113,7 @@ fun SpotifyPlaylistScreen(
     var nextTrackOffset by remember(playlistId) { mutableStateOf<Int?>(null) }
     var totalTrackCount by remember(playlistId) { mutableStateOf(0) }
     var loadMoreError by remember(playlistId) { mutableStateOf<String?>(null) }
+    var autoLoadAttemptedOffset by remember(playlistId) { mutableStateOf<Int?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var playingIndex by remember { mutableStateOf<Int?>(null) }
     var showAddSheet by remember { mutableStateOf(false) }
@@ -254,6 +259,27 @@ fun SpotifyPlaylistScreen(
                 loadingMore = false
             }
         }
+    }
+
+    LaunchedEffect(listState, visibleTracks.size, nextTrackOffset, loading, loadMoreError, isPlaylist) {
+        if (loading || nextTrackOffset == null || loadMoreError != null) return@LaunchedEffect
+        val firstTrackItemIndex = if (isPlaylist) 2 else 1
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
+            .distinctUntilChanged()
+            .collectLatest { lastVisibleIndex ->
+                val offset = nextTrackOffset ?: return@collectLatest
+                val lastTrackItemIndex = firstTrackItemIndex + visibleTracks.lastIndex
+                val prefetchFromIndex = (lastTrackItemIndex - 4).coerceAtLeast(firstTrackItemIndex)
+                if (
+                    lastVisibleIndex != null &&
+                    lastVisibleIndex >= prefetchFromIndex &&
+                    !loadingMore &&
+                    autoLoadAttemptedOffset != offset
+                ) {
+                    autoLoadAttemptedOffset = offset
+                    loadMoreTracks()
+                }
+            }
     }
 
     fun queueTrack(track: SpotifyTrack, playNext: Boolean = false, startRadio: Boolean = false) {
@@ -471,6 +497,11 @@ fun SpotifyPlaylistScreen(
                                         unavailable++
                                     } else {
                                         val song = match.asYtmSong(spotifyTrack.id)
+                                        SpotifyTrackDownloadMatches.remember(
+                                            context,
+                                            spotifyTrack.id,
+                                            song.videoId,
+                                        )
                                         if (YtPlayback.isDownloaded(context, song)) {
                                             alreadyDownloaded++
                                         } else {
@@ -1324,7 +1355,20 @@ fun SpotifyPlaylistScreen(
 
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScrollbar(
+                    state = listState,
+                    width = 8.dp,
+                    dragGestureWidth = 24.dp,
+                    minThumbHeight = 72.dp,
+                    fixedThumbHeight = 72.dp,
+                    color = Color.White.copy(alpha = 0.72f),
+                    activeColor = SpotifyGreen,
+                    alwaysVisible = true,
+                    minItemCountForScroll = 15,
+                    headerItems = if (isPlaylist) 2 else 1,
+                ),
             contentPadding = PaddingValues(
                 top    = innerPadding.calculateTopPadding(),
                 bottom = innerPadding.calculateBottomPadding() + 100.dp,
@@ -1524,16 +1568,16 @@ fun SpotifyPlaylistScreen(
             }
             if (!loading && nextTrackOffset != null) {
                 item(key = "spotify-collection-load-more") {
-                    TextButton(
-                        onClick = ::loadMoreTracks,
-                        enabled = !loadingMore,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    ) {
-                        if (loadingMore) {
+                    if (loadingMore) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.width(8.dp))
+                            Text("Loading more songs…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Text(if (loadingMore) "Loading more…" else "Load more")
                     }
                 }
             }
@@ -1669,12 +1713,16 @@ private fun SpotifyTrackRow(
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(
-                track.title,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    track.title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                SpotifyDownloadedBadge(track.id, Modifier.padding(start = 5.dp))
+            }
             Text(
                 if (track.album.isNotBlank()) "${track.artists} · ${track.album}" else track.artists,
                 style = MaterialTheme.typography.bodySmall,

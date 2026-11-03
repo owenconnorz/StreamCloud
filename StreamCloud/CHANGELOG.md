@@ -1,3 +1,10 @@
+## Spotify — Download status and playlist controls
+
+### Spotify
+- **Downloaded songs are marked consistently** — completed Spotify-track downloads now show a green check beside the song across home, search, library, artist, album, and playlist views.
+- **Playlist tracks load as you scroll** — nearing the end of the loaded songs fetches the next page automatically, with retry available if a request fails.
+- **Long playlists are quicker to navigate** — the playlist scrollbar thumb can be dragged to jump through the list.
+
 ## Hotfix — TV Movies home Up focus
 
 ### Android TV

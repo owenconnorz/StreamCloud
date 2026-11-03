@@ -248,6 +248,7 @@ fun MusicActionsSheet(
                                 album = null,
                                 thumbnail = null,
                                 durationSeconds = null,
+                                spotifyTrackId = spotifyTrackId,
                             ),
                         )
                     } else {

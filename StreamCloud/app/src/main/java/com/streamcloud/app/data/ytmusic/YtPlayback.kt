@@ -15,6 +15,7 @@ import com.streamcloud.app.data.downloads.PlaylistMusicDownloadManager
 import com.streamcloud.app.data.downloads.YtMusicDownloadUtil
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.TrackEntity
+import com.streamcloud.app.data.spotify.SpotifyTrackDownloadMatches
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -88,6 +89,7 @@ object YtPlayback {
 
 
     suspend fun playSong(context: Context, song: YtmSong, withAutoRadio: Boolean = true) {
+        SpotifyTrackDownloadMatches.remember(context, song.spotifyTrackId, song.videoId)
         val playbackAttempt = PlaybackLatencyTrace.begin(song.videoId)
         // This is foreground work, not list prefetch. It shares its result with Media3 instead of
         // being cancelled and restarted when the data source promotes the selected item.
@@ -160,6 +162,7 @@ object YtPlayback {
 
 
     suspend fun playNext(context: Context, song: YtmSong) {
+        SpotifyTrackDownloadMatches.remember(context, song.spotifyTrackId, song.videoId)
         val item = buildMediaItem(song)
         withContext(Dispatchers.Main) {
             val controller = MusicController.get(context.applicationContext)
@@ -183,6 +186,7 @@ object YtPlayback {
 
 
     suspend fun addToQueue(context: Context, song: YtmSong) {
+        SpotifyTrackDownloadMatches.remember(context, song.spotifyTrackId, song.videoId)
         val item = buildMediaItem(song)
         val startsPlayback = withContext(Dispatchers.Main) {
             val controller = MusicController.get(context.applicationContext)
@@ -211,6 +215,9 @@ object YtPlayback {
      */
     suspend fun appendToQueue(context: Context, songs: List<YtmSong>) {
         if (songs.isEmpty()) return
+        songs.forEach { song ->
+            SpotifyTrackDownloadMatches.remember(context, song.spotifyTrackId, song.videoId)
+        }
         val items = songs.map(::buildMediaItem)
         withContext(Dispatchers.Main) {
             val controller = MusicController.get(context.applicationContext)
@@ -223,6 +230,9 @@ object YtPlayback {
 
     suspend fun playPlaylist(context: Context, songs: List<YtmSong>, startIndex: Int = 0) {
         if (songs.isEmpty()) return
+        songs.forEach { song ->
+            SpotifyTrackDownloadMatches.remember(context, song.spotifyTrackId, song.videoId)
+        }
         val safeStart = startIndex.coerceIn(0, songs.lastIndex)
         val activeSong = songs[safeStart]
         val playbackAttempt = PlaybackLatencyTrace.begin(activeSong.videoId)
@@ -270,6 +280,7 @@ object YtPlayback {
 
     fun downloadSong(context: Context, song: YtmSong) {
         val appContext = context.applicationContext
+        SpotifyTrackDownloadMatches.remember(appContext, song.spotifyTrackId, song.videoId)
         backgroundScope.launch {
             runCatching {
                 PlaylistMusicDownloadManager.addManualDownload(appContext, song)
@@ -285,6 +296,7 @@ object YtPlayback {
 
     internal fun enqueueDownload(context: Context, song: YtmSong) {
         val appContext = context.applicationContext
+        SpotifyTrackDownloadMatches.remember(appContext, song.spotifyTrackId, song.videoId)
         val watchUrl = watchUrl(song.videoId)
         val downloadId = YtMusicDownloadUtil.downloadId(song.videoId)
         // Resolve only when a DownloadManager worker slot opens. Priming every queued playlist

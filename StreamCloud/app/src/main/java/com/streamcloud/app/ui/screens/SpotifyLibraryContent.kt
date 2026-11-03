@@ -84,7 +84,7 @@ private enum class SpotifyLibraryTab(val label: String) {
     Songs("Liked songs"),
 }
 
-private fun YtTrack.asSpotifyMatchSong() = YtmSong(
+private fun YtTrack.asSpotifyMatchSong(spotifyTrackId: String) = YtmSong(
     videoId = url.substringAfter("v=").substringBefore("&")
         .ifBlank { url.substringAfterLast("/") },
     title = title,
@@ -93,6 +93,7 @@ private fun YtTrack.asSpotifyMatchSong() = YtmSong(
     thumbnail = thumbnail,
     durationSeconds = durationSec,
     isVideo = isVideo,
+    spotifyTrackId = spotifyTrackId,
 )
 
 @Composable
@@ -421,7 +422,7 @@ internal fun SpotifyLibraryContent(
                                                         Toast.LENGTH_SHORT,
                                                     ).show()
                                                 } else {
-                                                    YtPlayback.playSong(context, match.asSpotifyMatchSong())
+                                                    YtPlayback.playSong(context, match.asSpotifyMatchSong(track.id))
                                                 }
                                             } catch (cancelled: CancellationException) {
                                                 throw cancelled
@@ -561,7 +562,7 @@ internal fun SpotifyLibraryContent(
                                                         Toast.LENGTH_SHORT,
                                                     ).show()
                                                 } else {
-                                                    YtPlayback.playSong(context, match.asSpotifyMatchSong())
+                                                    YtPlayback.playSong(context, match.asSpotifyMatchSong(track.id))
                                                 }
                                             } catch (cancelled: CancellationException) {
                                                 throw cancelled
@@ -781,13 +782,17 @@ private fun SpotifyTrackGridTile(
             }
         }
         Spacer(Modifier.height(7.dp))
-        Text(
-            track.title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                track.title,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            SpotifyDownloadedBadge(track.id, Modifier.padding(start = 5.dp))
+        }
         Text(
             track.artists,
             style = MaterialTheme.typography.bodySmall,
@@ -813,13 +818,17 @@ private fun SpotifyTrackRow(track: SpotifyTrack, loading: Boolean, onClick: () -
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         )
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            Text(
-                track.title,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    track.title,
+                    modifier = Modifier.weight(1f),
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                SpotifyDownloadedBadge(track.id, Modifier.padding(start = 5.dp))
+            }
             Text(
                 listOf(track.artists, track.album).filter(String::isNotBlank).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,

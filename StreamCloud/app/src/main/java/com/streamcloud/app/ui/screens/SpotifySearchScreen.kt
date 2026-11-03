@@ -680,7 +680,16 @@ private fun SpotifyTrackSearchRow(
     ) {
         SpotifySearchArtwork(track.imageUrl)
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    track.title,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.Medium,
+                )
+                SpotifyDownloadedBadge(track.id, Modifier.padding(start = 5.dp))
+            }
             Text(
                 listOf(track.artists, track.album).filter(String::isNotBlank).joinToString(" · "),
                 maxLines = 1,

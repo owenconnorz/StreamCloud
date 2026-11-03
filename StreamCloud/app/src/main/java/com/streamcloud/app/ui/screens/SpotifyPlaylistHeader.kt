@@ -321,13 +321,17 @@ internal fun SpotifyRecommendedTrackRow(
             modifier = Modifier.weight(1f).padding(start = 12.dp, end = 8.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(
-                track.title,
-                color = Color.White,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    track.title,
+                    modifier = Modifier.weight(1f),
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                SpotifyDownloadedBadge(track.id, Modifier.padding(start = 5.dp))
+            }
             Text(
                 track.artists,
                 color = Color.White.copy(alpha = 0.68f),

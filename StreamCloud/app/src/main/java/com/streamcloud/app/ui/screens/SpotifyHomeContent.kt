@@ -484,13 +484,19 @@ private fun SpotifyWebPlayerShelf(
                         }
                     }
                     Spacer(Modifier.height(7.dp))
-                    Text(
-                        card.title,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onBackground,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            card.title,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                        card.track?.let { track ->
+                            SpotifyDownloadedBadge(track.id, Modifier.padding(start = 5.dp))
+                        }
+                    }
                     Text(
                         card.subtitle.spotifyDisplayText() ?: "Spotify",
                         maxLines = 1,
@@ -619,13 +625,17 @@ private fun SpotifyTrackShelf(
                         }
                     }
                     Spacer(Modifier.height(7.dp))
-                    Text(
-                        track.title,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onBackground,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            track.title,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                        SpotifyDownloadedBadge(track.id, Modifier.padding(start = 5.dp))
+                    }
                     Text(
                         track.artists,
                         maxLines = 1,
@@ -659,13 +669,17 @@ private fun SpotifyRecentTrackRow(
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         )
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            Text(
-                track.title,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    track.title,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                SpotifyDownloadedBadge(track.id, Modifier.padding(start = 5.dp))
+            }
             Text(
                 track.artists,
                 maxLines = 1,

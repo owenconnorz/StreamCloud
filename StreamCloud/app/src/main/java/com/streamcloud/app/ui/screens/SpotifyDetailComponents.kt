@@ -20,24 +20,58 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.media3.exoplayer.offline.Download
 import coil.compose.AsyncImage
 import com.streamcloud.app.data.spotify.SpotifyAlbum
 import com.streamcloud.app.data.spotify.SpotifyArtist
 import com.streamcloud.app.data.spotify.SpotifyPlaylist
 import com.streamcloud.app.data.spotify.SpotifyTrack
+import com.streamcloud.app.data.spotify.SpotifyTrackDownloadMatches
+import com.streamcloud.app.data.downloads.MusicDownloader
+import com.streamcloud.app.data.downloads.YtMusicDownloadUtil
+import com.streamcloud.app.data.ytmusic.YtPlayback
 import java.text.NumberFormat
 import java.util.Locale
 
 internal val SpotifyBlack = Color(0xFF121212)
 internal val SpotifyGreen = Color(0xFF1ED760)
+
+@Composable
+internal fun SpotifyDownloadedBadge(
+    spotifyTrackId: String,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val matches by SpotifyTrackDownloadMatches.observe(context).collectAsState()
+    val downloads by YtMusicDownloadUtil.downloads.collectAsState()
+    val videoId = matches[spotifyTrackId]
+    val downloaded = videoId != null && (
+        downloads[YtMusicDownloadUtil.downloadId(videoId)]?.state == Download.STATE_COMPLETED ||
+            downloads[YtPlayback.watchUrl(videoId)]?.state == Download.STATE_COMPLETED ||
+            YtMusicDownloadUtil.isDownloaded(videoId) ||
+            MusicDownloader.isDownloaded(context, YtPlayback.watchUrl(videoId))
+    )
+
+    if (downloaded) {
+        Icon(
+            imageVector = androidx.compose.material.icons.Icons.Filled.CheckCircle,
+            contentDescription = "Downloaded",
+            tint = SpotifyGreen,
+            modifier = modifier.size(16.dp),
+        )
+    }
+}
 
 @Composable
 internal fun SpotifyDetailArtwork(
@@ -96,14 +130,18 @@ internal fun SpotifyDetailTrackRow(
             modifier = Modifier.size(54.dp),
         )
         Column(Modifier.weight(1f).padding(start = 12.dp, end = 8.dp)) {
-            Text(
-                track.title,
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    track.title,
+                    modifier = Modifier.weight(1f),
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                )
+                SpotifyDownloadedBadge(track.id, Modifier.padding(start = 5.dp))
+            }
             val subtitle = when {
                 showPlayCount && track.playCount > 0L -> formatSpotifyCount(track.playCount)
                 track.artists.isNotBlank() -> track.artists
