@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -65,7 +66,7 @@ internal fun SpotifyDownloadedBadge(
 
     if (downloaded) {
         Icon(
-            imageVector = androidx.compose.material.icons.Icons.Filled.CheckCircle,
+            imageVector = Icons.Filled.CheckCircle,
             contentDescription = "Downloaded",
             tint = SpotifyGreen,
             modifier = modifier.size(16.dp),
