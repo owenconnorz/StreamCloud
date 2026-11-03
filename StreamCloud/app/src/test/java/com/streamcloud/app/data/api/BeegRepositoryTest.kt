@@ -98,6 +98,20 @@ class BeegRepositoryTest {
     }
 
     @Test
+    fun `current Beeg multi rendition HLS response becomes a secure native stream`() {
+        val response =
+            "key=QP-yzQNOkcIHTLuc4FqqTA,end=1793825111,limit=10" +
+                "/data=059ebed732/media=hls4A" +
+                "/multi=426x240:240p:YWJj,640x360:360p:ZGVm" +
+                "/_TPL_/478282460755444.mp4.m3u8"
+
+        assertEquals(
+            "https://video.beeg.com/$response",
+            BeegRepository.buildNativeStreamUrl(response),
+        )
+    }
+
+    @Test
     fun `play url parser rejects non-provider paths and malformed values`() {
         assertEquals(
             null,
@@ -109,6 +123,15 @@ class BeegRepositoryTest {
             null,
             BeegRepository.buildNativeStreamUrl(
                 "key=abc,end=1,limit=10/data=../../video.m3u8",
+            ),
+        )
+        assertEquals(
+            null,
+            BeegRepository.buildNativeStreamUrl(
+                "key=QP-yzQNOkcIHTLuc4FqqTA,end=1793825111,limit=10" +
+                    "/data=059ebed732/media=hls4A" +
+                    "/multi=426x240:240p:YWJj" +
+                    "/_TPL_/../../../evil.mp4.m3u8",
             ),
         )
     }

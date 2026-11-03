@@ -132,8 +132,8 @@ object BeegRepository {
                 ?: throw IOException("Beeg returned an empty playback response.")
             val streamUrl = buildNativeStreamUrl(body)
                 ?: throw IOException(
-                    "Beeg did not provide a supported native stream. Complete any official " +
-                        "verification on Beeg, then retry.",
+                    "Beeg returned a playback response StreamCloud could not read. Retry, or " +
+                        "open the video on Beeg to check its availability.",
                 )
             BeegResolvedPlayback(
                 url = streamUrl,
@@ -150,7 +150,7 @@ object BeegRepository {
     internal fun buildNativeStreamUrl(playUrlResponse: String): String? {
         val path = playUrlResponse.trim()
             .removePrefix("/")
-            .takeIf { PLAY_URL_PATH_PATTERN.matches(it) }
+            .takeIf { PLAY_URL_PATH_PATTERNS.any { pattern -> pattern.matches(it) } }
             ?: return null
         return "$VIDEO_STREAM_BASE_URL$path"
     }
@@ -395,6 +395,19 @@ object BeegRepository {
     private val TAG_SLUG_PATTERN = Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,99}")
     private val THUMB_OFFSET_PATTERN = Regex("\\d{1,18}")
     private val BEEG_VIDEO_ID_PATTERN = Regex("/-0[1-9]\\d{0,17}/?")
-    private val PLAY_URL_PATH_PATTERN =
-        Regex("key=[A-Za-z0-9_-]{8,128},end=\\d{1,12},limit=\\d{1,4}/data=[A-Za-z0-9._-]{1,160}\\.(?:m3u8|mp4)")
+    private val PLAY_URL_PATH_PATTERNS = listOf(
+        // Current Beeg response: key/data/media/multi template ending in an HLS playlist.
+        Regex(
+            "key=[A-Za-z0-9_-]{8,128},end=\\d{1,12},limit=\\d{1,4}" +
+                "/data=[A-Za-z0-9._-]{1,160}" +
+                "/media=[A-Za-z0-9_-]{1,32}" +
+                "/multi=[A-Za-z0-9_.,:=+-]{1,4096}" +
+                "/_TPL_/\\d{1,18}\\.mp4\\.m3u8",
+        ),
+        // Keep support for the earlier direct playlist/file response format.
+        Regex(
+            "key=[A-Za-z0-9_-]{8,128},end=\\d{1,12},limit=\\d{1,4}" +
+                "/data=[A-Za-z0-9._-]{1,160}\\.(?:m3u8|mp4)",
+        ),
+    )
 }
