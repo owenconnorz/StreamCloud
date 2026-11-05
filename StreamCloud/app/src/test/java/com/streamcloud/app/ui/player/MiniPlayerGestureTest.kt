@@ -110,15 +110,30 @@ class MiniPlayerGestureTest {
     }
 
     @Test
+    fun shortDownwardFlickBelowArtworkAndSeekControlsCollapses() {
+        assertEquals(
+            true,
+            shouldCollapsePlayerFromBottomSwipe(
+                startY = 580f,
+                surfaceHeight = 1_000f,
+                totalX = 2f,
+                totalY = 12f,
+                minimumDistancePx = 10f,
+                surfaceProgress = 1f,
+            ),
+        )
+    }
+
+    @Test
     fun bottomSwipeDoesNotTriggerFromUpperAreaOrWhenPlayerIsCollapsed() {
         assertEquals(
             false,
             shouldCollapsePlayerFromBottomSwipe(
-                startY = 500f,
+                startY = 400f,
                 surfaceHeight = 1_000f,
                 totalX = 0f,
                 totalY = 30f,
-                minimumDistancePx = 18f,
+                minimumDistancePx = 10f,
                 surfaceProgress = 1f,
             ),
         )
@@ -129,7 +144,7 @@ class MiniPlayerGestureTest {
                 surfaceHeight = 1_000f,
                 totalX = 0f,
                 totalY = 30f,
-                minimumDistancePx = 18f,
+                minimumDistancePx = 10f,
                 surfaceProgress = 0f,
             ),
         )

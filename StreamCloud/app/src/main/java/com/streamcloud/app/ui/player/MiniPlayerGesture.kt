@@ -12,8 +12,8 @@ internal const val SWIPE_HORIZONTAL_AUTO_THRESHOLD_PX = 400f
 internal const val SWIPE_HORIZONTAL_VELOCITY_THRESHOLD_PX_PER_MS = 2.5f
 // A small intentional flick should settle the player without needing a long drag.
 internal const val PLAYER_SURFACE_FLING_VELOCITY_PX_PER_MS = 0.08f
-internal const val PLAYER_SURFACE_BOTTOM_SWIPE_START_RATIO = 0.62f
-internal const val PLAYER_SURFACE_BOTTOM_SWIPE_DISTANCE_DP = 18f
+internal const val PLAYER_SURFACE_BOTTOM_SWIPE_START_RATIO = 0.45f
+internal const val PLAYER_SURFACE_BOTTOM_SWIPE_DISTANCE_DP = 10f
 internal const val MINI_PLAYER_DISMISS_THRESHOLD_PX = 72f
 // Collapse after the player has followed the finger roughly two-fifths of the
 // way down the screen, so a release just under mid-screen feels intentional.
