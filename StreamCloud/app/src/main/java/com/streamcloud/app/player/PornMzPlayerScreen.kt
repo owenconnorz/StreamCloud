@@ -47,9 +47,22 @@ private data class PornMzNativeStream(
 
 private const val PORNMZ_CURRENT_STREAM_JS = """
 (function() {
+  function isDirectMediaUrl(url) {
+    return /^https:\/\//i.test(url || '') &&
+      /\.(m3u8|mpd|mp4|m4v|webm)(?:[?#]|$)/i.test(url);
+  }
   function videoSource(video) {
-    var source = video.querySelector('source');
-    return video.currentSrc || video.src || (source ? source.src : '') || '';
+    var sources = [
+      video.currentSrc || '',
+      video.src || '',
+      video.getAttribute('src') || ''
+    ];
+    Array.from(video.querySelectorAll('source')).forEach(function(source) {
+      sources.push(source.src || source.getAttribute('src') || '');
+    });
+    return sources.find(function(url) {
+      return /^https:\/\//i.test(url) && url.indexOf('blob:') !== 0;
+    }) || '';
   }
   function findPlayableVideo(doc) {
     var videos = Array.from(doc.querySelectorAll('video'));
@@ -77,18 +90,53 @@ private const val PORNMZ_CURRENT_STREAM_JS = """
       });
     return candidates.length ? videoSource(candidates[0]) : '';
   }
+  function findRequestedMedia(doc) {
+    try {
+      var view = doc.defaultView || window;
+      var resources = view.performance.getEntriesByType('resource')
+        .map(function(entry) { return entry.name || ''; })
+        .filter(isDirectMediaUrl)
+        .reverse();
+      return resources.find(function(url) {
+        return /\.(m3u8|mpd)(?:[?#]|$)/i.test(url);
+      }) || resources[0] || '';
+    } catch (ignored) {
+      return '';
+    }
+  }
   var streamUrl = findPlayableVideo(document);
+  if (!streamUrl) streamUrl = findRequestedMedia(document);
   if (!streamUrl) {
     var frames = document.querySelectorAll('iframe');
     for (var i = 0; i < frames.length && !streamUrl; i++) {
       try {
         var frameDoc = frames[i].contentDocument || frames[i].contentWindow.document;
-        if (frameDoc) streamUrl = findPlayableVideo(frameDoc);
+        if (frameDoc) {
+          streamUrl = findPlayableVideo(frameDoc) || findRequestedMedia(frameDoc);
+        }
       } catch (ignored) {}
     }
   }
   return streamUrl || '';
 })()
+"""
+
+private const val PORNMZ_START_PLAYBACK_JS = """
+(function() {
+  var videos = Array.from(document.querySelectorAll('video'));
+  videos.sort(function(a, b) {
+    return (b.videoWidth * b.videoHeight) - (a.videoWidth * a.videoHeight);
+  });
+  var video = videos[0];
+  if (!video) return 'no-video';
+  try {
+    var result = video.play();
+    if (result && result.catch) result.catch(function() {});
+    return 'started';
+  } catch (ignored) {
+    return 'failed';
+  }
+})();
 """
 
 private const val PORNMZ_PLAY_ONLINE_LINK_JS = """
@@ -150,6 +198,7 @@ fun PornMzPlayerScreen(
     var pageLoading by remember(pageUrl) { mutableStateOf(true) }
     var pageError by remember(pageUrl) { mutableStateOf(false) }
     var nativeStream by remember(pageUrl) { mutableStateOf<PornMzNativeStream?>(null) }
+    var nativeResolveFailed by remember(pageUrl) { mutableStateOf(false) }
     var currentPageUrl by remember(pageUrl) { mutableStateOf(pageUrl) }
     var playOnlineLinkFollowed by remember(pageUrl) { mutableStateOf(false) }
 
@@ -178,7 +227,7 @@ fun PornMzPlayerScreen(
                 settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
-                    mediaPlaybackRequiresUserGesture = true
+                    mediaPlaybackRequiresUserGesture = false
                     loadWithOverviewMode = true
                     useWideViewPort = true
                     mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
@@ -226,6 +275,7 @@ fun PornMzPlayerScreen(
                         if (request?.isForMainFrame == true) {
                             pageLoading = false
                             pageError = true
+                            nativeResolveFailed = true
                         }
                     }
 
@@ -237,6 +287,7 @@ fun PornMzPlayerScreen(
                         if (request?.isForMainFrame == true) {
                             pageLoading = false
                             pageError = true
+                            nativeResolveFailed = true
                         }
                     }
                 }
@@ -253,24 +304,37 @@ fun PornMzPlayerScreen(
         }
     }
 
-    LaunchedEffect(webView, nativeStream, currentPageUrl, playOnlineLinkFollowed) {
+    LaunchedEffect(
+        webView,
+        nativeStream,
+        currentPageUrl,
+        playOnlineLinkFollowed,
+        pageLoading,
+        nativeResolveFailed,
+    ) {
         val playerWebView = webView ?: return@LaunchedEffect
-        if (nativeStream != null) return@LaunchedEffect
+        if (nativeStream != null || nativeResolveFailed) return@LaunchedEffect
 
-        while (true) {
+        var secondsWaiting = 0
+        while (nativeStream == null && !nativeResolveFailed && secondsWaiting < 45) {
             if (!playOnlineLinkFollowed) {
                 playerWebView.evaluateJavascript(PORNMZ_PLAY_ONLINE_LINK_JS) { encodedResult ->
                     val targetUrl = runCatching {
                         JSONTokener(encodedResult.orEmpty()).nextValue() as? String
                     }.getOrNull()?.takeIf(::isAllowedPornMzPage)
                         ?: return@evaluateJavascript
+                    if (nativeStream != null) return@evaluateJavascript
                     playOnlineLinkFollowed = true
                     if (targetUrl != playerWebView.url) {
                         playerWebView.loadUrl(targetUrl)
                     }
                 }
             }
+            if (!pageLoading) {
+                playerWebView.evaluateJavascript(PORNMZ_START_PLAYBACK_JS, null)
+            }
             playerWebView.evaluateJavascript(PORNMZ_CURRENT_STREAM_JS) { encodedResult ->
+                if (nativeStream != null || nativeResolveFailed) return@evaluateJavascript
                 val streamUrl = runCatching {
                     JSONTokener(encodedResult.orEmpty()).nextValue() as? String
                 }.getOrNull()?.takeIf(::isNativePlayablePornMzStream)
@@ -297,6 +361,10 @@ fun PornMzPlayerScreen(
                 playerWebView.onPause()
             }
             delay(1_000)
+            secondsWaiting += 1
+        }
+        if (nativeStream == null && !nativeResolveFailed) {
+            nativeResolveFailed = true
         }
     }
 
@@ -370,13 +438,35 @@ fun PornMzPlayerScreen(
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
-                        if (pageLoading) {
+                        if (!nativeResolveFailed) {
+                            Box(
+                                Modifier.fillMaxSize().background(Color.Black),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(36.dp),
+                                        color = Color.White,
+                                    )
+                                    Text(
+                                        "Preparing native playback…",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                }
+                            }
+                        }
+                        if (nativeResolveFailed && pageLoading) {
                             CircularProgressIndicator(
                                 modifier = Modifier.align(Alignment.Center),
                                 color = Color.White,
                             )
                         }
-                        if (pageError) {
+                        if (nativeResolveFailed && pageError) {
                             Text(
                                 "PornMZ could not load this page. Check your connection or complete any verification shown by the site.",
                                 color = Color.White,
