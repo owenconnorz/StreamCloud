@@ -95,6 +95,47 @@ class MiniPlayerGestureTest {
     }
 
     @Test
+    fun shortDownwardSwipeFromBottomCollapsesEvenWhenContentIsScrolled() {
+        assertEquals(
+            true,
+            shouldCollapsePlayerFromBottomSwipe(
+                startY = 800f,
+                surfaceHeight = 1_000f,
+                totalX = 3f,
+                totalY = 20f,
+                minimumDistancePx = 18f,
+                surfaceProgress = 1f,
+            ),
+        )
+    }
+
+    @Test
+    fun bottomSwipeDoesNotTriggerFromUpperAreaOrWhenPlayerIsCollapsed() {
+        assertEquals(
+            false,
+            shouldCollapsePlayerFromBottomSwipe(
+                startY = 500f,
+                surfaceHeight = 1_000f,
+                totalX = 0f,
+                totalY = 30f,
+                minimumDistancePx = 18f,
+                surfaceProgress = 1f,
+            ),
+        )
+        assertEquals(
+            false,
+            shouldCollapsePlayerFromBottomSwipe(
+                startY = 800f,
+                surfaceHeight = 1_000f,
+                totalX = 0f,
+                totalY = 30f,
+                minimumDistancePx = 18f,
+                surfaceProgress = 0f,
+            ),
+        )
+    }
+
+    @Test
     fun downwardSwipeAtMiniAnchorDismissesPlayer() {
         assertEquals(
             true,

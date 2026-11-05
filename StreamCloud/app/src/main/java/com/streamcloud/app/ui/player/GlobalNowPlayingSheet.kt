@@ -30,8 +30,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.awaitEachGesture
+import androidx.compose.ui.input.pointer.awaitFirstDown
+import androidx.compose.ui.input.pointer.awaitPointerEvent
+import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -87,10 +93,14 @@ fun GlobalNowPlayingSheet(
 
     val progress = playerSurfaceState.progress
     if (progress <= 0f) return
+    val latestSurfaceProgress by rememberUpdatedState(progress)
     BackHandler(onBack = playerSurfaceState::collapse)
 
     val npScrollState = rememberScrollState()
     var surfaceHeightPx by remember { mutableStateOf(0) }
+    val bottomSwipeThresholdPx = with(LocalDensity.current) {
+        PLAYER_SURFACE_BOTTOM_SWIPE_DISTANCE_DP.dp.toPx()
+    }
     val latestController by rememberUpdatedState(controller)
     val latestOnDismissPlayback by rememberUpdatedState(onDismissPlayback)
     val settleSurface: (Float) -> Unit = { velocityY ->
@@ -177,6 +187,38 @@ fun GlobalNowPlayingSheet(
             modifier = Modifier
                 .fillMaxSize()
                 .onSizeChanged { surfaceHeightPx = it.height }
+                .pointerInput(playerSurfaceState, bottomSwipeThresholdPx) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val startY = down.position.y
+                        var totalX = 0f
+                        var totalY = 0f
+                        var collapsed = false
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            val delta = change.position - change.previousPosition
+                            totalX += delta.x
+                            totalY += delta.y
+                            if (
+                                !collapsed &&
+                                shouldCollapsePlayerFromBottomSwipe(
+                                    startY = startY,
+                                    surfaceHeight = size.height.toFloat(),
+                                    totalX = totalX,
+                                    totalY = totalY,
+                                    minimumDistancePx = bottomSwipeThresholdPx,
+                                    surfaceProgress = latestSurfaceProgress,
+                                )
+                            ) {
+                                collapsed = true
+                                playerSurfaceState.collapse()
+                            }
+                            if (collapsed) change.consume()
+                            if (!change.pressed) break
+                        }
+                    }
+                }
                 .graphicsLayer {
                     translationY = size.height * (1f - progress)
                 }
