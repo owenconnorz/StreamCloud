@@ -571,6 +571,8 @@ fun NowPlayingShell(
                             .pointerInput(controller) {
                                 while (true) {
                                     var totalX = 0f
+                                    var totalY = 0f
+                                    var horizontalSwipe = false
                                     val widthPx = size.width.toFloat()
                                     awaitPointerEventScope {
                                         awaitFirstDown(requireUnconsumed = false)
@@ -578,28 +580,45 @@ fun NowPlayingShell(
                                             val event = awaitPointerEvent()
                                             val change = event.changes.firstOrNull() ?: break
                                             if (!change.pressed) break
-                                            totalX += (change.position - change.previousPosition).x
-                                            artworkDragX = totalX
-                                            change.consume()
+                                            val delta = change.position - change.previousPosition
+                                            totalX += delta.x
+                                            totalY += delta.y
+                                            if (
+                                                !horizontalSwipe &&
+                                                kotlin.math.abs(totalX) > viewConfiguration.touchSlop &&
+                                                kotlin.math.abs(totalX) > kotlin.math.abs(totalY)
+                                            ) {
+                                                horizontalSwipe = true
+                                            }
+                                            if (horizontalSwipe) {
+                                                artworkDragX = totalX
+                                                change.consume()
+                                            }
                                         }
                                     }
-                                    artworkSwipeX.snapTo(artworkDragX)
-                                    artworkDragX = 0f
-                                    val threshold = widthPx * 0.28f
-                                    when {
-                                        totalX < -threshold -> {
-                                            artworkSwipeX.animateTo(-widthPx, tween(220))
-                                            skipToNext()
-                                            artworkSwipeX.snapTo(widthPx)
-                                            artworkSwipeX.animateTo(0f, tween(300))
+                                    if (horizontalSwipe) {
+                                        artworkSwipeX.snapTo(artworkDragX)
+                                        artworkDragX = 0f
+                                        val threshold = widthPx * 0.28f
+                                        when {
+                                            totalX < -threshold -> {
+                                                artworkSwipeX.animateTo(-widthPx, tween(220))
+                                                skipToNext()
+                                                artworkSwipeX.snapTo(widthPx)
+                                                artworkSwipeX.animateTo(0f, tween(300))
+                                            }
+                                            totalX > threshold -> {
+                                                artworkSwipeX.animateTo(widthPx, tween(220))
+                                                skipToPrevious()
+                                                artworkSwipeX.snapTo(-widthPx)
+                                                artworkSwipeX.animateTo(0f, tween(300))
+                                            }
+                                            else -> artworkSwipeX.animateTo(0f, spring(dampingRatio = 0.65f))
                                         }
-                                        totalX > threshold -> {
-                                            artworkSwipeX.animateTo(widthPx, tween(220))
-                                            skipToPrevious()
-                                            artworkSwipeX.snapTo(-widthPx)
-                                            artworkSwipeX.animateTo(0f, tween(300))
-                                        }
-                                        else -> artworkSwipeX.animateTo(0f, spring(dampingRatio = 0.65f))
+                                    } else {
+                                        // Let vertical artwork gestures reach the sheet's nested-scroll
+                                        // handler so the player can minimize from the album art itself.
+                                        artworkDragX = 0f
                                     }
                                 }
                             },
