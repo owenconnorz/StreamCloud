@@ -73,6 +73,17 @@ class MiniPlayerGestureTest {
     }
 
     @Test
+    fun shortDownwardFlickCollapsesPlayerWithoutLongDrag() {
+        assertEquals(
+            MiniPlayerVerticalAction.SnapBack,
+            settlePlayerSurfaceProgress(
+                progress = 1f,
+                velocityYpxPerMs = PLAYER_SURFACE_FLING_VELOCITY_PX_PER_MS + 0.05f,
+            ),
+        )
+    }
+
+    @Test
     fun downwardSwipeAtMiniAnchorDismissesPlayer() {
         assertEquals(
             true,

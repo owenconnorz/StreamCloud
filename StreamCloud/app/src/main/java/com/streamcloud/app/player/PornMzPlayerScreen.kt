@@ -47,25 +47,47 @@ private data class PornMzNativeStream(
 
 private const val PORNMZ_CURRENT_STREAM_JS = """
 (function() {
-  function activeVideo(doc) {
-    return Array.from(doc.querySelectorAll('video'))
-      .find(function(video) {
-        return !video.paused && video.readyState >= 2;
-      });
+  function videoSource(video) {
+    var source = video.querySelector('source');
+    return video.currentSrc || video.src || (source ? source.src : '') || '';
   }
-  var video = activeVideo(document);
-  if (!video) {
+  function findPlayableVideo(doc) {
+    var videos = Array.from(doc.querySelectorAll('video'));
+    var active = videos.find(function(video) {
+      return !video.paused && video.readyState >= 2 && videoSource(video);
+    });
+    if (active) return videoSource(active);
+
+    var candidates = videos
+      .filter(function(video) {
+        return videoSource(video) && videoSource(video).indexOf('blob:') !== 0;
+      })
+      .sort(function(a, b) {
+        function score(video) {
+          var rect = video.getBoundingClientRect();
+          var view = doc.defaultView || window;
+          var style = view.getComputedStyle(video);
+          var visible = rect.width > 0 && rect.height > 0 &&
+            style.visibility !== 'hidden' && style.display !== 'none';
+          var area = Math.min(rect.width * rect.height, 1000000);
+          return (visible ? 10000000 : 0) +
+            (video.readyState >= 1 ? 1000000 : 0) + area;
+        }
+        return score(b) - score(a);
+      });
+    return candidates.length ? videoSource(candidates[0]) : '';
+  }
+  var streamUrl = findPlayableVideo(document);
+  if (!streamUrl) {
     var frames = document.querySelectorAll('iframe');
-    for (var i = 0; i < frames.length && !video; i++) {
+    for (var i = 0; i < frames.length && !streamUrl; i++) {
       try {
         var frameDoc = frames[i].contentDocument || frames[i].contentWindow.document;
-        if (frameDoc) video = activeVideo(frameDoc);
+        if (frameDoc) streamUrl = findPlayableVideo(frameDoc);
       } catch (ignored) {}
     }
   }
-  if (!video) return '';
-  var source = video.querySelector('source');
-  return video.currentSrc || (source ? source.src : '') || '';
+  return streamUrl || '';
 })()
 """
 
@@ -108,9 +130,9 @@ private const val PORNMZ_PLAY_ONLINE_LINK_JS = """
 """
 
 /**
- * Loads the provider's own video page and player. Top-level navigation stays on
- * PornMZ; HTTPS subframes remain available for the provider's embedded player
- * and verification widgets.
+ * Prefers StreamCloud's native player whenever PornMZ exposes a direct HTTPS
+ * video source. The provider page remains available as a fallback when its
+ * player does not expose a source to the WebView.
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable

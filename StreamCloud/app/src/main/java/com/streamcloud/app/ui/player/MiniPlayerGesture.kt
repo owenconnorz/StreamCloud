@@ -10,7 +10,9 @@ import kotlin.math.max
 internal const val SWIPE_HORIZONTAL_SEEK_THRESHOLD_PX = 50f
 internal const val SWIPE_HORIZONTAL_AUTO_THRESHOLD_PX = 400f
 internal const val SWIPE_HORIZONTAL_VELOCITY_THRESHOLD_PX_PER_MS = 2.5f
-internal const val PLAYER_SURFACE_FLING_VELOCITY_PX_PER_MS = 1.2f
+// Treat a deliberate short flick as a settle gesture instead of requiring a
+// long drag across much of the screen.
+internal const val PLAYER_SURFACE_FLING_VELOCITY_PX_PER_MS = 0.45f
 internal const val MINI_PLAYER_DISMISS_THRESHOLD_PX = 72f
 // Collapse after the player has followed the finger roughly two-fifths of the
 // way down the screen, so a release just under mid-screen feels intentional.
