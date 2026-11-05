@@ -86,6 +86,72 @@ class BeegRepositoryTest {
     }
 
     @Test
+    fun `parses Beeg homepage recommendations as safe tags with thumbnails`() {
+        val tags = BeegRepository.parseRecommendedTags(
+            """
+            [
+              {
+                "id": 26750,
+                "tg_name": "Sweetie Fox",
+                "tg_slug": "SweetieFox",
+                "thumbs": [
+                  {"id": 100485375801667, "crops": [{"id": 1936002}]}
+                ]
+              },
+              {
+                "id": 5,
+                "tg_name": "Bad slug",
+                "tg_slug": "../unsafe",
+                "thumbs": []
+              },
+              {
+                "id": {"unexpected": true},
+                "tg_name": "Malformed record",
+                "tg_slug": "Malformed"
+              },
+              {
+                "id": 26750,
+                "tg_name": "Duplicate",
+                "tg_slug": "SweetieFox",
+                "thumbs": []
+              }
+            ]
+            """.trimIndent(),
+        )
+
+        assertEquals(1, tags.size)
+        assertEquals("Sweetie Fox", tags.single().name)
+        assertEquals("SweetieFox", tags.single().slug)
+        assertEquals(
+            "https://thumbs.externulls.com/photos/100485375801667/to.webp" +
+                "?crop_id=1936002&size_new=112x112",
+            tags.single().thumbnailUrl,
+        )
+    }
+
+    @Test
+    fun `tag video listings use validated tag slug and requested page offset`() {
+        val first = BeegRepository.buildVideoListUrl(listOf("SweetieFox"), page = 1)
+        val next = BeegRepository.buildVideoListUrl(listOf("SweetieFox"), page = 4)
+
+        assertEquals("/tag/videos/sweetiefox", first.encodedPath)
+        assertEquals("0", first.queryParameter("offset"))
+        assertEquals("60", next.queryParameter("offset"))
+    }
+
+    @Test
+    fun `full Beeg page advertises another page for infinite scrolling`() {
+        val records = (1..20).joinToString(",") { id ->
+            """{"file":{"id":$id,"data":[{"cd_column":"sf_name","cd_value":"Video $id"}]}}"""
+        }
+
+        val page = BeegRepository.parseVideoPage("[$records]")
+
+        assertEquals(20, page.items.size)
+        assertTrue(page.hasMore)
+    }
+
+    @Test
     fun `play url response becomes secure Beeg-hosted native stream`() {
         val url = BeegRepository.buildNativeStreamUrl(
             "key=MOvnrjZiJkpBZicVEJyTWA,end=1793814578,limit=10/data=a038903d34.m3u8",

@@ -10,6 +10,7 @@ import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.EpornerApi
 import com.streamcloud.app.data.api.EpornerCategory
 import com.streamcloud.app.data.api.BeegRepository
+import com.streamcloud.app.data.api.BeegTag
 import com.streamcloud.app.data.api.RedditAdultRepository
 import com.streamcloud.app.data.api.RedditAuthRequiredException
 import com.streamcloud.app.data.api.RedditRateLimitException
@@ -59,6 +60,10 @@ data class AdultState(
     val loadingXHamsterPopularCategories: Boolean = false,
     val xhamsterPopularCategoryError: String? = null,
     val selectedXHamsterCategory: XHamsterCategory? = null,
+    val beegTags: List<BeegTag> = emptyList(),
+    val loadingBeegTags: Boolean = false,
+    val beegTagError: String? = null,
+    val selectedBeegTag: BeegTag? = null,
     val xhamsterOrientation: XHamsterOrientation = XHamsterOrientation.STRAIGHT,
     val pornhubHomeSections: List<PornhubHomeSection> = emptyList(),
     val pornhubHome: Boolean = false,
@@ -96,6 +101,7 @@ class AdultViewModel(
     private var loadMoreJob: Job? = null
     private var currentQuery: String = ""
     private var currentXHamsterCategoryPath: String? = null
+    private var currentBeegTag: BeegTag? = null
     private var currentXHamsterOrientation: XHamsterOrientation = XHamsterOrientation.STRAIGHT
     private var currentOrder: String = "most-popular"
     private var redditAfter: String? = null
@@ -155,6 +161,7 @@ class AdultViewModel(
                     _state.value.items.isEmpty() &&
                     !_state.value.loading
                 ) {
+                    loadBeegTags()
                     fetchBeegPage(query = currentQuery, page = 1, replace = true)
                 }
                 if (
@@ -244,6 +251,7 @@ class AdultViewModel(
                 AdultSource.Beeg -> {
                     currentQuery = ""
                     if (ageGateConfirmed) {
+                        loadBeegTags()
                         fetchBeegPage(query = "", page = 1, replace = true)
                     }
                 }
@@ -264,6 +272,7 @@ class AdultViewModel(
     fun setSource(source: AdultSource) {
         if (_state.value.source == source) return
         currentXHamsterCategoryPath = null
+        currentBeegTag = null
         searchJob?.cancel(); searchJob = null
         loadMoreJob?.cancel(); loadMoreJob = null
         _state.update {
@@ -280,6 +289,8 @@ class AdultViewModel(
                 selectedCategory = null,
                 categorySearch   = "",
                 selectedXHamsterCategory = null,
+                selectedBeegTag = null,
+                beegTagError = null,
             )
         }
         viewModelScope.launch { settings.setAdultSource(source.name) }
@@ -327,6 +338,7 @@ class AdultViewModel(
             AdultSource.Beeg -> {
                 currentQuery = ""
                 viewModelScope.launch {
+                    loadBeegTags()
                     fetchBeegPage(query = "", page = 1, replace = true)
                 }
             }
@@ -428,6 +440,7 @@ class AdultViewModel(
         if (_state.value.source == AdultSource.Beeg) {
             val requestedQuery = query.trim()
             currentQuery = requestedQuery
+            currentBeegTag = null
             searchJob?.cancel()
             loadMoreJob?.cancel()
             loadMoreJob = null
@@ -438,6 +451,7 @@ class AdultViewModel(
                     currentPage = 1,
                     hasMore = true,
                     error = null,
+                    selectedBeegTag = null,
                 )
             }
             searchJob = viewModelScope.launch {
@@ -741,6 +755,29 @@ class AdultViewModel(
         }
     }
 
+    fun selectBeegTag(tag: BeegTag?) {
+        currentBeegTag = tag
+        currentQuery = ""
+        searchJob?.cancel()
+        searchJob = null
+        loadMoreJob?.cancel()
+        loadMoreJob = null
+        _state.update {
+            it.copy(
+                items = emptyList(),
+                currentPage = 1,
+                hasMore = true,
+                loading = false,
+                loadingMore = false,
+                error = null,
+                selectedBeegTag = tag,
+            )
+        }
+        searchJob = viewModelScope.launch {
+            fetchBeegPage(query = "", page = 1, replace = true)
+        }
+    }
+
     fun setXHamsterOrientation(orientation: XHamsterOrientation) {
         if (currentXHamsterOrientation == orientation) return
         currentXHamsterOrientation = orientation
@@ -795,6 +832,35 @@ class AdultViewModel(
                     pornhubCategories = categories,
                     loadingPornhubCategories = false,
                 )
+            }
+        }
+    }
+
+    fun loadBeegTags() {
+        if (_state.value.source != AdultSource.Beeg ||
+            _state.value.loadingBeegTags ||
+            _state.value.beegTags.isNotEmpty()
+        ) return
+        viewModelScope.launch {
+            _state.update { it.copy(loadingBeegTags = true, beegTagError = null) }
+            try {
+                val tags = BeegRepository.fetchRecommendedTags()
+                _state.update {
+                    it.copy(
+                        beegTags = tags,
+                        loadingBeegTags = false,
+                        beegTagError = if (tags.isEmpty()) "Beeg did not return any categories." else null,
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        loadingBeegTags = false,
+                        beegTagError = "Could not load Beeg categories: ${e.message}",
+                    )
+                }
             }
         }
     }
@@ -1093,6 +1159,7 @@ class AdultViewModel(
         page: Int,
         replace: Boolean,
     ) {
+        val requestedTagSlug = currentBeegTag?.slug
         if (replace) {
             _state.update { it.copy(loading = true, loadingMore = false, error = null) }
         } else {
@@ -1100,8 +1167,16 @@ class AdultViewModel(
         }
 
         try {
-            val result = BeegRepository.fetchPage(query = query, page = page)
-            if (_state.value.source != AdultSource.Beeg || currentQuery != query) return
+            val result = BeegRepository.fetchPage(
+                query = query,
+                page = page,
+                tagSlug = requestedTagSlug,
+            )
+            if (
+                _state.value.source != AdultSource.Beeg ||
+                currentQuery != query ||
+                currentBeegTag?.slug != requestedTagSlug
+            ) return
 
             val currentItems = if (replace) emptyList() else _state.value.items
             val currentIds = currentItems.mapTo(hashSetOf()) { it.id }
@@ -1119,12 +1194,16 @@ class AdultViewModel(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (_state.value.source != AdultSource.Beeg || currentQuery != query) return
+            if (
+                _state.value.source != AdultSource.Beeg ||
+                currentQuery != query ||
+                currentBeegTag?.slug != requestedTagSlug
+            ) return
             _state.update {
                 it.copy(
                     loading = false,
                     loadingMore = false,
-                    hasMore = false,
+                    hasMore = !replace,
                     error = "Beeg unavailable: ${e.message}",
                 )
             }

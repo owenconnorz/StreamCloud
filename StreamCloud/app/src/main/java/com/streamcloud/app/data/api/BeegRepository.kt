@@ -10,6 +10,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -35,6 +36,13 @@ data class BeegPage(
     val hasMore: Boolean,
 )
 
+data class BeegTag(
+    val id: String,
+    val name: String,
+    val slug: String,
+    val thumbnailUrl: String?,
+)
+
 data class BeegResolvedPlayback(
     val url: String,
     val headers: Map<String, String>,
@@ -51,6 +59,7 @@ object BeegRepository {
     private const val VIDEO_PAGE_BASE_URL = "https://beeg.com/"
     private const val VIDEO_STREAM_BASE_URL = "https://video.beeg.com/"
     private const val THUMBNAIL_BASE_URL = "https://thumbs.externulls.com"
+    private const val TAG_THUMBNAIL_BASE_URL = "https://thumbs.externulls.com/photos"
     private const val PAGE_SIZE = 20
     private const val SEARCH_RESULT_LIMIT = 10
     private const val MAX_SEARCH_TAGS = 5
@@ -181,13 +190,16 @@ object BeegRepository {
                 ?.let { put("Cookie", it) }
         }
 
-    suspend fun fetchPage(query: String, page: Int): BeegPage {
+    suspend fun fetchPage(query: String, page: Int, tagSlug: String? = null): BeegPage {
         require(page > 0) { "Page must be positive." }
         val safeQuery = query.trim()
-        val tags = if (safeQuery.isBlank()) {
-            listOf("index")
-        } else {
-            searchTags(safeQuery)
+        val safeTagSlug = tagSlug
+            ?.trim()
+            ?.takeIf { it.matches(TAG_SLUG_PATTERN) }
+        val tags = when {
+            safeTagSlug != null -> listOf(safeTagSlug)
+            safeQuery.isBlank() -> listOf("index")
+            else -> searchTags(safeQuery)
         }
         if (tags.isEmpty()) return BeegPage(emptyList(), hasMore = false)
 
@@ -231,6 +243,40 @@ object BeegRepository {
         }
     }
 
+    suspend fun fetchRecommendedTags(): List<BeegTag> = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(
+                STORE_URL.toHttpUrl().newBuilder()
+                    .addPathSegment("tag")
+                    .addPathSegment("recommends")
+                    .addQueryParameter("slug", "index")
+                    .build(),
+            )
+            .header("Accept", "application/json")
+            .header("Origin", "https://beeg.com")
+            .header("Referer", "https://beeg.com/")
+            .header("User-Agent", "StreamCloud Android")
+            .get()
+            .build()
+
+        httpClient.newCall(request).execute().use { response ->
+            if (response.code == 429) {
+                throw IOException("Beeg is rate-limiting category requests. Try again shortly.")
+            }
+            if (response.code == 403) {
+                throw IOException(
+                    "Beeg requires browser verification. Open Beeg's official page and try again.",
+                )
+            }
+            if (!response.isSuccessful) {
+                throw IOException("Beeg returned HTTP ${response.code} while loading categories.")
+            }
+            val body = response.body?.string()
+                ?: throw IOException("Beeg returned an empty category list.")
+            parseRecommendedTags(body)
+        }
+    }
+
     internal fun buildVideoListUrl(tags: List<String>, page: Int): HttpUrl {
         require(page > 0) { "Page must be positive." }
         val safeTags = tags.distinct().filter { it.matches(TAG_SLUG_PATTERN) }
@@ -243,6 +289,23 @@ object BeegRepository {
             .addQueryParameter("offset", ((page - 1) * PAGE_SIZE).toString())
             .addQueryParameter("limit", PAGE_SIZE.toString())
             .build()
+    }
+
+    internal fun parseRecommendedTags(body: String): List<BeegTag> {
+        val records = runCatching { json.parseToJsonElement(body).jsonArray }
+            .getOrElse { throw IOException("Beeg returned an unreadable category list.", it) }
+        return records.mapNotNull(::toBeegTag).distinctBy(BeegTag::slug)
+    }
+
+    internal fun buildTagThumbnailUrl(photoId: Long, cropId: Long?): String? {
+        if (photoId <= 0 || (cropId != null && cropId <= 0)) return null
+        val url = "$TAG_THUMBNAIL_BASE_URL/$photoId/to.webp".toHttpUrl().newBuilder()
+            .apply {
+                cropId?.let { addQueryParameter("crop_id", it.toString()) }
+                addQueryParameter("size_new", "112x112")
+            }
+            .build()
+        return url.toString()
     }
 
     internal fun parseSearchTags(response: String): List<String> {
@@ -378,6 +441,37 @@ object BeegRepository {
                 ?.get("fc_st_views")
                 ?.jsonPrimitive
                 ?.contentOrNull,
+        )
+    }
+
+    private fun toBeegTag(record: kotlinx.serialization.json.JsonElement): BeegTag? {
+        val tag = record as? JsonObject ?: return null
+        val id = (tag["id"] as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 } ?: return null
+        val name = (tag["tg_name"] as? JsonPrimitive)?.contentOrNull
+            ?.trim()
+            ?.takeIf(String::isNotBlank)
+            ?: return null
+        val slug = (tag["tg_slug"] as? JsonPrimitive)?.contentOrNull
+            ?.trim()
+            ?.takeIf { it.matches(TAG_SLUG_PATTERN) }
+            ?: return null
+
+        val firstThumb = (tag["thumbs"] as? JsonArray)
+            ?.firstOrNull() as? JsonObject
+        val photoId = (firstThumb?.get("id") as? JsonPrimitive)
+            ?.longOrNull
+            ?.takeIf { it > 0 }
+        val firstCrop = (firstThumb?.get("crops") as? JsonArray)
+            ?.firstOrNull() as? JsonObject
+        val cropId = (firstCrop?.get("id") as? JsonPrimitive)
+            ?.longOrNull
+            ?.takeIf { it > 0 }
+
+        return BeegTag(
+            id = id.toString(),
+            name = name,
+            slug = slug,
+            thumbnailUrl = photoId?.let { buildTagThumbnailUrl(it, cropId) },
         )
     }
 

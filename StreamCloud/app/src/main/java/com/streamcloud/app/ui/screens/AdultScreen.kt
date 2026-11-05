@@ -128,6 +128,7 @@ fun AdultScreen(
     var showCategoryPicker by remember { mutableStateOf(false) }
     var showAllPornhubCategories by remember { mutableStateOf(false) }
     var showAllXHamsterCategories by remember { mutableStateOf(false) }
+    var showAllBeegCategories by remember { mutableStateOf(false) }
     var showProviderCategoriesUnavailable by remember { mutableStateOf(false) }
     var showProviderPicker by remember { mutableStateOf(false) }
     var xFreeHeaderVisible by remember { mutableStateOf(true) }
@@ -140,6 +141,7 @@ fun AdultScreen(
             !showCategoryPicker &&
             !showAllPornhubCategories &&
             !showAllXHamsterCategories &&
+            !showAllBeegCategories &&
             !showProviderPicker &&
             !showProviderCategoriesUnavailable &&
             !showPornhubShorties &&
@@ -173,6 +175,9 @@ fun AdultScreen(
     BackHandler(enabled = showAllXHamsterCategories) {
         showAllXHamsterCategories = false
     }
+    BackHandler(enabled = showAllBeegCategories) {
+        showAllBeegCategories = false
+    }
     BackHandler(enabled = showProviderPicker) {
         showProviderPicker = false
     }
@@ -199,6 +204,7 @@ fun AdultScreen(
                 showCategoryPicker = false
                 showAllPornhubCategories = false
                 showAllXHamsterCategories = false
+                showAllBeegCategories = false
                 showProviderCategoriesUnavailable = false
                 showProviderPicker = false
             },
@@ -206,14 +212,26 @@ fun AdultScreen(
         return
     }
 
-    // Infinite scroll for Eporner grid: trigger loadMore when near the bottom
-    LaunchedEffect(gridState, state.source, state.pornhubHome) {
+    // Infinite scroll for provider grids: load another page near the bottom.
+    LaunchedEffect(
+        gridState,
+        state.source,
+        state.pornhubHome,
+        showAllBeegCategories,
+        state.items.size,
+        state.loading,
+        state.loadingMore,
+        state.hasMore,
+        state.error,
+    ) {
         snapshotFlow {
             val total = gridState.layoutInfo.totalItemsCount
             val last  = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
             total > 0 && last >= total - 6
         }.collect { reachedEnd ->
             if (reachedEnd &&
+                !showAllBeegCategories &&
+                state.error == null &&
                 (state.source == AdultSource.Eporner ||
                     state.source == AdultSource.XHamster ||
                     state.source == AdultSource.XFree ||
@@ -378,6 +396,10 @@ fun AdultScreen(
                                 vm.loadXHamsterCategories()
                                 showAllXHamsterCategories = true
                             }
+                            AdultSource.Beeg -> {
+                                vm.loadBeegTags()
+                                showAllBeegCategories = true
+                            }
                             else -> showProviderCategoriesUnavailable = true
                         }
                     },
@@ -469,6 +491,20 @@ fun AdultScreen(
                     }
                 },
             )
+        } else if (state.source == AdultSource.Beeg && showAllBeegCategories) {
+            BeegCategoriesPage(
+                tags = state.beegTags,
+                loading = state.loadingBeegTags,
+                error = state.beegTagError,
+                onBack = { showAllBeegCategories = false },
+                onRetry = { vm.loadBeegTags() },
+                onSelect = { tag ->
+                    vm.selectBeegTag(tag)
+                    query = ""
+                    showAllBeegCategories = false
+                },
+                modifier = Modifier.fillMaxWidth().weight(1f),
+            )
         } else if (state.source == AdultSource.XHamster && showAllXHamsterCategories) {
             XHamsterCategoriesPage(
                 categories = state.xhamsterCategories,
@@ -553,12 +589,15 @@ fun AdultScreen(
 
                 (state.selectedCategory?.takeIf { state.source == AdultSource.Eporner }
                     ?.let { it.title }
-                    ?: state.selectedXHamsterCategory?.title)?.let { categoryTitle ->
+                    ?: state.selectedXHamsterCategory?.title
+                    ?: state.selectedBeegTag?.name)?.let { categoryTitle ->
                     InputChip(
                         selected  = true,
                         onClick   = {
                             if (state.source == AdultSource.XHamster) {
                                 vm.selectXHamsterCategory(null)
+                            } else if (state.source == AdultSource.Beeg) {
+                                vm.selectBeegTag(null)
                             } else {
                                 vm.selectCategory(null)
                             }
@@ -575,6 +614,7 @@ fun AdultScreen(
             val activeProviderCategory =
                 state.selectedCategory?.takeIf { state.source == AdultSource.Eporner }?.title
                     ?: state.selectedXHamsterCategory?.title
+                    ?: state.selectedBeegTag?.name
             if (cinematicHomeStyle && activeProviderCategory != null) {
                 Row(
                     Modifier
@@ -586,6 +626,7 @@ fun AdultScreen(
                         selected = true,
                         onClick = {
                             if (state.source == AdultSource.XHamster) vm.selectXHamsterCategory(null)
+                            else if (state.source == AdultSource.Beeg) vm.selectBeegTag(null)
                             else vm.selectCategory(null)
                             query = ""
                         },
@@ -654,6 +695,25 @@ fun AdultScreen(
                         )
                     }
                 }
+                if (
+                    state.source == AdultSource.Beeg &&
+                    query.isBlank() &&
+                    state.selectedBeegTag == null
+                ) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        BeegHomeDiscovery(
+                            tags = state.beegTags,
+                            loading = state.loadingBeegTags,
+                            error = state.beegTagError,
+                            onViewAll = {
+                                vm.loadBeegTags()
+                                showAllBeegCategories = true
+                            },
+                            onRetry = vm::loadBeegTags,
+                            onSelect = vm::selectBeegTag,
+                        )
+                    }
+                }
                 items(state.items, key = { it.id }) { v ->
                     AdultCard(v) { detailItem = v }
                 }
@@ -674,6 +734,21 @@ fun AdultScreen(
                             contentAlignment = Alignment.Center,
                         ) {
                             CircularProgressIndicator(strokeWidth = 2.dp)
+                        }
+                    }
+                }
+                if (
+                    state.source == AdultSource.Beeg &&
+                    state.items.isNotEmpty() &&
+                    state.hasMore &&
+                    state.error != null
+                ) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        TextButton(
+                            onClick = vm::loadMore,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Retry loading more")
                         }
                     }
                 }
