@@ -1621,6 +1621,10 @@ fun StreamCloudApp(
                                       .orEmpty()
                                   val t = URLEncoder.encode(itemName, "UTF-8")
                                   when (provider.lowercase()) {
+                                       "porn4days", "pornhd3x" -> {
+                                           val u = URLEncoder.encode(itemUrl, "UTF-8")
+                                           nav.navigate("player/adult-web/${provider.lowercase()}/$u/$t")
+                                       }
                                        "xnxx" -> {
                                            val u = URLEncoder.encode(itemUrl, "UTF-8")
                                            nav.navigate("player/xnxx/$u/$t")
@@ -1756,7 +1760,19 @@ fun StreamCloudApp(
                     AdultScreen(
                         onPlay = { videoId, embed, title ->
                             val t = URLEncoder.encode(title, "UTF-8")
-                            if (videoId.startsWith("pornmz://")) {
+                            if (
+                                videoId.startsWith("porn4days://") ||
+                                videoId.startsWith("pornhd3x://")
+                            ) {
+                                val source = videoId.substringBefore("://")
+                                val u = URLEncoder.encode(embed, "UTF-8")
+                                val destination = if (videoId.substringAfter("://") == "home") {
+                                    "player/adult-webview"
+                                } else {
+                                    "player/adult-web"
+                                }
+                                nav.navigate("$destination/$source/$u/$t")
+                            } else if (videoId.startsWith("pornmz://")) {
                                 val u = URLEncoder.encode(embed, "UTF-8")
                                 nav.navigate("player/pornmz/$u/$t")
                             } else if (videoId.startsWith("beeg://")) {
@@ -1814,7 +1830,19 @@ fun StreamCloudApp(
                         onBack = { nav.popBackStack() },
                         onPlay = { videoId, embed, title ->
                             val t = URLEncoder.encode(title, "UTF-8")
-                            if (videoId.startsWith("pornmz://")) {
+                            if (
+                                videoId.startsWith("porn4days://") ||
+                                videoId.startsWith("pornhd3x://")
+                            ) {
+                                val source = videoId.substringBefore("://")
+                                val u = URLEncoder.encode(embed, "UTF-8")
+                                val destination = if (videoId.substringAfter("://") == "home") {
+                                    "player/adult-webview"
+                                } else {
+                                    "player/adult-web"
+                                }
+                                nav.navigate("$destination/$source/$u/$t")
+                            } else if (videoId.startsWith("pornmz://")) {
                                 val u = URLEncoder.encode(embed, "UTF-8")
                                 nav.navigate("player/pornmz/$u/$t")
                             } else if (videoId.startsWith("beeg://")) {
@@ -1843,6 +1871,49 @@ fun StreamCloudApp(
                         },
                     )
                 }
+                composable(
+                    "player/adult-web/{source}/{url}/{title}",
+                    arguments = listOf(
+                        navArgument("source") { type = NavType.StringType },
+                        navArgument("url") { type = NavType.StringType },
+                        navArgument("title") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val source = URLDecoder.decode(entry.arguments!!.getString("source")!!, "UTF-8")
+                    val url = URLDecoder.decode(entry.arguments!!.getString("url")!!, "UTF-8")
+                    val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
+                    com.streamcloud.app.player.AdultWebsitePlayerScreen(
+                        sourceKey = source,
+                        pageUrl = url,
+                        title = title,
+                        onBack = { nav.popBackStack() },
+                        onOpenOfficialPage = {
+                            val encodedUrl = URLEncoder.encode(url, "UTF-8")
+                            val encodedTitle = URLEncoder.encode(title, "UTF-8")
+                            nav.navigate("player/adult-webview/$source/$encodedUrl/$encodedTitle")
+                        },
+                    )
+                }
+
+                composable(
+                    "player/adult-webview/{source}/{url}/{title}",
+                    arguments = listOf(
+                        navArgument("source") { type = NavType.StringType },
+                        navArgument("url") { type = NavType.StringType },
+                        navArgument("title") { type = NavType.StringType },
+                    ),
+                ) { entry ->
+                    val source = URLDecoder.decode(entry.arguments!!.getString("source")!!, "UTF-8")
+                    val url = URLDecoder.decode(entry.arguments!!.getString("url")!!, "UTF-8")
+                    val title = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
+                    com.streamcloud.app.player.AdultWebsiteBrowserScreen(
+                        sourceKey = source,
+                        pageUrl = url,
+                        title = title,
+                        onBack = { nav.popBackStack() },
+                    )
+                }
+
                 composable(
                     "player/xhamster/{id}/{title}?download={download}",
                     arguments = listOf(

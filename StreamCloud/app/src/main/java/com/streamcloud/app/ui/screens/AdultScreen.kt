@@ -71,6 +71,7 @@ import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.streamcloud.app.data.api.AdultItem
 import com.streamcloud.app.data.api.AdultSource
+import com.streamcloud.app.data.api.AdultWebsiteRepository
 import com.streamcloud.app.data.api.EpornerCategory
 import com.streamcloud.app.data.api.PornhubCategory
 import com.streamcloud.app.data.api.XHamsterCategory
@@ -151,7 +152,8 @@ fun AdultScreen(
                 AdultSource.Eporner -> state.selectedCategory == null && query.isBlank()
                 AdultSource.XHamster, AdultSource.Reddit, AdultSource.RedGifs,
                 AdultSource.XFree, AdultSource.PornMz, AdultSource.Beeg,
-                AdultSource.Xnxx -> false
+                AdultSource.Xnxx, AdultSource.Porn4Days,
+                AdultSource.PornHd3x -> false
             }
 
     LaunchedEffect(showAdultHomeNavigation) {
@@ -238,6 +240,8 @@ fun AdultScreen(
                     state.source == AdultSource.PornMz ||
                     state.source == AdultSource.Beeg ||
                     state.source == AdultSource.Xnxx ||
+                    state.source == AdultSource.Porn4Days ||
+                    state.source == AdultSource.PornHd3x ||
                     (state.source == AdultSource.Pornhub && !state.pornhubHome))
             ) {
                 vm.loadMore()
@@ -367,6 +371,8 @@ fun AdultScreen(
                     AdultSource.PornMz,
                     AdultSource.Beeg,
                     AdultSource.Xnxx,
+                    AdultSource.Porn4Days,
+                    AdultSource.PornHd3x,
                 )
             ) {
                 IconButton(
@@ -438,6 +444,8 @@ fun AdultScreen(
                     AdultSource.PornMz,
                     AdultSource.Beeg,
                     AdultSource.Xnxx,
+                    AdultSource.Porn4Days,
+                    AdultSource.PornHd3x,
                 )
             ) {
                 Spacer(Modifier.width(8.dp))
@@ -643,7 +651,34 @@ fun AdultScreen(
             Spacer(Modifier.height(4.dp))
 
             state.error?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(20.dp))
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(it, color = MaterialTheme.colorScheme.error)
+                    if (AdultWebsiteRepository.supports(state.source)) {
+                        Button(
+                            onClick = {
+                                val providerKey = if (state.source == AdultSource.Porn4Days) {
+                                    "porn4days"
+                                } else {
+                                    "pornhd3x"
+                                }
+                                onPlay(
+                                    "$providerKey://home",
+                                    AdultWebsiteRepository.buildPageUrl(
+                                        state.source,
+                                        query = "",
+                                        page = 1,
+                                    ),
+                                    state.source.label,
+                                )
+                            },
+                        ) {
+                            Text("Open provider site")
+                        }
+                    }
+                }
             }
 
             LazyVerticalGrid(
@@ -816,6 +851,10 @@ fun AdultScreen(
                 onPlay("beeg://${item.id}", item.embedUrl.orEmpty(), item.title)
             } else if (item.source == AdultSource.Xnxx) {
                 onPlay("xnxx://${item.id}", item.embedUrl.orEmpty(), item.title)
+            } else if (item.source == AdultSource.Porn4Days) {
+                onPlay("porn4days://${item.id}", item.embedUrl.orEmpty(), item.title)
+            } else if (item.source == AdultSource.PornHd3x) {
+                onPlay("pornhd3x://${item.id}", item.embedUrl.orEmpty(), item.title)
             } else {
                 onPlay(item.epornerId ?: item.id, item.embedUrl.orEmpty(), item.title)
             }
@@ -829,6 +868,8 @@ fun AdultScreen(
                 AdultSource.PornMz,
                 AdultSource.Beeg,
                 AdultSource.Xnxx,
+                AdultSource.Porn4Days,
+                AdultSource.PornHd3x,
             )
         ) {
             AdultVideoDetailPage(
@@ -836,7 +877,14 @@ fun AdultScreen(
                 context = context,
                 onPlay = playItem,
                 onDismiss = dismissItem,
-                onDownload = if (item.source == AdultSource.XFree || item.source == AdultSource.PornMz || item.source == AdultSource.Beeg || item.source == AdultSource.Xnxx) {
+                onDownload = if (
+                    item.source == AdultSource.XFree ||
+                    item.source == AdultSource.PornMz ||
+                    item.source == AdultSource.Beeg ||
+                    item.source == AdultSource.Xnxx ||
+                    item.source == AdultSource.Porn4Days ||
+                    item.source == AdultSource.PornHd3x
+                ) {
                     null
                 } else {
                     {
@@ -872,6 +920,8 @@ private fun AdultProviderPicker(
     val providers = listOf(
         AdultSource.Eporner,
         AdultSource.Beeg,
+        AdultSource.Porn4Days,
+        AdultSource.PornHd3x,
         AdultSource.Xnxx,
         AdultSource.PornMz,
         AdultSource.Pornhub,
@@ -992,6 +1042,18 @@ private fun ProviderBadge(provider: AdultSource) {
             background = Color(0xFF25262A),
             fallbackForeground = Color(0xFFFFB300),
             fallbackLabel = "E",
+        )
+        AdultSource.Porn4Days -> ProviderBrand(
+            logoUrl = "https://porn4days.pw/img/icon/icon.png",
+            background = Color(0xFF202020),
+            fallbackForeground = Color(0xFFFF7043),
+            fallbackLabel = "P4D",
+        )
+        AdultSource.PornHd3x -> ProviderBrand(
+            logoUrl = "https://www.pornhd3x.tv/favicon.ico",
+            background = Color(0xFF202020),
+            fallbackForeground = Color(0xFFFF7043),
+            fallbackLabel = "HD",
         )
         AdultSource.Beeg -> ProviderBrand(
             logoUrl = "https://beeg.com/assets/favicon.svg",
@@ -1116,7 +1178,15 @@ fun AdultSearchScreen(
         }.collect { reachedEnd ->
             if (reachedEnd &&
                 state.source == source &&
-                source in setOf(AdultSource.XHamster, AdultSource.XFree, AdultSource.PornMz, AdultSource.Beeg, AdultSource.Xnxx)
+                source in setOf(
+                    AdultSource.XHamster,
+                    AdultSource.XFree,
+                    AdultSource.PornMz,
+                    AdultSource.Beeg,
+                    AdultSource.Xnxx,
+                    AdultSource.Porn4Days,
+                    AdultSource.PornHd3x,
+                )
             ) {
                 vm.loadMore()
             }
@@ -1199,11 +1269,30 @@ fun AdultSearchScreen(
         }
 
         state.error?.let {
-            Text(
-                it,
-                color = MaterialTheme.colorScheme.error,
+            Column(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-            )
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(it, color = MaterialTheme.colorScheme.error)
+                if (AdultWebsiteRepository.supports(source)) {
+                    Button(
+                        onClick = {
+                            val providerKey = if (source == AdultSource.Porn4Days) {
+                                "porn4days"
+                            } else {
+                                "pornhd3x"
+                            }
+                            onPlay(
+                                "$providerKey://home",
+                                AdultWebsiteRepository.buildPageUrl(source, query = "", page = 1),
+                                source.label,
+                            )
+                        },
+                    ) {
+                        Text("Open provider site")
+                    }
+                }
+            }
         }
 
         LazyVerticalGrid(
@@ -1229,6 +1318,8 @@ fun AdultSearchScreen(
                         AdultSource.XFree -> "xfree://${item.id}"
                         AdultSource.Beeg -> "beeg://${item.id}"
                         AdultSource.Xnxx -> "xnxx://${item.id}"
+                        AdultSource.Porn4Days -> "porn4days://${item.id}"
+                        AdultSource.PornHd3x -> "pornhd3x://${item.id}"
                         else -> item.epornerId ?: item.id
                     }
                     onPlay(videoId, item.embedUrl.orEmpty(), item.title)
@@ -2428,6 +2519,8 @@ private fun AdultCard(v: AdultItem, onClick: () -> Unit) {
             AdultSource.Pornhub -> "https://www.pornhub.com/"
             AdultSource.Beeg -> "https://beeg.com/"
             AdultSource.Xnxx -> "https://www.xnxx.com/"
+            AdultSource.Porn4Days -> "https://porn4days.pw/"
+            AdultSource.PornHd3x -> "https://www.pornhd3x.tv/"
             else -> null
         }
         if (referer != null && !v.thumbnail.isNullOrBlank()) {
@@ -2516,7 +2609,9 @@ private fun AdultCard(v: AdultItem, onClick: () -> Unit) {
                 v.source != AdultSource.XFree &&
                 v.source != AdultSource.PornMz &&
                 v.source != AdultSource.Beeg &&
-                v.source != AdultSource.Xnxx
+                v.source != AdultSource.Xnxx &&
+                v.source != AdultSource.Porn4Days &&
+                v.source != AdultSource.PornHd3x
             ) {
                 Icon(
                     Icons.Default.PlayCircle,

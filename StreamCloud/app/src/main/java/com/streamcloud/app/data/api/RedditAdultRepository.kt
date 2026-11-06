@@ -47,6 +47,8 @@ enum class AdultSource(val label: String) {
     Reddit("Reddit"),
     RedGifs("RedGifs"),
     XFree("XFree"),
+    Porn4Days("Porn4Days"),
+    PornHd3x("PornHD3x"),
 }
 
 object RedditAdultRepository {
