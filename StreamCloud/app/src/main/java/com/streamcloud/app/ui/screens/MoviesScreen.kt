@@ -53,12 +53,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -252,7 +250,6 @@ fun MoviesScreen(
     )
     val state by vm.state.collectAsState()
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    val focusManager = LocalFocusManager.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val adultGenreScope = rememberCoroutineScope()
     DisposableEffect(lifecycleOwner, vm) {
@@ -1103,33 +1100,16 @@ fun MoviesScreen(
                     }
                     if (!targetFocused) {
                         // A lazy-row target can be detached when the asynchronous handoff runs.
-                        // Restore the source; native fallback is used only for Up into the hero.
+                        // Keep focus on the source rather than letting native focus search skip
+                        // shelves or land on a non-card element.
                         if (sourceListIndex != null) {
                             moviesListState.scrollToItem(sourceListIndex)
                             withFrameNanos { }
                         }
                         val sourceRestored = requestTvHomeRowFocus(sourceRowKey) ||
                             requestTvHomeRowFocus(sourceRowKey, focusFirstItem = true)
-                        if (direction < 0) {
-                            runCatching { focusManager.moveFocus(FocusDirection.Up) }
-                            var visibleDestinationFocused = false
-                            repeat(3) {
-                                withFrameNanos { }
-                                visibleDestinationFocused =
-                                    (tvHomeFocusedRowHasFocus.value &&
-                                        tvHomeFocusedRowKey.value != sourceRowKey) ||
-                                        tvNavHeroHasFocus
-                                if (visibleDestinationFocused) return@repeat
-                            }
-                            if (!visibleDestinationFocused) {
-                                if (!sourceRestored) {
-                                    requestTvHomeRowFocus(sourceRowKey, focusFirstItem = true)
-                                } else {
-                                    requestTvHomeRowFocus(sourceRowKey)
-                                }
-                            }
-                        } else if (!sourceRestored) {
-                            // At the end of the content, keep focus on the current card.
+                        if (!sourceRestored) {
+                            // At a boundary or during lazy composition, keep focus on a real card.
                             requestTvHomeRowFocus(sourceRowKey, focusFirstItem = true)
                         }
                     }
