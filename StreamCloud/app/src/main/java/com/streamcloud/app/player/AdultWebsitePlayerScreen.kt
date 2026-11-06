@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
@@ -149,7 +148,7 @@ fun AdultWebsiteBrowserScreen(
                             settings.domStorageEnabled = true
                             settings.loadsImagesAutomatically = true
                             settings.mediaPlaybackRequiresUserGesture = true
-                            settings.supportMultipleWindows = false
+                            settings.setSupportMultipleWindows(false)
                             settings.allowFileAccess = false
                             settings.allowContentAccess = false
                             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
