@@ -516,6 +516,7 @@ fun MoviesScreen(
     val tvHomeFocusedItemIndices = remember { mutableMapOf<String, Int>() }
     val tvHomeFocusedRowKey = remember { mutableStateOf<String?>(null) }
     val tvHomeFocusedRowHasFocus = remember { mutableStateOf(false) }
+    val tvHomeLastFocusedRowKey = remember { mutableStateOf<String?>(null) }
     val tvHomeFirstGenreFocusRequester = remember { FocusRequester() }
     val tvHomeFirstContinueFocusRequester = remember { FocusRequester() }
     val tvHomeFirstGenreHasFocus = remember { mutableStateOf(false) }
@@ -531,6 +532,7 @@ fun MoviesScreen(
                 ?.let { tvHomeRowParentListIndices[rowKey] = it.index }
             tvHomeFocusedRowKey.value = rowKey
             tvHomeFocusedRowHasFocus.value = true
+            tvHomeLastFocusedRowKey.value = rowKey
         } else if (tvHomeFocusedRowKey.value == rowKey) {
             tvHomeFocusedRowKey.value = null
             tvHomeFocusedRowHasFocus.value = false
@@ -1081,7 +1083,15 @@ fun MoviesScreen(
             val sourceRowKey = activeTvHomeFocusSourceRowKey(
                 focusedRowKey = tvHomeFocusedRowKey.value,
                 rowHasFocus = tvHomeFocusedRowHasFocus.value,
-            ) ?: return false
+                lastFocusedRowKey = tvHomeLastFocusedRowKey.value,
+            ) ?: visibleTvHomeRows()
+                .minByOrNull {
+                    kotlin.math.abs(it.second - moviesListState.firstVisibleItemIndex)
+                }
+                ?.first
+                // The key came from the Movies LazyColumn, so don't pass it to
+                // native focus search even if rows are still being composed.
+                ?: return true
             val sourceListIndex = moviesListState.layoutInfo.visibleItemsInfo
                 .firstOrNull { it.key == sourceRowKey }
                 ?.index
@@ -2335,7 +2345,8 @@ internal fun selectPreviousTvHomeFocusRowBefore(
 internal fun activeTvHomeFocusSourceRowKey(
     focusedRowKey: String?,
     rowHasFocus: Boolean,
-): String? = focusedRowKey?.takeIf { rowHasFocus }
+    lastFocusedRowKey: String? = null,
+): String? = focusedRowKey?.takeIf { rowHasFocus } ?: lastFocusedRowKey
 
 internal fun resolveTvHomeFocusItemIndex(
     focusFirstItem: Boolean,

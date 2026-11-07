@@ -90,6 +90,14 @@ class TvGenreLayoutTest {
         )
         assertNull(activeTvHomeFocusSourceRowKey("home_genres", rowHasFocus = false))
         assertNull(activeTvHomeFocusSourceRowKey(null, rowHasFocus = false))
+        assertEquals(
+            "continue_watching",
+            activeTvHomeFocusSourceRowKey(
+                focusedRowKey = null,
+                rowHasFocus = false,
+                lastFocusedRowKey = "continue_watching",
+            ),
+        )
     }
 
     @Test
