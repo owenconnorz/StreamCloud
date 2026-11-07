@@ -83,10 +83,13 @@ class TvGenreLayoutTest {
     }
 
     @Test
-    fun firstCardHandoffNeverFallsBackToAnInvisibleRowContainer() {
-        assertFalse(shouldFallbackToTvHomeRowFocus(focusFirstItem = true, attempt = 24))
-        assertFalse(shouldFallbackToTvHomeRowFocus(focusFirstItem = false, attempt = 11))
-        assertTrue(shouldFallbackToTvHomeRowFocus(focusFirstItem = false, attempt = 12))
+    fun staleShelfIsNotUsedAsTheSourceAfterFocusLeavesIt() {
+        assertEquals(
+            "home_genres",
+            activeTvHomeFocusSourceRowKey("home_genres", rowHasFocus = true),
+        )
+        assertNull(activeTvHomeFocusSourceRowKey("home_genres", rowHasFocus = false))
+        assertNull(activeTvHomeFocusSourceRowKey(null, rowHasFocus = false))
     }
 
     @Test

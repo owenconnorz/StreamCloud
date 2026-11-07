@@ -532,6 +532,7 @@ fun MoviesScreen(
             tvHomeFocusedRowKey.value = rowKey
             tvHomeFocusedRowHasFocus.value = true
         } else if (tvHomeFocusedRowKey.value == rowKey) {
+            tvHomeFocusedRowKey.value = null
             tvHomeFocusedRowHasFocus.value = false
         }
     }
@@ -888,7 +889,7 @@ fun MoviesScreen(
                 withFrameNanos { }
                 withFrameNanos { }
             }
-            repeat(24) { attempt ->
+            repeat(24) {
                 withFrameNanos { }
                 val rowListState = tvHomeRowListStates[rowKey]
                 val itemIndex = resolveTvHomeFocusItemIndex(
@@ -925,20 +926,11 @@ fun MoviesScreen(
                     isFirstContinue -> tvHomeFirstContinueFocusRequester
                     else -> tvHomeItemFocusRequesters[rowKey]?.get(itemIndex)
                 }
-                val requester = when {
-                    itemRequester != null &&
-                        (focusFirstItem || attempt < TV_HOME_ITEM_FOCUS_RETRY_COUNT) ->
-                        itemRequester
-                    shouldFallbackToTvHomeRowFocus(focusFirstItem, attempt) ->
-                        tvHomeRowFocusRequesters[rowKey]
-                    focusFirstItem -> null
-                    else -> null
-                }
-                if (requester == null) {
+                if (itemRequester == null) {
                     kotlinx.coroutines.delay(16L)
                     return@repeat
                 }
-                runCatching { requester.requestFocus() }
+                runCatching { itemRequester.requestFocus() }
                 withFrameNanos { }
                 val hasFocus = when {
                     isFirstGenre -> tvHomeFirstGenreHasFocus.value
@@ -1085,7 +1077,10 @@ fun MoviesScreen(
 
         fun handleTvHomeSingleVerticalPress(direction: Int): Boolean {
             if (tvHomeFocusTransferInProgress) return true
-            val sourceRowKey = tvHomeFocusedRowKey.value ?: return false
+            val sourceRowKey = activeTvHomeFocusSourceRowKey(
+                focusedRowKey = tvHomeFocusedRowKey.value,
+                rowHasFocus = tvHomeFocusedRowHasFocus.value,
+            ) ?: return false
             val sourceListIndex = moviesListState.layoutInfo.visibleItemsInfo
                 .firstOrNull { it.key == sourceRowKey }
                 ?.index
@@ -2336,6 +2331,11 @@ internal fun selectPreviousTvHomeFocusRowBefore(
     .filter { it.second < sourceListIndex }
     .maxByOrNull { it.second }
 
+internal fun activeTvHomeFocusSourceRowKey(
+    focusedRowKey: String?,
+    rowHasFocus: Boolean,
+): String? = focusedRowKey?.takeIf { rowHasFocus }
+
 internal fun resolveTvHomeFocusItemIndex(
     focusFirstItem: Boolean,
     rememberedItemIndex: Int,
@@ -2358,13 +2358,6 @@ internal fun selectNextTvHomeFocusRowAfter(
     .asSequence()
     .filter { it.second > sourceListIndex }
     .minByOrNull { it.second }
-
-internal const val TV_HOME_ITEM_FOCUS_RETRY_COUNT = 12
-
-internal fun shouldFallbackToTvHomeRowFocus(
-    focusFirstItem: Boolean,
-    attempt: Int,
-): Boolean = !focusFirstItem && attempt >= TV_HOME_ITEM_FOCUS_RETRY_COUNT
 
 internal fun selectTvHomeFastScrollLandingRow(
     visibleFocusRows: List<Pair<String, Int>>,
