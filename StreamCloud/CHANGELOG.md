@@ -1,3 +1,9 @@
+## Hotfix — TV Movies home focus stability
+
+### Android TV
+- **Normal one-step focus movement gets first priority** — Movies home no longer intercepts every Up/Down press before the TV focus system can select an adjacent card.
+- **Custom shelf recovery is a fallback** — it runs only when native focus leaves the key unhandled, helping prevent shelf jumps and a missing selection highlight.
+
 ## Spotify — Download status and playlist controls
 
 ### Spotify
