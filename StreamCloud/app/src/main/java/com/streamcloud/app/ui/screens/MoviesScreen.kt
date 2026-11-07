@@ -968,11 +968,10 @@ fun MoviesScreen(
                 visibleFocusRows = visibleTvHomeRows(),
                 sourceListIndex = sourceListIndex,
             )
-            if (
-                initiallyVisibleTarget != null &&
-                requestTvHomeRowFocus(initiallyVisibleTarget.first)
-            ) {
-                return true
+            if (initiallyVisibleTarget != null) {
+                // A failed focus request must not skip this nearest shelf and
+                // continue to an older one. The caller restores the source card.
+                return requestTvHomeRowFocus(initiallyVisibleTarget.first)
             }
 
             // The previous shelf may have been recycled just outside the small
@@ -986,7 +985,9 @@ fun MoviesScreen(
                     visibleFocusRows = visibleTvHomeRows(),
                     sourceListIndex = sourceListIndex,
                 ) ?: continue
-                if (requestTvHomeRowFocus(target.first)) return true
+                // Stop at the first focusable shelf, even if its card has not
+                // attached yet. Falling through would make one Up press skip rows.
+                return requestTvHomeRowFocus(target.first)
             }
 
             if (hasTvHero) {
