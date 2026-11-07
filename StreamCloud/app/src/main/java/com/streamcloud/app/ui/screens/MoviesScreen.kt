@@ -1126,6 +1126,23 @@ fun MoviesScreen(
             return true
         }
 
+        // Keep this handler on each focused LazyRow as well as the parent list:
+        // D-pad Up from a recycled row child was bypassing the list-level preview.
+        fun handleTvHomeVerticalKeyEvent(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
+            val native = event.nativeKeyEvent
+            val direction = when (native.keyCode) {
+                AndroidKeyEvent.KEYCODE_DPAD_DOWN -> 1
+                AndroidKeyEvent.KEYCODE_DPAD_UP -> -1
+                else -> 0
+            }
+            return when {
+                !isTv || native.action != AndroidKeyEvent.ACTION_DOWN || direction == 0 -> false
+                tvHomeFocusTransferInProgress -> true
+                native.repeatCount > 0 -> true
+                else -> handleTvHomeSingleVerticalPress(direction)
+            }
+        }
+
         if (hasTvHero) {
             TvHeroBackdrop(
                 items = state.heroBanner,
@@ -1341,6 +1358,7 @@ fun MoviesScreen(
                             LazyRow(
                                 state = continueRowState,
                                 modifier = Modifier
+                                    .onPreviewKeyEvent { event -> handleTvHomeVerticalKeyEvent(event) }
                                     .onFocusChanged {
                                         updateTvHomeRowFocus("continue_watching", it.hasFocus)
                                     }
@@ -1466,6 +1484,7 @@ fun MoviesScreen(
                         HomeGenresRow(
                             genres = homeGenres,
                             isTv = isTv,
+                            onVerticalDpad = { event -> handleTvHomeVerticalKeyEvent(event) },
                             rowFocusRequester = rowFocusRequester,
                             listState = genreRowState,
                             onRowFocusChanged = {
@@ -1525,6 +1544,7 @@ fun MoviesScreen(
                             LazyRow(
                                 state = pinnedRowState,
                                 modifier = Modifier
+                                    .onPreviewKeyEvent { event -> handleTvHomeVerticalKeyEvent(event) }
                                     .onFocusChanged { updateTvHomeRowFocus(rowKey, it.hasFocus) }
                                     .tvFocusGroup(
                                         restoreFocusedChild = true,
@@ -1659,6 +1679,7 @@ fun MoviesScreen(
                         LazyRow(
                             state = collectionRowState,
                             modifier = Modifier
+                                .onPreviewKeyEvent { event -> handleTvHomeVerticalKeyEvent(event) }
                                 .onFocusChanged { updateTvHomeRowFocus(rowKey, it.hasFocus) }
                                 .tvFocusGroup(
                                     restoreFocusedChild = true,
@@ -1775,6 +1796,7 @@ fun MoviesScreen(
                         LazyRow(
                             state = stremioRowState,
                             modifier = Modifier
+                                .onPreviewKeyEvent { event -> handleTvHomeVerticalKeyEvent(event) }
                                 .onFocusChanged { updateTvHomeRowFocus(rowKey, it.hasFocus) }
                                 .tvFocusGroup(
                                     restoreFocusedChild = true,
@@ -1938,6 +1960,7 @@ fun MoviesScreen(
                         LazyRow(
                             state = csRowState,
                             modifier = Modifier
+                                .onPreviewKeyEvent { event -> handleTvHomeVerticalKeyEvent(event) }
                                 .onFocusChanged { updateTvHomeRowFocus(rowKey, it.hasFocus) }
                                 .tvFocusGroup(
                                     restoreFocusedChild = true,
@@ -2407,6 +2430,7 @@ private fun rememberTvHomeItemFocusRequester(
 private fun HomeGenresRow(
     genres: List<TvGenreShortcut>,
     isTv: Boolean,
+    onVerticalDpad: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = { false },
     rowFocusRequester: FocusRequester? = null,
     listState: androidx.compose.foundation.lazy.LazyListState,
     onRowFocusChanged: (Boolean) -> Unit = {},
@@ -2439,6 +2463,7 @@ private fun HomeGenresRow(
         LazyRow(
             state = listState,
             modifier = Modifier
+                .onPreviewKeyEvent(onVerticalDpad)
                 .onFocusChanged { onRowFocusChanged(it.hasFocus) }
                 .tvFocusGroup(
                     restoreFocusedChild = true,
