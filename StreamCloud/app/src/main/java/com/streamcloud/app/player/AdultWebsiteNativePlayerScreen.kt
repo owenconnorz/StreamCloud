@@ -57,6 +57,7 @@ fun AdultWebsitePlayerScreen(
     var playback by remember(sourceKey, pageUrl) { mutableStateOf<AdultWebsitePlayback?>(null) }
     var error by remember(sourceKey, pageUrl) { mutableStateOf<String?>(null) }
     var attempt by remember(sourceKey, pageUrl) { mutableIntStateOf(0) }
+    var openedProviderPlayer by remember(sourceKey, pageUrl) { mutableStateOf(false) }
 
     LaunchedEffect(source, pageUrl, userAgent, attempt) {
         playback = null
@@ -75,6 +76,10 @@ fun AdultWebsitePlayerScreen(
             }.onFailure {
                 error = it.message?.takeIf(String::isNotBlank)
                     ?: "${source.label} could not prepare native playback."
+                if (source == AdultSource.PornHd3x && !openedProviderPlayer) {
+                    openedProviderPlayer = true
+                    onOpenOfficialPage()
+                }
             }
         }
     }
@@ -128,7 +133,7 @@ fun AdultWebsitePlayerScreen(
                     }
                     Button(onClick = onOpenOfficialPage) {
                         Icon(Icons.Default.OpenInNew, contentDescription = null)
-                        Text("Official page", modifier = Modifier.padding(start = 8.dp))
+                        Text("Use provider player", modifier = Modifier.padding(start = 8.dp))
                     }
                 }
             }

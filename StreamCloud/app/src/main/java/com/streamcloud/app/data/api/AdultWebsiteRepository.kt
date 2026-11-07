@@ -358,14 +358,27 @@ object AdultWebsiteRepository {
         val host = uri.host?.lowercase() ?: return null
         return rawUrl.takeIf {
             uri.scheme.equals("https", ignoreCase = true) &&
-                host in allowedHosts(source) &&
+                isAllowedPageHost(source, host) &&
                 uri.userInfo == null &&
                 (uri.port == -1 || uri.port == 443)
         }
     }
 
     internal fun isAllowedMainFrameUrl(source: AdultSource, rawUrl: String): Boolean =
-        normalizePageUrl(source, rawUrl) != null
+        normalizePageUrl(source, rawUrl) != null ||
+            (source == AdultSource.PornHd3x && isAllowedPornHd3xPlayerUrl(rawUrl))
+
+    private fun isAllowedPornHd3xPlayerUrl(rawUrl: String): Boolean {
+        val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return false
+        val host = uri.host?.lowercase() ?: return false
+        val allowedHost = listOf("lulustream.com", "doodstream.co").any { domain ->
+            host == domain || host.endsWith(".$domain")
+        }
+        return uri.scheme.equals("https", ignoreCase = true) &&
+            uri.userInfo == null &&
+            (uri.port == -1 || uri.port == 443) &&
+            allowedHost
+    }
 
     private fun parsePorn4DaysItems(document: Document): List<AdultItem> =
         document.select(".video-card").mapNotNull { card ->
@@ -481,4 +494,8 @@ object AdultWebsiteRepository {
         AdultSource.PornHd3x -> setOf("pornhd3x.tv", "www.pornhd3x.tv")
         else -> emptySet()
     }
+
+    private fun isAllowedPageHost(source: AdultSource, host: String): Boolean =
+        host in allowedHosts(source) ||
+            (source == AdultSource.PornHd3x && Regex("""www\d+\.pornhd3x\.tv""").matches(host))
 }

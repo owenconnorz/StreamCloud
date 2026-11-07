@@ -90,16 +90,52 @@ class AdultWebsiteRepositoryTest {
                 "https://pornhd3x.tv/video/sample",
             ),
         )
+        assertTrue(
+            AdultWebsiteRepository.isAllowedMainFrameUrl(
+                AdultSource.PornHd3x,
+                "https://www9.pornhd3x.tv/movies/sample",
+            ),
+        )
+        assertTrue(
+            AdultWebsiteRepository.isAllowedMainFrameUrl(
+                AdultSource.PornHd3x,
+                "https://embed.lulustream.com/e/sample",
+            ),
+        )
+        assertTrue(
+            AdultWebsiteRepository.isAllowedMainFrameUrl(
+                AdultSource.PornHd3x,
+                "https://doodstream.co/e/sample",
+            ),
+        )
         assertFalse(
             AdultWebsiteRepository.isAllowedMainFrameUrl(
                 AdultSource.Porn4Days,
                 "https://attacker.example/video/sample",
             ),
         )
+        assertFalse(
+            AdultWebsiteRepository.isAllowedMainFrameUrl(
+                AdultSource.PornHd3x,
+                "https://lulustream.com.attacker.example/e/sample",
+            ),
+        )
+        assertFalse(
+            AdultWebsiteRepository.isAllowedMainFrameUrl(
+                AdultSource.PornHd3x,
+                "http://doodstream.co/e/sample",
+            ),
+        )
         assertNull(
             AdultWebsiteRepository.normalizePageUrl(
                 AdultSource.PornHd3x,
                 "http://www.pornhd3x.tv/video/sample",
+            ),
+        )
+        assertNull(
+            AdultWebsiteRepository.normalizePageUrl(
+                AdultSource.PornHd3x,
+                "https://attacker.pornhd3x.tv/video/sample",
             ),
         )
     }

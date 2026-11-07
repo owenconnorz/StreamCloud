@@ -1,6 +1,8 @@
 package com.streamcloud.app.player
 
 import android.graphics.Color as AndroidColor
+import android.view.View
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -59,16 +61,34 @@ fun AdultWebsiteBrowserScreen(
     val webViewState = remember(safePageUrl) { mutableStateOf<WebView?>(null) }
     var loading by remember(safePageUrl) { mutableStateOf(true) }
     var pageError by remember(safePageUrl) { mutableStateOf<String?>(null) }
+    var fullScreenView by remember(safePageUrl) { mutableStateOf<View?>(null) }
+    var fullScreenCallback by remember(safePageUrl) {
+        mutableStateOf<WebChromeClient.CustomViewCallback?>(null)
+    }
     val context = LocalContext.current
 
+    fun exitFullScreen() {
+        val callback = fullScreenCallback
+        fullScreenCallback = null
+        fullScreenView = null
+        callback?.onCustomViewHidden()
+    }
+
     val navigateBack = {
-        val webView = webViewState.value
-        if (webView?.canGoBack() == true) webView.goBack() else onBack()
+        if (fullScreenView != null) {
+            exitFullScreen()
+        } else {
+            val webView = webViewState.value
+            if (webView?.canGoBack() == true) webView.goBack() else onBack()
+        }
     }
     BackHandler(enabled = true) { navigateBack() }
 
     DisposableEffect(webViewState) {
         onDispose {
+            fullScreenCallback?.onCustomViewHidden()
+            fullScreenCallback = null
+            fullScreenView = null
             webViewState.value?.let { webView ->
                 webView.stopLoading()
                 webView.webChromeClient = null
@@ -79,10 +99,21 @@ fun AdultWebsiteBrowserScreen(
         }
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black),
+    if (fullScreenView != null) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+            factory = {
+                fullScreenView!!.apply {
+                    (parent as? ViewGroup)?.removeView(this)
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                    )
+                }
+            },
+        )
+    } else Column(
+        Modifier.fillMaxSize().background(Color.Black),
     ) {
         Row(
             Modifier
@@ -154,6 +185,24 @@ fun AdultWebsiteBrowserScreen(
                             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                             settings.userAgentString = BrowserHeaders.USER_AGENT
                             webChromeClient = object : WebChromeClient() {
+                                override fun onShowCustomView(
+                                    view: View?,
+                                    callback: CustomViewCallback?,
+                                ) {
+                                    if (view == null) {
+                                        callback?.onCustomViewHidden()
+                                        return
+                                    }
+                                    (view.parent as? ViewGroup)?.removeView(view)
+                                    fullScreenView = view
+                                    fullScreenCallback = callback
+                                }
+
+                                override fun onHideCustomView() {
+                                    fullScreenView = null
+                                    fullScreenCallback = null
+                                }
+
                                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                     loading = newProgress < 100
                                 }
