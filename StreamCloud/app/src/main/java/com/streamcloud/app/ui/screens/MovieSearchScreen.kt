@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -39,6 +43,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.streamcloud.app.ui.components.MovieArtwork
 import com.streamcloud.app.data.ServiceLocator
@@ -293,63 +298,69 @@ fun MovieSearchScreen(
     ) { padding ->
         val displayedQuery = query.trim()
         if (isTv) {
-            Row(
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(top = 72.dp)
                     .padding(padding),
             ) {
-                TvSearchSidebar(
-                    query = query,
-                    searchField = searchField,
-                    firstKeyboardKeyFocusRequester = firstKeyboardKeyFocusRequester,
-                    searchFieldFocusRequester = focusRequester,
-                    onCharacter = appendTvSearchText,
-                    onBackspace = deleteTvSearchCharacter,
-                    onClear = clearSearch,
-                    onSearch = {
-                        if (query.trim().length >= 2) {
-                            submitSearch(query)
+                val keyboardPanelWidth = maxWidth * 0.32f
+                val suggestionsPanelWidth = maxWidth * 0.19f
+                val keyHeight = ((maxHeight - 126.dp) / 9f).coerceIn(18.dp, 28.dp)
+                Row(Modifier.fillMaxSize()) {
+                    TvSearchSidebar(
+                        searchField = searchField,
+                        panelWidth = keyboardPanelWidth,
+                        keyHeight = keyHeight,
+                        firstKeyboardKeyFocusRequester = firstKeyboardKeyFocusRequester,
+                        searchFieldFocusRequester = focusRequester,
+                        onCharacter = appendTvSearchText,
+                        onBackspace = deleteTvSearchCharacter,
+                        onClear = clearSearch,
+                        onSearch = {
+                            if (query.trim().length >= 2) {
+                                submitSearch(query)
+                            } else {
+                                runCatching { firstKeyboardKeyFocusRequester.requestFocus() }
+                            }
+                        },
+                    )
+                    TvSearchSuggestions(
+                        query = displayedQuery,
+                        suggestions = tvSuggestions,
+                        isLoading = searchIsLoading,
+                        panelWidth = suggestionsPanelWidth,
+                        onSelect = { submitSearch(it) },
+                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                    ) {
+                        if (displayedQuery.length < 2) {
+                            RecentSearches(
+                                history = state.searchHistory,
+                                padding = PaddingValues(),
+                                firstItemFocusRequester = firstHistoryFocusRequester,
+                                onSelect = { submitSearch(it) },
+                                onRemove = { vm.removeFromSearchHistory(it) },
+                                onClearAll = { vm.clearSearchHistory() },
+                            )
                         } else {
-                            runCatching { firstKeyboardKeyFocusRequester.requestFocus() }
+                            TvCombinedResultsGrid(
+                                state = state,
+                                query = displayedQuery,
+                                watchedTmdbIds = watchedTmdbIds,
+                                firstResultFocusRequester = firstResultFocusRequester,
+                                keyboardFocusRequester = firstKeyboardKeyFocusRequester,
+                                onMovieClick = onMovieClick,
+                                onTvClick = onTvClick,
+                                onLoadMoreMovies = vm::loadMoreMovies,
+                                onLoadMoreTv = vm::loadMoreTv,
+                                onOpenCsItem = onOpenCsItem,
+                                onOpenStremio = onOpenStremio,
+                            )
                         }
-                    },
-                )
-                TvSearchSuggestions(
-                    query = displayedQuery,
-                    suggestions = tvSuggestions,
-                    isLoading = searchIsLoading,
-                    onSelect = { submitSearch(it) },
-                )
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                ) {
-                    if (displayedQuery.length < 2) {
-                        RecentSearches(
-                            history = state.searchHistory,
-                            padding = PaddingValues(),
-                            firstItemFocusRequester = firstHistoryFocusRequester,
-                            onSelect = { submitSearch(it) },
-                            onRemove = { vm.removeFromSearchHistory(it) },
-                            onClearAll = { vm.clearSearchHistory() },
-                        )
-                    } else {
-                        CombinedResultsList(
-                            state = state,
-                            query = displayedQuery,
-                            padding = PaddingValues(),
-                            watchedTmdbIds = watchedTmdbIds,
-                            firstResultFocusRequester = firstResultFocusRequester,
-                            keyboardFocusRequester = firstKeyboardKeyFocusRequester,
-                            onMovieClick = onMovieClick,
-                            onTvClick = onTvClick,
-                            onLoadMoreMovies = vm::loadMoreMovies,
-                            onLoadMoreTv = vm::loadMoreTv,
-                            onOpenCsItem = onOpenCsItem,
-                            onOpenStremio = onOpenStremio,
-                        )
                     }
                 }
             }
@@ -386,8 +397,9 @@ fun MovieSearchScreen(
 
 @Composable
 private fun TvSearchSidebar(
-    query: String,
     searchField: @Composable (Modifier) -> Unit,
+    panelWidth: Dp,
+    keyHeight: Dp,
     firstKeyboardKeyFocusRequester: FocusRequester,
     searchFieldFocusRequester: FocusRequester,
     onCharacter: (String) -> Unit,
@@ -401,34 +413,34 @@ private fun TvSearchSidebar(
     }
     Column(
         modifier = Modifier
-            .width(360.dp)
+            .width(panelWidth)
             .fillMaxHeight()
             .background(Color(0xFF080B11))
-            .padding(horizontal = 22.dp, vertical = 20.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.Start,
     ) {
         Text(
             "Search",
-            style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
             color = Color.White,
         )
-        Spacer(Modifier.height(12.dp))
-        searchField(Modifier.fillMaxWidth().height(62.dp))
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(4.dp))
+        searchField(Modifier.fillMaxWidth().height(48.dp))
+        Spacer(Modifier.height(4.dp))
         Text(
             "ON-SCREEN KEYBOARD",
-            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
             color = Color(0xFF9EABB8),
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(4.dp))
         keyboardRows.forEachIndexed { rowIndex, row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 row.forEachIndexed { columnIndex, key ->
                     if (key.isBlank()) {
-                        Spacer(Modifier.weight(1f).height(38.dp))
+                        Spacer(Modifier.weight(1f).height(keyHeight))
                     } else {
                         val firstKey = rowIndex == 0 && columnIndex == 0
                         val keyModifier = Modifier
@@ -451,43 +463,46 @@ private fun TvSearchSidebar(
                         TvSearchKey(
                             label = key,
                             modifier = keyModifier,
+                            height = keyHeight,
                             focusRequester = if (firstKey) firstKeyboardKeyFocusRequester else null,
                             onClick = { onCharacter(key) },
                         )
                     }
                 }
             }
-            if (rowIndex != keyboardRows.lastIndex) Spacer(Modifier.height(6.dp))
+            if (rowIndex != keyboardRows.lastIndex) Spacer(Modifier.height(2.dp))
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(4.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             TvSearchKey(
                 label = "SPACE",
-                modifier = Modifier.weight(2f),
+                modifier = Modifier.weight(2.3f),
+                height = keyHeight,
                 onClick = { onCharacter(" ") },
             )
             TvSearchKey(
                 label = "⌫",
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(0.8f),
+                height = keyHeight,
                 onClick = onBackspace,
             )
             TvSearchKey(
                 label = "CLEAR",
-                modifier = Modifier.weight(1.25f),
+                modifier = Modifier.weight(1.2f),
+                height = keyHeight,
                 onClick = onClear,
             )
+            TvSearchKey(
+                label = "GO",
+                modifier = Modifier.weight(0.9f),
+                height = keyHeight,
+                isPrimary = true,
+                onClick = onSearch,
+            )
         }
-        Spacer(Modifier.height(8.dp))
-        TvSearchKey(
-            label = if (query.length >= 2) "SEARCH" else "SEARCH (2+ LETTERS)",
-            modifier = Modifier.fillMaxWidth(),
-            height = 44.dp,
-            isPrimary = true,
-            onClick = onSearch,
-        )
     }
 }
 
@@ -496,47 +511,48 @@ private fun TvSearchSuggestions(
     query: String,
     suggestions: List<String>,
     isLoading: Boolean,
+    panelWidth: Dp,
     onSelect: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier
-            .width(250.dp)
+            .width(panelWidth)
             .fillMaxHeight()
             .background(Color(0xFF06080D))
-            .padding(horizontal = 20.dp, vertical = 24.dp)
+            .padding(horizontal = 10.dp, vertical = 16.dp)
             .tvFocusGroup(),
     ) {
         Text(
             "Suggestions",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
             color = Color.White,
         )
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(8.dp))
         when {
             query.length < 2 ->
                 Text(
                     "Start typing to see matches",
                     color = Color(0xFF8B96A4),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                 )
 
             suggestions.isEmpty() && isLoading ->
                 Text(
                     "Searching…",
                     color = Color(0xFF8B96A4),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                 )
 
             suggestions.isEmpty() ->
                 Text(
                     "No suggestions yet",
                     color = Color(0xFF8B96A4),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                 )
 
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 items(suggestions.size, key = { "tv-suggestion-$it" }) { index ->
                     val suggestion = suggestions[index]
@@ -552,9 +568,9 @@ private fun TvSearchSuggestions(
                                 showOutline = false,
                             )
                             .clickable { onSelect(suggestion) }
-                            .padding(horizontal = 10.dp, vertical = 9.dp),
+                            .padding(horizontal = 5.dp, vertical = 5.dp),
                         color = Color(0xFFE7EDF4),
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -732,6 +748,306 @@ private fun RecentSearches(
 // ─────────────────────────────────────────────────────────────────────────────
 // Results list — Nuvio-style: one horizontal scroll row per section
 // ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun TvCombinedResultsGrid(
+    state: com.streamcloud.app.ui.viewmodel.MoviesState,
+    query: String,
+    watchedTmdbIds: Set<Long>,
+    firstResultFocusRequester: FocusRequester,
+    keyboardFocusRequester: FocusRequester,
+    onMovieClick: (Long) -> Unit,
+    onTvClick: (Long) -> Unit,
+    onLoadMoreMovies: () -> Unit,
+    onLoadMoreTv: () -> Unit,
+    onOpenCsItem: (pluginInternalName: String, url: String, name: String, poster: String?) -> Unit,
+    onOpenStremio: (addonId: String, type: String, metaId: String, title: String, poster: String?) -> Unit,
+) {
+    val csGrouped = remember(state.csSearchResults) {
+        state.csSearchResults.groupBy { it.pluginName }
+    }
+    val stremioGrouped = remember(state.stremioSearchResults) {
+        state.stremioSearchResults.groupBy { it.addonName }
+    }
+    val anyLoading = state.moviesLoading || state.seriesLoading || state.csLoading || state.stremioLoading
+    val hasAny = state.searchResults.isNotEmpty() ||
+        state.tvSearchResults.isNotEmpty() ||
+        state.csSearchResults.isNotEmpty() ||
+        state.stremioSearchResults.isNotEmpty() ||
+        state.moviePagination.error != null ||
+        state.tvPagination.error != null
+    val firstResultSection = when {
+        state.tvSearchResults.isNotEmpty() -> "series"
+        state.searchResults.isNotEmpty() -> "movies"
+        csGrouped.isNotEmpty() -> "cloudstream"
+        stremioGrouped.isNotEmpty() -> "stremio"
+        else -> null
+    }
+
+    if (!hasAny && !anyLoading) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopStart) {
+            Text(
+                "No results for \"$query\"",
+                modifier = Modifier.padding(12.dp),
+                style = MaterialTheme.typography.titleSmall,
+                color = Color.White,
+            )
+        }
+        return
+    }
+
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(3),
+        modifier = Modifier.fillMaxSize().tvFocusGroup(),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        state.searchCorrection?.let { correctedQuery ->
+            item(
+                key = "search-correction",
+                span = { GridItemSpan(maxLineSpan) },
+            ) {
+                Text(
+                    "Showing results for \"$correctedQuery\"",
+                    color = Color(0xFFB8C2CF),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+            }
+        }
+
+        if (
+            state.tvSearchResults.isNotEmpty() ||
+            state.seriesLoading ||
+            state.tvPagination.error != null
+        ) {
+            item(key = "series-header", span = { GridItemSpan(maxLineSpan) }) {
+                TvResultsGridHeader("TMDB · Series", state.seriesLoading)
+            }
+            gridItems(
+                items = state.tvSearchResults,
+                key = { "series-${it.id}" },
+            ) { movie ->
+                val isFirstResult = firstResultSection == "series" &&
+                    movie == state.tvSearchResults.firstOrNull()
+                NuvioCard(
+                    imageUrl = movie.posterUrl,
+                    fallbackImageUrl = movie.backdropUrl,
+                    title = movie.displayTitle,
+                    isWatched = movie.id in watchedTmdbIds,
+                    fillAvailableWidth = true,
+                    focusRequester = if (isFirstResult) firstResultFocusRequester else null,
+                    returnToKeyboardFocusRequester = if (isFirstResult) {
+                        keyboardFocusRequester
+                    } else {
+                        null
+                    },
+                    onClick = { onTvClick(movie.id) },
+                )
+            }
+            if (!state.seriesLoading && !state.tvPagination.endReached) {
+                item(key = "series-pagination") {
+                    TvGridPaginationCard(
+                        loading = state.tvPagination.isLoading,
+                        error = state.tvPagination.error,
+                        onClick = onLoadMoreTv,
+                    )
+                }
+            }
+        }
+
+        if (
+            state.searchResults.isNotEmpty() ||
+            state.moviesLoading ||
+            state.moviePagination.error != null
+        ) {
+            item(key = "movies-header", span = { GridItemSpan(maxLineSpan) }) {
+                TvResultsGridHeader("TMDB · Movies", state.moviesLoading)
+            }
+            gridItems(
+                items = state.searchResults,
+                key = { "movie-${it.id}" },
+            ) { movie ->
+                val isFirstResult = firstResultSection == "movies" &&
+                    movie == state.searchResults.firstOrNull()
+                NuvioCard(
+                    imageUrl = movie.posterUrl,
+                    fallbackImageUrl = movie.backdropUrl,
+                    title = movie.displayTitle,
+                    isWatched = movie.id in watchedTmdbIds,
+                    fillAvailableWidth = true,
+                    focusRequester = if (isFirstResult) firstResultFocusRequester else null,
+                    returnToKeyboardFocusRequester = if (isFirstResult) {
+                        keyboardFocusRequester
+                    } else {
+                        null
+                    },
+                    onClick = { onMovieClick(movie.id) },
+                )
+            }
+            if (!state.moviesLoading && !state.moviePagination.endReached) {
+                item(key = "movie-pagination") {
+                    TvGridPaginationCard(
+                        loading = state.moviePagination.isLoading,
+                        error = state.moviePagination.error,
+                        onClick = onLoadMoreMovies,
+                    )
+                }
+            }
+        }
+
+        csGrouped.forEach { (pluginName, results) ->
+            item(
+                key = "cs-$pluginName-header",
+                span = { GridItemSpan(maxLineSpan) },
+            ) {
+                TvResultsGridHeader("$pluginName · Search", loading = false)
+            }
+            gridItems(
+                items = results,
+                key = { "cs-${pluginName}-${it.item.url}" },
+            ) { result ->
+                val isFirstResult = firstResultSection == "cloudstream" &&
+                    result == csGrouped.values.firstOrNull()?.firstOrNull()
+                NuvioCard(
+                    imageUrl = result.item.posterUrl,
+                    title = result.item.name,
+                    fillAvailableWidth = true,
+                    focusRequester = if (isFirstResult) firstResultFocusRequester else null,
+                    returnToKeyboardFocusRequester = if (isFirstResult) {
+                        keyboardFocusRequester
+                    } else {
+                        null
+                    },
+                    onClick = {
+                        onOpenCsItem(
+                            result.pluginInternalName,
+                            result.item.url,
+                            result.item.name,
+                            result.item.posterUrl,
+                        )
+                    },
+                )
+            }
+        }
+        if (state.csLoading && csGrouped.isEmpty()) {
+            item(key = "cs-loading", span = { GridItemSpan(maxLineSpan) }) {
+                TvResultsGridHeader("CloudStream · Search", loading = true)
+            }
+        }
+
+        stremioGrouped.forEach { (addonName, results) ->
+            item(
+                key = "stremio-$addonName-header",
+                span = { GridItemSpan(maxLineSpan) },
+            ) {
+                TvResultsGridHeader("$addonName · Search", loading = false)
+            }
+            gridItems(
+                items = results,
+                key = { "stremio-${addonName}-${it.item.id}" },
+            ) { result ->
+                val isFirstResult = firstResultSection == "stremio" &&
+                    result == stremioGrouped.values.firstOrNull()?.firstOrNull()
+                NuvioCard(
+                    imageUrl = result.item.poster,
+                    title = result.item.name,
+                    fillAvailableWidth = true,
+                    focusRequester = if (isFirstResult) firstResultFocusRequester else null,
+                    returnToKeyboardFocusRequester = if (isFirstResult) {
+                        keyboardFocusRequester
+                    } else {
+                        null
+                    },
+                    onClick = {
+                        onOpenStremio(
+                            result.addonId,
+                            result.item.type,
+                            result.item.id,
+                            result.item.name,
+                            result.item.poster,
+                        )
+                    },
+                )
+            }
+        }
+        if (state.stremioLoading && stremioGrouped.isEmpty()) {
+            item(key = "stremio-loading", span = { GridItemSpan(maxLineSpan) }) {
+                TvResultsGridHeader("Stremio · Search", loading = true)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvResultsGridHeader(title: String, loading: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            title,
+            color = Color.White,
+            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = Color(0xFF13BCEB),
+            )
+        }
+    }
+}
+
+@Composable
+private fun TvGridPaginationCard(
+    loading: Boolean,
+    error: String?,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(10.dp)
+    Column(Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+                .clip(shape)
+                .background(Color(0xFF111D2A))
+                .tvFocusBorder(shape, borderWidth = 3.dp, color = Color(0xFF13BCEB))
+                .clickable(enabled = !loading, onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.dp,
+                    color = Color(0xFF13BCEB),
+                )
+            } else {
+                Text(
+                    if (error == null) "LOAD MORE" else "RETRY",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+        if (!error.isNullOrBlank()) {
+            Text(
+                error,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
 
 @Composable
 private fun CombinedResultsList(
@@ -986,12 +1302,19 @@ private fun NuvioCard(
     onClick: () -> Unit,
     fallbackImageUrl: String? = null,
     isWatched: Boolean = false,
+    fillAvailableWidth: Boolean = false,
     focusRequester: FocusRequester? = null,
     returnToKeyboardFocusRequester: FocusRequester? = null,
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val cardWidth = if (isTv) 210.dp else 132.dp
-    Column(modifier = Modifier.width(cardWidth)) {
+    Column(
+        modifier = if (fillAvailableWidth) {
+            Modifier.fillMaxWidth()
+        } else {
+            Modifier.width(cardWidth)
+        },
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()

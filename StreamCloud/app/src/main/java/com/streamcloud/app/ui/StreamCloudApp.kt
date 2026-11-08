@@ -526,8 +526,8 @@ fun StreamCloudApp(
         val useRail = LocalUiFormFactor.current != UiFormFactor.Mobile
         val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
         val showRail = useRail && if (isTv) {
-            // Keep the TV drawer available from detail, search, library, and
-            // settings sub-pages, but let the video player own remote controls.
+            // Keep the persistent TV top bar available from detail, search,
+            // library, and settings sub-pages; let the player own remote controls.
             !isVideoPlayerRoute
         } else {
             (currentRoute == null || tabs.any { it.route == currentRoute }) &&
@@ -536,27 +536,17 @@ fun StreamCloudApp(
         val firstRailFocus = remember { FocusRequester() }
         val firstTvNavFocus = remember { FocusRequester() }
         val firstMovieCardFocus = remember { FocusRequester() }
-        val navHostFocusRestoreRequester = remember { FocusRequester() }
         // Shared requester for the active tab's exact Down target from the
         // persistent TV nav (for example, the movie hero or selected settings row).
         val tvNavHeroFocus = remember { FocusRequester() }
-        val focusManager = LocalFocusManager.current
         LaunchedEffect(showRail) {
             // On non-TV form factors, firstRailFocus is attached to the first NavigationRailItem.
-            // TV startup focus stays with the screen content until the drawer is requested.
+            // TV navigation stays visible while startup focus remains on screen content.
             if (showRail && !isTv) try { firstRailFocus.requestFocus() } catch (_: Exception) {}
         }
         var tvNavHasFocus by remember { mutableStateOf(false) }
-        var tvNavFocusHandoffPending by remember { mutableStateOf(false) }
-        var tvDrawerOpen by remember { mutableStateOf(false) }
-        var tvDrawerRestoreFocusVersion by remember { mutableStateOf(0) }
-        var tvDrawerRestoreRoute by remember { mutableStateOf<String?>(null) }
-        LaunchedEffect(currentRoute) {
-            tvDrawerOpen = false
-            tvNavHasFocus = false
-            tvNavFocusHandoffPending = false
-            if (tvDrawerRestoreRoute != currentRoute) tvDrawerRestoreRoute = null
-        }
+        var tvNavDownFocusHandoffVersion by remember { mutableIntStateOf(0) }
+        var tvNavScrollToTopVersion by remember { mutableIntStateOf(0) }
         var tvMusicPlayerWasExpanded by remember { mutableStateOf(false) }
         LaunchedEffect(isTv, currentRoute, playerSurfaceState.progress) {
             if (!isTv || currentRoute != Tab.Music.route) return@LaunchedEffect
@@ -574,104 +564,25 @@ fun StreamCloudApp(
                 if (focused) return@LaunchedEffect
             }
         }
-        LaunchedEffect(isTv, showRail, tvDrawerOpen, tvNavFocusHandoffPending, tvNavHasFocus) {
-            if (!isTv || !showRail || !tvNavFocusHandoffPending) return@LaunchedEffect
-            if (!tvDrawerOpen) {
-                tvNavFocusHandoffPending = false
-                return@LaunchedEffect
-            }
-            if (tvNavHasFocus) {
-                tvNavFocusHandoffPending = false
-                return@LaunchedEffect
-            }
-
-            repeat(12) {
-                if (tvNavHasFocus) {
-                    tvNavFocusHandoffPending = false
-                    return@LaunchedEffect
-                }
-                kotlinx.coroutines.delay(120L)
-                runCatching { firstTvNavFocus.requestFocus() }
-            }
-            tvNavFocusHandoffPending = false
-        }
-        LaunchedEffect(tvDrawerRestoreFocusVersion, tvDrawerOpen, currentRoute) {
-            if (
-                !isTv ||
-                tvDrawerRestoreFocusVersion == 0 ||
-                tvDrawerOpen ||
-                tvDrawerRestoreRoute != currentRoute
-            ) {
-                return@LaunchedEffect
-            }
-            // Restore the exact child saved before opening the drawer, instead of
-            // repeatedly focusing the container and selecting a default card.
-            delay(200L)
-            if (tvDrawerOpen || tvDrawerRestoreRoute != currentRoute) return@LaunchedEffect
-            repeat(12) {
-                val restored = runCatching {
-                    navHostFocusRestoreRequester.restoreFocusedChild()
-                }.getOrDefault(false)
-                if (restored) return@LaunchedEffect
-                delay(80L)
-            }
-            if (!tvDrawerOpen && tvDrawerRestoreRoute == currentRoute) {
-                runCatching { navHostFocusRestoreRequester.requestFocus() }
-            }
-        }
-        fun closeTvDrawer(restoreContentFocus: Boolean) {
-            if (!tvDrawerOpen) return
-            tvDrawerOpen = false
-            tvNavHasFocus = false
-            tvNavFocusHandoffPending = false
-            if (restoreContentFocus) {
-                tvDrawerRestoreRoute = currentRoute
-                tvDrawerRestoreFocusVersion += 1
-            } else {
-                tvDrawerRestoreRoute = null
-            }
-        }
-        fun openTvDrawerFromContent() {
-            if (tvDrawerOpen) return
-            runCatching { navHostFocusRestoreRequester.saveFocusedChild() }
-            tvDrawerOpen = true
-            tvNavFocusHandoffPending = true
-        }
-        BackHandler(enabled = isTv && showRail && tvDrawerOpen) {
-            closeTvDrawer(restoreContentFocus = true)
+        fun focusTvNavigation() {
+            runCatching { firstTvNavFocus.requestFocus() }
         }
         Row(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .onPreviewKeyEvent { event ->
-                    if (isTv && showRail && event.type == KeyEventType.KeyDown) {
-                        when {
-                            tvDrawerOpen && event.key == Key.DirectionLeft -> true
-                            tvDrawerOpen && event.key == Key.DirectionRight -> {
-                                closeTvDrawer(restoreContentFocus = true)
-                                true
-                            }
-                            tvDrawerOpen && event.key == Key.Menu -> {
-                                closeTvDrawer(restoreContentFocus = true)
-                                true
-                            }
-                            !tvDrawerOpen && event.key == Key.DirectionLeft -> {
-                                if (event.nativeKeyEvent.repeatCount > 0) {
-                                    false
-                                } else {
-                                    val movedLeft = runCatching {
-                                        focusManager.moveFocus(FocusDirection.Left)
-                                    }.getOrDefault(false)
-                                    if (!movedLeft) {
-                                        openTvDrawerFromContent()
-                                    }
-                                    true
-                                }
-                            }
-                            else -> false
-                        }
-                    } else false
+                    if (
+                        isTv &&
+                        showRail &&
+                        event.type == KeyEventType.KeyDown &&
+                        event.key == Key.Menu
+                    ) {
+                        focusTvNavigation()
+                        true
+                    } else {
+                        false
+                    }
                 }
                 .tvDpadRepeatThrottle(
                     bubblePhase = true,
@@ -679,10 +590,9 @@ fun StreamCloudApp(
                         if (
                             direction == FocusDirection.Left &&
                             isTv &&
-                            showRail &&
-                            !tvDrawerOpen
+                            showRail
                         ) {
-                            openTvDrawerFromContent()
+                            focusTvNavigation()
                         }
                     },
                 ),
@@ -780,7 +690,6 @@ fun StreamCloudApp(
                         Modifier.weight(1f).fillMaxSize().then(
                             if (isTv) {
                                 Modifier
-                                    .focusRequester(navHostFocusRestoreRequester)
                                     .tvFocusGroup()
                             } else Modifier,
                         ),
@@ -813,6 +722,10 @@ fun StreamCloudApp(
                         initialFocusEnabled = !showProfilePicker,
                         allowTvIdleScreen = !showMiniPlayer,
                         tvNavHeroFocus = tvNavHeroFocus,
+                        tvNavSafeFocusRequester = firstTvNavFocus,
+                        tvNavSafeFocusReceived = tvNavHasFocus,
+                        navScrollToTopVersion = tvNavScrollToTopVersion,
+                        tvNavDownFocusHandoffVersion = tvNavDownFocusHandoffVersion,
                         adultContentEnabled = nsfwEnabled,
                         onOpenAdultContent = { navigateToTab(nav, Tab.Adult.route) },
                         onMovieClick = { id -> nav.navigate("movie/$id") },
@@ -2355,51 +2268,61 @@ fun StreamCloudApp(
                     }
                 }
 
-                // TV navigation stays hidden until D-pad Left reaches the content edge.
+                // Keep TV navigation visible on every non-player screen.
                 if (isTv && showRail) {
-                    if (showMiniPlayer && navExpanded && !tvDrawerOpen) {
+                    if (showMiniPlayer && navExpanded && !tvNavHasFocus) {
                         com.streamcloud.app.ui.player.TvMiniPlayer(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(end = TvOverscanPadding, top = TvOverscanPadding),
+                                .padding(end = TvOverscanPadding, top = 76.dp),
                             onExpand = {
                                 com.streamcloud.app.ui.player.PlayerExpandBus.requestExpand()
                             },
                         )
                     }
-                    TvSideNavigationDrawer(
-                        isOpen = tvDrawerOpen,
+                    TvNetflixTopNav(
                         tabs = tabs,
                         currentRoute = currentRoute,
-                        firstItemFocus = firstTvNavFocus,
+                        firstTabFocus = firstTvNavFocus,
+                        contentFocusRequester = tvNavHeroFocus,
+                        contentFocusReceived = !tvNavHasFocus,
                         selectedTabColor = navAccentColor,
-                        profileName = activeProfile?.name.orEmpty(),
-                        profileAvatarSeed = activeProfile?.avatarSeed.orEmpty()
-                            .ifBlank { activeProfile?.name.orEmpty() },
-                        profileAvatarUrl = activeProfile?.avatarUrl.orEmpty(),
-                        onProfileClick = {
-                            closeTvDrawer(restoreContentFocus = false)
-                            showProfilePicker = true
+                        adultTabEnabled = nsfwEnabled,
+                        profileAvatarSeed = activeProfile?.avatarSeed.orEmpty().ifBlank {
+                            activeProfile?.name.orEmpty()
                         },
-                        onNavFocusChanged = {
-                            tvNavHasFocus = it
-                            if (it) {
-                                tvNavFocusHandoffPending = false
+                        profileAvatarUrl = activeProfile?.avatarUrl.orEmpty(),
+                        showBranding = false,
+                        onNavFocusChanged = { tvNavHasFocus = it },
+                        onNavFocusGained = {
+                            if (currentRoute == Tab.Movies.route) {
+                                tvNavScrollToTopVersion++
                             }
                         },
+                        onDownFocusHandoffRequested = {
+                            if (currentRoute == Tab.Movies.route) {
+                                tvNavDownFocusHandoffVersion++
+                            }
+                        },
+                        onProfileClick = {
+                            showProfilePicker = true
+                        },
                         onTabSelected = { route ->
-                            closeTvDrawer(restoreContentFocus = route == currentRoute)
                             navigateToTab(nav, route)
                         },
                         onSearchClick = {
-                            closeTvDrawer(restoreContentFocus = false)
-                            if (currentRoute == Tab.Music.route) {
+                            if (
+                                currentRoute == Tab.Music.route ||
+                                currentRoute?.startsWith("music-") == true ||
+                                currentRoute?.startsWith("spotify-") == true ||
+                                currentRoute?.startsWith("artist/") == true
+                            ) {
                                 nav.navigate("music-search")
                             } else {
                                 nav.navigate("movie-search")
                             }
                         },
-                        onDismiss = { closeTvDrawer(restoreContentFocus = true) },
+                        modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
                     )
                 }
 

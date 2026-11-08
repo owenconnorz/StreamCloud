@@ -2179,10 +2179,8 @@ fun MoviesScreen(
             )
         }
 
-        // TV uses a compact Home location marker instead of the StreamCloud wordmark.
-        if (isTv && query.isBlank()) {
-            TvHomeLocationIndicator()
-        } else if (!isTv) {
+        // TV location and navigation are supplied by the persistent top bar.
+        if (!isTv) {
             MoviesHeader(
                 onProfileClick = onProfileClick,
                 onOpenCollections = onOpenCollections,
