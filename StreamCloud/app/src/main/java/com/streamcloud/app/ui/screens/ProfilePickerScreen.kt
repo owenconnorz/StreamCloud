@@ -102,6 +102,14 @@ private val PROFILE_PICKER_BACKGROUND = Brush.verticalGradient(
     ),
 )
 
+private val TV_PROFILE_PICKER_BACKGROUND = Brush.verticalGradient(
+    colorStops = arrayOf(
+        0f to Color(0xFF05070B),
+        0.5f to Color(0xFF030509),
+        1f to Color.Black,
+    ),
+)
+
 private fun hashPin(pin: String): String {
     val bytes = MessageDigest.getInstance("SHA-256").digest(pin.toByteArray())
     return bytes.joinToString("") { "%02x".format(it) }
@@ -132,6 +140,7 @@ fun ProfilePickerScreen(
     var isManagingProfiles by rememberSaveable { mutableStateOf(false) }
 
     var pinTarget   by remember { mutableStateOf<UserProfile?>(null) }
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
 
     BackHandler(view !is PickerView.Grid || isManagingProfiles) {
         if (view !is PickerView.Grid) {
@@ -144,7 +153,7 @@ fun ProfilePickerScreen(
     Box(
         Modifier
             .fillMaxSize()
-            .background(PROFILE_PICKER_BACKGROUND),
+            .background(if (isTv) TV_PROFILE_PICKER_BACKGROUND else PROFILE_PICKER_BACKGROUND),
     ) {
         AnimatedContent(
             targetState = view,
@@ -239,15 +248,19 @@ private fun ProfileGridView(
     val initialFocusRequester = remember { FocusRequester() }
     val initialFocusId = profiles.firstOrNull { it.id == activeId }?.id
         ?: profiles.firstOrNull()?.id
-    LaunchedEffect(isTv, initialFocusId) {
-        if (isTv) {
-            repeat(10) {
-                if (runCatching { initialFocusRequester.requestFocus() }.isSuccess) {
-                    return@LaunchedEffect
-                }
-                delay(120)
-            }
-        }
+    if (isTv) {
+        TvProfileGridView(
+            profiles = profiles,
+            activeId = activeId,
+            initialFocusId = initialFocusId,
+            initialFocusRequester = initialFocusRequester,
+            isManagingProfiles = isManagingProfiles,
+            onSelect = onSelect,
+            onEdit = onEdit,
+            onAddNew = onAddNew,
+            onManageToggle = onManageToggle,
+        )
+        return
     }
     Column(
         Modifier
@@ -256,96 +269,130 @@ private fun ProfileGridView(
             .navigationBarsPadding(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Spacer(Modifier.height(if (isTv) 32.dp else 48.dp))
+        Spacer(Modifier.height(48.dp))
         Text(
             "Who's watching?",
             style = MaterialTheme.typography.headlineLarge.copy(
                 fontWeight = FontWeight.Bold,
-                fontSize = if (isTv) 40.sp else 32.sp,
+                fontSize = 32.sp,
             ),
             color = Color.White,
         )
-        if (isTv) {
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "Choose a profile to continue",
-                style = MaterialTheme.typography.titleMedium,
-                color = Color(0xFF9EABB8),
-            )
-        }
-        Spacer(Modifier.height(if (isTv) 28.dp else 36.dp))
-        if (isTv) {
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(252.dp)
-                    .padding(horizontal = 32.dp),
-                contentPadding = PaddingValues(horizontal = 32.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(40.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                lazyRowItems(profiles, key = { it.id }) { profile ->
-                    ProfileGridItem(
-                        profile = profile,
-                        isActive = profile.id == activeId,
+        Spacer(Modifier.height(36.dp))
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 24.dp),
+            contentPadding = PaddingValues(vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+        ) {
+            gridItems(profiles, key = { it.id }) { profile ->
+                ProfileGridItem(
+                    profile = profile,
+                    isActive = profile.id == activeId,
+                    isManaging = isManagingProfiles,
+                    onSelect = { onSelect(profile) },
+                    onEdit = { onEdit(profile) },
+                )
+            }
+            if (isManagingProfiles) item {
+                AddProfileItem(onClick = onAddNew)
+            }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 24.dp, bottom = 24.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    ProfileManagementButton(
                         isManaging = isManagingProfiles,
-                        onSelect = { onSelect(profile) },
-                        onEdit = { onEdit(profile) },
-                        initialFocusRequester = if (profile.id == initialFocusId) {
-                            initialFocusRequester
-                        } else null,
-                    )
-                }
-                if (isManagingProfiles) item {
-                    AddProfileItem(
-                        onClick = onAddNew,
-                        initialFocusRequester = if (profiles.isEmpty()) initialFocusRequester else null,
+                        onClick = onManageToggle,
                     )
                 }
             }
-            Spacer(Modifier.height(16.dp))
-            ProfileManagementButton(
-                isManaging = isManagingProfiles,
-                onClick = onManageToggle,
-            )
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 24.dp),
-                contentPadding = PaddingValues(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp),
-            ) {
-                gridItems(profiles, key = { it.id }) { profile ->
-                    ProfileGridItem(
-                        profile = profile,
-                        isActive = profile.id == activeId,
-                        isManaging = isManagingProfiles,
-                        onSelect = { onSelect(profile) },
-                        onEdit = { onEdit(profile) },
-                    )
-                }
-                if (isManagingProfiles) item {
-                    AddProfileItem(onClick = onAddNew)
-                }
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(top = 24.dp, bottom = 24.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        ProfileManagementButton(
+        }
+    }
+}
+
+@Composable
+private fun TvProfileGridView(
+    profiles: List<UserProfile>,
+    activeId: String?,
+    initialFocusId: String?,
+    initialFocusRequester: FocusRequester,
+    isManagingProfiles: Boolean,
+    onSelect: (UserProfile) -> Unit,
+    onEdit: (UserProfile) -> Unit,
+    onAddNew: () -> Unit,
+    onManageToggle: () -> Unit,
+) {
+    LaunchedEffect(initialFocusId) {
+        repeat(12) {
+            if (runCatching { initialFocusRequester.requestFocus() }.isSuccess) {
+                return@LaunchedEffect
+            }
+            delay(100)
+        }
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 56.dp, vertical = 32.dp),
+    ) {
+        Text(
+            "Choose profile",
+            color = Color.White,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+        )
+        Box(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "Who's watching?",
+                    color = Color.White,
+                    style = MaterialTheme.typography.headlineLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 40.sp,
+                    ),
+                )
+                Spacer(Modifier.height(26.dp))
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth().height(210.dp),
+                    contentPadding = PaddingValues(horizontal = 28.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(28.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    lazyRowItems(profiles, key = { it.id }) { profile ->
+                        ProfileGridItem(
+                            profile = profile,
+                            isActive = profile.id == activeId,
                             isManaging = isManagingProfiles,
-                            onClick = onManageToggle,
+                            onSelect = { onSelect(profile) },
+                            onEdit = { onEdit(profile) },
+                            initialFocusRequester = if (profile.id == initialFocusId) {
+                                initialFocusRequester
+                            } else null,
+                        )
+                    }
+                    item {
+                        AddProfileItem(
+                            onClick = onAddNew,
+                            initialFocusRequester = if (profiles.isEmpty()) initialFocusRequester else null,
                         )
                     }
                 }
+                Spacer(Modifier.height(22.dp))
+                ProfileManagementButton(
+                    isManaging = isManagingProfiles,
+                    onClick = onManageToggle,
+                )
             }
         }
-
     }
 }
 
@@ -391,6 +438,57 @@ private fun ProfileGridItem(
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val activate = { if (isManaging) onEdit() else onSelect() }
+    if (isTv) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.width(148.dp),
+        ) {
+            val cardShape = RoundedCornerShape(14.dp)
+            Box(
+                modifier = Modifier
+                    .width(136.dp)
+                    .height(108.dp)
+                    .then(initialFocusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
+                    .clip(cardShape)
+                    .background(Color(0xFF151D2C))
+                    .then(
+                        if (isActive) Modifier.border(2.dp, Color(0xFF08A9D2), cardShape)
+                        else Modifier
+                    )
+                    .tvFocusBorder(
+                        cardShape,
+                        color = Color(0xFF13BCEB),
+                        borderWidth = 3.dp,
+                    )
+                    .combinedClickable(
+                        onClick = activate,
+                        onLongClick = if (isManaging) onEdit else null,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                AvatarImage(
+                    profile = profile,
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(12.dp)),
+                )
+            }
+            Text(
+                profile.name,
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            TextButton(onClick = onEdit) {
+                Text("Edit", color = Color(0xFF9FAAB7))
+            }
+        }
+        return
+    }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         // On TV the avatar Box handles clicks; Column stays non-clickable to
@@ -475,6 +573,41 @@ private fun AddProfileItem(
     initialFocusRequester: FocusRequester? = null,
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    if (isTv) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.width(148.dp),
+        ) {
+            val cardShape = RoundedCornerShape(14.dp)
+            Box(
+                modifier = Modifier
+                    .width(136.dp)
+                    .height(108.dp)
+                    .then(initialFocusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
+                    .clip(cardShape)
+                    .background(Color(0xFF151D2C))
+                    .border(1.dp, Color(0xFF334152), cardShape)
+                    .tvFocusBorder(cardShape, color = Color(0xFF13BCEB), borderWidth = 3.dp)
+                    .clickable(onClick = onClick),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = "Add profile",
+                    tint = Color.White,
+                    modifier = Modifier.size(38.dp),
+                )
+            }
+            Text(
+                "Add profile",
+                color = Color(0xFFB7C3CC),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+        return
+    }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = if (isTv) Modifier else Modifier.clickable(onClick = onClick),

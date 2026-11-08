@@ -84,7 +84,6 @@ fun MovieSearchScreen(
     // Keep this independent of profile-load timing so returning from a detail
     // route cannot reset a query when the active-profile key changes.
     var query by rememberSaveable { mutableStateOf("") }
-    var submittedTvQuery by rememberSaveable { mutableStateOf("") }
     var focusResultsAfterSearch by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val firstKeyboardKeyFocusRequester = remember { FocusRequester() }
@@ -101,6 +100,30 @@ fun MovieSearchScreen(
     }
     val searchIsLoading =
         state.moviesLoading || state.seriesLoading || state.csLoading || state.stremioLoading
+    val tvSuggestions = remember(
+        query,
+        state.tvSearchResults,
+        state.searchResults,
+        state.csSearchResults,
+        state.stremioSearchResults,
+    ) {
+        if (query.trim().length < 2) {
+            emptyList()
+        } else {
+            buildList {
+                addAll(state.tvSearchResults.map { it.displayTitle })
+                addAll(state.searchResults.map { it.displayTitle })
+                addAll(state.csSearchResults.map { it.item.name })
+                addAll(state.stremioSearchResults.map { it.item.name })
+            }
+                .asSequence()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinctBy { it.lowercase() }
+                .take(10)
+                .toList()
+        }
+    }
 
     // TV starts on the custom key grid; touch-first layouts start in the text field.
     LaunchedEffect(isTv) {
@@ -132,10 +155,13 @@ fun MovieSearchScreen(
     }
 
     LaunchedEffect(query, vm, isTv) {
-        if (isTv) return@LaunchedEffect
-        if (query.length >= 2) {
-            // Clear previous results immediately so screen feels instant
-            vm.search(query)
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.length >= 2) {
+            // TV keyboards emit one character per remote press. Debounce those
+            // updates, but fetch as the query is typed instead of waiting for a
+            // separate Search/Enter action.
+            if (isTv) delay(280)
+            vm.search(normalizedQuery)
         } else {
             vm.search("")
         }
@@ -150,34 +176,22 @@ fun MovieSearchScreen(
             // first result once the result rail has been composed.
             vm.search(submittedQuery, forceRefresh = true)
             vm.saveToHistory(submittedQuery)
-            if (isTv) submittedTvQuery = submittedQuery
             focusResultsAfterSearch = true
-        } else if (isTv) {
-            submittedTvQuery = ""
-            vm.search("")
         }
+        if (submittedQuery.length < 2) vm.search("")
         if (!isTv) focusManager.clearFocus(force = true)
     }
 
     val appendTvSearchText: (String) -> Unit = { text ->
         query += text
         focusResultsAfterSearch = false
-        if (isTv && submittedTvQuery.isNotEmpty()) {
-            submittedTvQuery = ""
-            vm.search("")
-        }
     }
     val deleteTvSearchCharacter: () -> Unit = {
         if (query.isNotEmpty()) query = query.dropLast(1)
         focusResultsAfterSearch = false
-        if (isTv && submittedTvQuery.isNotEmpty()) {
-            submittedTvQuery = ""
-            vm.search("")
-        }
     }
     val clearSearch: () -> Unit = {
         query = ""
-        submittedTvQuery = ""
         focusResultsAfterSearch = false
         if (isTv) vm.search("")
     }
@@ -277,11 +291,12 @@ fun MovieSearchScreen(
         },
         containerColor = if (isTv) Color(0xFF080C12) else MaterialTheme.colorScheme.background,
     ) { padding ->
-        val displayedQuery = if (isTv) submittedTvQuery else query
+        val displayedQuery = query.trim()
         if (isTv) {
             Row(
                 modifier = Modifier
                     .fillMaxSize()
+                    .padding(top = 72.dp)
                     .padding(padding),
             ) {
                 TvSearchSidebar(
@@ -299,6 +314,12 @@ fun MovieSearchScreen(
                             runCatching { firstKeyboardKeyFocusRequester.requestFocus() }
                         }
                     },
+                )
+                TvSearchSuggestions(
+                    query = displayedQuery,
+                    suggestions = tvSuggestions,
+                    isLoading = searchIsLoading,
+                    onSelect = { submitSearch(it) },
                 )
                 Box(
                     modifier = Modifier
@@ -380,9 +401,9 @@ private fun TvSearchSidebar(
     }
     Column(
         modifier = Modifier
-            .width(420.dp)
+            .width(360.dp)
             .fillMaxHeight()
-            .background(Color(0xFF0D151E))
+            .background(Color(0xFF080B11))
             .padding(horizontal = 22.dp, vertical = 20.dp),
         horizontalAlignment = Alignment.Start,
     ) {
@@ -471,6 +492,79 @@ private fun TvSearchSidebar(
 }
 
 @Composable
+private fun TvSearchSuggestions(
+    query: String,
+    suggestions: List<String>,
+    isLoading: Boolean,
+    onSelect: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .width(250.dp)
+            .fillMaxHeight()
+            .background(Color(0xFF06080D))
+            .padding(horizontal = 20.dp, vertical = 24.dp)
+            .tvFocusGroup(),
+    ) {
+        Text(
+            "Suggestions",
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = Color.White,
+        )
+        Spacer(Modifier.height(14.dp))
+        when {
+            query.length < 2 ->
+                Text(
+                    "Start typing to see matches",
+                    color = Color(0xFF8B96A4),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+
+            suggestions.isEmpty() && isLoading ->
+                Text(
+                    "Searching…",
+                    color = Color(0xFF8B96A4),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+
+            suggestions.isEmpty() ->
+                Text(
+                    "No suggestions yet",
+                    color = Color(0xFF8B96A4),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+
+            else -> LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                items(suggestions.size, key = { "tv-suggestion-$it" }) { index ->
+                    val suggestion = suggestions[index]
+                    Text(
+                        text = suggestion,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .tvFocusBorder(
+                                RoundedCornerShape(8.dp),
+                                borderWidth = 3.dp,
+                                color = Color(0xFF13BCEB),
+                                showOutline = false,
+                            )
+                            .clickable { onSelect(suggestion) }
+                            .padding(horizontal = 10.dp, vertical = 9.dp),
+                        color = Color(0xFFE7EDF4),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun TvSearchKey(
     label: String,
     modifier: Modifier = Modifier,
@@ -485,7 +579,7 @@ private fun TvSearchKey(
             .height(height)
             .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
             .clip(shape)
-            .background(if (isPrimary) Color(0xFF079FC5) else Color(0xFF1A2732))
+            .background(if (isPrimary) Color(0xFF079FC5) else Color(0xFF131D2A))
             .tvFocusBorder(shape, borderWidth = 3.dp, color = Color(0xFF13BCEB))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,

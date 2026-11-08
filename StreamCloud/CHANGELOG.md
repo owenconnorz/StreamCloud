@@ -1,3 +1,10 @@
+## TV update — Home, search, and profiles
+
+### Android TV
+- **Home shelves use cinematic landscape cards** — the hero follows the focused movie or show, including Continue Watching when artwork is available.
+- **Search updates while typing** — the D-pad keyboard now shows suggestions and refreshes results without requiring a separate submit action.
+- **Navigation and profiles follow the updated TV layout** — the active section stays selected across related screens, and the profile action reflects the chosen profile.
+
 ## V2475 — Android TV interface update
 
 ### Android TV

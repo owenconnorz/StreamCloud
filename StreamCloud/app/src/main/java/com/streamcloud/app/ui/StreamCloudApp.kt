@@ -2785,6 +2785,41 @@ private fun TvNetflixTopNav(
                             }
                         }
                     }
+                } else {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (profileActionFocused) Color.White.copy(alpha = 0.16f)
+                                else Color.Transparent,
+                            )
+                            .onFocusChanged { profileActionFocused = it.isFocused }
+                            .tvFocusBorder(CircleShape, showOutline = false)
+                            .clickable(onClick = onProfileClick),
+                    ) {
+                        when {
+                            profileAvatarUrl.isNotBlank() -> AsyncImage(
+                                model = profileAvatarUrl,
+                                contentDescription = "Choose profile",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            profileAvatarSeed.isNotBlank() -> Image(
+                                painter = painterResource(profileAvatarDrawable(profileAvatarSeed)),
+                                contentDescription = "Choose profile",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            else -> Icon(
+                                MaterialIcons.Filled.AccountCircle,
+                                contentDescription = "Choose profile",
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp),
+                            )
+                        }
+                    }
                 }
                 if (showMiniPlayer) {
                     miniPlayer?.invoke()
@@ -2824,15 +2859,31 @@ private fun TvNetflixTopNav(
                         )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        val primaryTabs = buildList {
-                            add(Tab.Movies)
-                            add(Tab.Library)
-                            add(Tab.Music)
-                            add(Tab.LiveTv)
-                            if (adultTabEnabled) add(Tab.Adult)
+                        val primaryTabs = tabs.filter {
+                            it.route != Tab.Settings.route &&
+                                (adultTabEnabled || it.route != Tab.Adult.route)
                         }
                         primaryTabs.forEachIndexed { index, tab ->
-                            val selected = currentRoute == tab.route
+                            val route = currentRoute.orEmpty()
+                            val selected = route == tab.route || when (tab.route) {
+                                Tab.Movies.route ->
+                                    route == "movie-search" ||
+                                        route.startsWith("movie/") ||
+                                        route.startsWith("tv/") ||
+                                        route.startsWith("catalog/") ||
+                                        route.startsWith("cloudstream/") ||
+                                        route.startsWith("cs-") ||
+                                        route.startsWith("stremio-")
+                                Tab.Music.route ->
+                                    route.startsWith("music-") ||
+                                        route.startsWith("spotify-") ||
+                                        route.startsWith("artist/")
+                                Tab.Library.route ->
+                                    route.startsWith("library-") ||
+                                        route.startsWith("collection")
+                                Tab.Adult.route -> route.startsWith("adult-")
+                                else -> false
+                            }
                             var itemFocused by remember { mutableStateOf(false) }
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -2902,8 +2953,12 @@ private fun TvNetflixTopNav(
                         .size(40.dp)
                         .clip(CircleShape)
                         .background(
-                            if (searchActionFocused) Color.White.copy(alpha = 0.16f)
-                            else Color.Transparent,
+                            when {
+                                currentRoute?.contains("search", ignoreCase = true) == true ->
+                                    Color.White.copy(alpha = 0.20f)
+                                searchActionFocused -> Color.White.copy(alpha = 0.16f)
+                                else -> Color.Transparent
+                            },
                         )
                         .onFocusChanged { searchActionFocused = it.isFocused }
                         .tvFocusBorder(CircleShape, showOutline = false)
@@ -2944,7 +2999,7 @@ private fun TvNetflixTopNav(
                     )
                 }
 
-                Box(
+                if (showBranding) Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .size(34.dp)
@@ -2982,7 +3037,7 @@ private fun TvNetflixTopNav(
                     }
                 }
 
-                Text(
+                if (showBranding) Text(
                     text = clockText,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
