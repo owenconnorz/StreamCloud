@@ -545,8 +545,8 @@ fun StreamCloudApp(
             if (showRail && !isTv) try { firstRailFocus.requestFocus() } catch (_: Exception) {}
         }
         var tvNavHasFocus by remember { mutableStateOf(false) }
-        var tvNavDownFocusHandoffVersion by remember { mutableIntStateOf(0) }
-        var tvNavScrollToTopVersion by remember { mutableIntStateOf(0) }
+        var tvNavDownFocusHandoffVersion by remember { mutableStateOf(0) }
+        var tvNavScrollToTopVersion by remember { mutableStateOf(0) }
         var tvMusicPlayerWasExpanded by remember { mutableStateOf(false) }
         LaunchedEffect(isTv, currentRoute, playerSurfaceState.progress) {
             if (!isTv || currentRoute != Tab.Music.route) return@LaunchedEffect

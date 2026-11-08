@@ -1,3 +1,14 @@
+## TV update — Navigation and search
+
+### Android TV
+- **TV navigation stays available at the top of every screen** — the old side drawer is replaced by the persistent navigation bar.
+- **The search keyboard fits on screen** — the compact layout keeps the space, delete, clear, and search controls visible.
+- **Search results use a vertical three-column poster grid** — results scroll down instead of being split into wide horizontal rows.
+
+### Included APKs
+- Android TV universal, ARM64, and ARMv7 APKs.
+- Android mobile APK.
+
 ## TV update — Home, search, and profiles
 
 ### Android TV
