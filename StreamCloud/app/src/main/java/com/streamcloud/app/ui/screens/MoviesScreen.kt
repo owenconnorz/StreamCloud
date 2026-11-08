@@ -2977,7 +2977,6 @@ private fun HeroPager(
                 }
             }
         }
-        }
     } else {
         // Mobile / tablet: keep the swipeable horizontal pager.
         val pagerState = rememberPagerState(pageCount = { items.size })
@@ -3320,7 +3319,6 @@ private fun HeroBannerSlide(
                         )
                     }
                 }
-            }
         } else {
             // Mobile/tablet: vertical gradient + centred layout
             Box(
