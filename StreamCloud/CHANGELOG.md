@@ -1,3 +1,14 @@
+## V2475 — Android TV interface update
+
+### Android TV
+- **Updated the TV browsing layout** — Movies home, category browsing, profile selection, search, and title details use the new TV design.
+- **Added a side-panel search keyboard** — D-pad users can enter a query and move between the keyboard and search results.
+- **Fixed TV search focus callbacks** — the focus-request code now matches the Compose API and the TV release build passes.
+
+### Included APKs
+- Android TV universal, ARM64, and ARMv7 APKs.
+- Android mobile APK.
+
 ## Hotfix — TV Movies home focus stability
 
 ### Android TV
