@@ -57,7 +57,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -522,7 +521,6 @@ fun MoviesScreen(
     val tvHomeFocusedItemIndices = remember { mutableMapOf<String, Int>() }
     val tvHomeFocusedRowKey = remember { mutableStateOf<String?>(null) }
     val tvHomeFocusedRowHasFocus = remember { mutableStateOf(false) }
-    val tvHomeLastFocusedRowKey = remember { mutableStateOf<String?>(null) }
     val tvHomeFirstGenreFocusRequester = remember { FocusRequester() }
     val tvHomeFirstContinueFocusRequester = remember { FocusRequester() }
     val tvHomeFirstGenreHasFocus = remember { mutableStateOf(false) }
@@ -539,7 +537,6 @@ fun MoviesScreen(
                 ?.let { tvHomeRowParentListIndices[rowKey] = it.index }
             tvHomeFocusedRowKey.value = rowKey
             tvHomeFocusedRowHasFocus.value = true
-            tvHomeLastFocusedRowKey.value = rowKey
         } else if (tvHomeFocusedRowKey.value == rowKey) {
             tvHomeFocusedRowKey.value = null
             tvHomeFocusedRowHasFocus.value = false
@@ -951,16 +948,15 @@ fun MoviesScreen(
             return false
         }
 
-        fun requestTvHomeHeroFocus() {
-            val heroRequester = tvNavHeroFocus ?: return
-            tvHomeFocusScope.launch {
-                repeat(12) {
-                    withFrameNanos { }
-                    runCatching { heroRequester.requestFocus() }
-                    withFrameNanos { }
-                    if (tvNavHeroHasFocus) return@launch
-                }
+        suspend fun requestTvHomeHeroFocus(): Boolean {
+            val heroRequester = tvNavHeroFocus ?: return false
+            repeat(12) {
+                withFrameNanos { }
+                runCatching { heroRequester.requestFocus() }
+                withFrameNanos { }
+                if (tvNavHeroHasFocus) return true
             }
+            return false
         }
 
         suspend fun requestPreviousTvHomeRowFocus(sourceRowKey: String): Boolean {
@@ -998,14 +994,13 @@ fun MoviesScreen(
 
             if (hasTvHero) {
                 moviesListState.scrollToItem(0)
-                val navRequester = tvNavSafeFocusRequester
-                if (navRequester != null) {
-                    repeat(12) {
-                        withFrameNanos { }
-                        runCatching { navRequester.requestFocus() }
-                        withFrameNanos { }
-                        if (tvNavSafeFocusReceived) return true
-                    }
+                if (requestTvHomeHeroFocus()) return true
+                val navRequester = tvNavSafeFocusRequester ?: return false
+                repeat(12) {
+                    withFrameNanos { }
+                    runCatching { navRequester.requestFocus() }
+                    withFrameNanos { }
+                    if (tvNavSafeFocusReceived) return true
                 }
             }
             return false
@@ -1086,6 +1081,7 @@ fun MoviesScreen(
                 return@LaunchedEffect
             }
             moviesListState.scrollToItem(0)
+            if (hasTvHero && requestTvHomeHeroFocus()) return@LaunchedEffect
             val firstRow = tvHeroFirstFocusRowKey ?: return@LaunchedEffect
             repeat(3) {
                 if (requestTvHomeRowFocus(firstRow, focusFirstItem = true)) {
@@ -1100,19 +1096,11 @@ fun MoviesScreen(
             val sourceRowKey = activeTvHomeFocusSourceRowKey(
                 focusedRowKey = tvHomeFocusedRowKey.value,
                 rowHasFocus = tvHomeFocusedRowHasFocus.value,
-                lastFocusedRowKey = tvHomeLastFocusedRowKey.value,
-            ) ?: visibleTvHomeRows()
-                .minByOrNull {
-                    kotlin.math.abs(it.second - moviesListState.firstVisibleItemIndex)
-                }
-                ?.first
-                // The key came from the Movies LazyColumn, so don't pass it to
-                // native focus search even if rows are still being composed.
-                ?: return true
+            ) ?: return false
             val sourceListIndex = moviesListState.layoutInfo.visibleItemsInfo
                 .firstOrNull { it.key == sourceRowKey }
                 ?.index
-                ?: tvHomeRowParentListIndices[sourceRowKey]
+                ?: return false
             tvHomeFocusTransferInProgress = true
             tvHomeFocusScope.launch {
                 try {
@@ -1125,10 +1113,8 @@ fun MoviesScreen(
                         // A lazy-row target can be detached when the asynchronous handoff runs.
                         // Keep focus on the source rather than letting native focus search skip
                         // shelves or land on a non-card element.
-                        if (sourceListIndex != null) {
-                            moviesListState.scrollToItem(sourceListIndex)
-                            withFrameNanos { }
-                        }
+                        moviesListState.scrollToItem(sourceListIndex)
+                        withFrameNanos { }
                         val sourceRestored = requestTvHomeRowFocus(sourceRowKey) ||
                             requestTvHomeRowFocus(sourceRowKey, focusFirstItem = true)
                         if (!sourceRestored) {
@@ -1187,6 +1173,7 @@ fun MoviesScreen(
                     null
                 },
                 navFocusRequester = tvNavHeroFocus,
+                navReturnFocusRequester = tvNavSafeFocusRequester,
                 downFocusRequester = when (tvHeroFirstFocusRowKey) {
                     "continue_watching" -> tvHomeFirstContinueFocusRequester
                     "home_genres" -> tvHomeFirstGenreFocusRequester
@@ -1219,7 +1206,6 @@ fun MoviesScreen(
                 },
                 onCurrentItemChanged = { activeHeroBanner = it },
                 onPlayNow = playHeroNow,
-                onMoreInfo = openHeroDetails,
                 detailsVisible = tvHeroDetailsVisible,
                 onActionsFocusChanged = { focused ->
                     tvNavHeroHasFocus = focused
@@ -2408,8 +2394,7 @@ internal fun selectPreviousTvHomeFocusRowBefore(
 internal fun activeTvHomeFocusSourceRowKey(
     focusedRowKey: String?,
     rowHasFocus: Boolean,
-    lastFocusedRowKey: String? = null,
-): String? = focusedRowKey?.takeIf { rowHasFocus } ?: lastFocusedRowKey
+): String? = focusedRowKey?.takeIf { rowHasFocus }
 
 internal fun resolveTvHomeFocusItemIndex(
     focusFirstItem: Boolean,
@@ -2672,13 +2657,13 @@ private fun TvHeroBackdrop(
     detailsVisible: Boolean,
     initialFocusRequester: FocusRequester? = null,
     navFocusRequester: FocusRequester? = null,
+    navReturnFocusRequester: FocusRequester? = null,
     downFocusRequester: FocusRequester? = null,
     downFocusIsConfirmed: () -> Boolean = { false },
     prepareDownFocus: suspend () -> Unit = {},
     onDownFocusFailed: () -> Unit = {},
     onCurrentItemChanged: (HeroBannerItem) -> Unit,
     onPlayNow: (HeroBannerItem) -> Unit,
-    onMoreInfo: (HeroBannerItem) -> Unit,
     onActionsFocusChanged: (Boolean) -> Unit = {},
 ) {
     var currentPage by remember(items.size) { mutableIntStateOf(0) }
@@ -2720,10 +2705,10 @@ private fun TvHeroBackdrop(
                 .background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
-                            0f to Color.Black.copy(alpha = 0.28f),
-                            0.16f to Color.Transparent,
-                            0.62f to Color.Transparent,
-                            0.82f to Color.Black.copy(alpha = 0.18f),
+                            0f to Color.Black.copy(alpha = 0.24f),
+                            0.22f to Color.Transparent,
+                            0.54f to Color.Transparent,
+                            0.78f to Color.Black.copy(alpha = 0.22f),
                             1f to Color(0xFF07080D).copy(alpha = 0.78f),
                         ),
                     ),
@@ -2735,10 +2720,10 @@ private fun TvHeroBackdrop(
                 .background(
                     Brush.horizontalGradient(
                         colorStops = arrayOf(
-                            0f to Color(0xFF05070A).copy(alpha = 0.88f),
-                            0.22f to Color(0xFF05070A).copy(alpha = 0.70f),
-                            0.48f to Color(0xFF05070A).copy(alpha = 0.24f),
-                            0.72f to Color.Transparent,
+                            0f to Color(0xFF05070A).copy(alpha = 0.94f),
+                            0.27f to Color(0xFF05070A).copy(alpha = 0.78f),
+                            0.52f to Color(0xFF05070A).copy(alpha = 0.30f),
+                            0.74f to Color.Transparent,
                             1f to Color.Transparent,
                         ),
                     ),
@@ -2759,8 +2744,10 @@ private fun TvHeroBackdrop(
                 hero.rating.takeIf(String::isNotBlank),
             ).joinToString("  •  ")
             AnimatedVisibility(
-                visible = true,
-                modifier = Modifier.align(Alignment.BottomStart),
+                visible = detailsVisible,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .fillMaxWidth(),
                 enter = fadeIn(tween(180)),
                 exit = fadeOut(tween(140)),
             ) {
@@ -2769,17 +2756,24 @@ private fun TvHeroBackdrop(
                         .padding(
                             start = 48.dp,
                             end = LocalConfiguration.current.screenWidthDp.dp * 0.46f,
-                            bottom = rowsViewportHeight + 20.dp,
+                            top = 104.dp,
                         )
                         .widthIn(max = 680.dp),
-                    verticalArrangement = Arrangement.spacedBy(9.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
+                    Text(
+                        "FEATURED",
+                        color = Color.White.copy(alpha = 0.84f),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.4.sp,
+                    )
                     Text(
                         hero.title,
                         color = Color.White,
                         style = MaterialTheme.typography.headlineMedium.copy(
-                            fontSize = 38.sp,
-                            lineHeight = 42.sp,
+                            fontSize = 42.sp,
+                            lineHeight = 46.sp,
                         ),
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
@@ -2800,6 +2794,109 @@ private fun TvHeroBackdrop(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    Button(
+                        onClick = { onPlayNow(hero) },
+                        modifier = Modifier
+                            .then(
+                                initialFocusRequester?.let { Modifier.focusRequester(it) }
+                                    ?: Modifier,
+                            )
+                            .then(
+                                navFocusRequester?.let { Modifier.focusRequester(it) }
+                                    ?: Modifier,
+                            )
+                            .then(
+                                navReturnFocusRequester?.let { requester ->
+                                    Modifier.focusProperties { up = requester }
+                                } ?: Modifier,
+                            )
+                            .onFocusChanged {
+                                actionsFocused = it.isFocused
+                                onActionsFocusChanged(it.isFocused)
+                            }
+                            .onPreviewKeyEvent { event ->
+                                val native = event.nativeKeyEvent
+                                if (native.action != AndroidKeyEvent.ACTION_DOWN) {
+                                    return@onPreviewKeyEvent false
+                                }
+                                when (native.keyCode) {
+                                    AndroidKeyEvent.KEYCODE_DPAD_UP -> {
+                                        val navRequester = navReturnFocusRequester
+                                            ?: return@onPreviewKeyEvent false
+                                        downFocusScope.launch {
+                                            repeat(12) {
+                                                withFrameNanos { }
+                                                runCatching { navRequester.requestFocus() }
+                                                withFrameNanos { }
+                                                if (!actionsFocused) return@launch
+                                            }
+                                        }
+                                        true
+                                    }
+                                    AndroidKeyEvent.KEYCODE_DPAD_DOWN -> {
+                                        val target = downFocusTarget
+                                            ?: return@onPreviewKeyEvent false
+                                        downFocusScope.launch {
+                                            prepareDownFocus()
+                                            repeat(16) {
+                                                withFrameNanos { }
+                                                runCatching { target.requestFocus() }
+                                                withFrameNanos { }
+                                                if (downFocusIsConfirmed()) return@launch
+                                                kotlinx.coroutines.delay(32L)
+                                            }
+                                            onDownFocusFailed()
+                                        }
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White,
+                            contentColor = Color(0xFF111216),
+                        ),
+                        shape = RoundedCornerShape(7.dp),
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 11.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Watch now",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (items.size > 1 && focusedItem == null) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = rowsViewportHeight + 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                items.forEachIndexed { index, _ ->
+                    Box(
+                        Modifier
+                            .width(if (index == currentPage) 16.dp else 6.dp)
+                            .height(6.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (index == currentPage) {
+                                    Color.White
+                                } else {
+                                    Color.White.copy(alpha = 0.46f)
+                                },
+                            ),
+                    )
                 }
             }
         }

@@ -83,9 +83,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.player.NativePlayerScreen
@@ -2289,7 +2286,6 @@ fun StreamCloudApp(
                         firstTabFocus = firstTvNavFocus,
                         contentFocusRequester = tvNavHeroFocus,
                         contentFocusReceived = !tvNavHasFocus,
-                        selectedTabColor = navAccentColor,
                         adultTabEnabled = nsfwEnabled,
                         profileAvatarSeed = activeProfile?.avatarSeed.orEmpty().ifBlank {
                             activeProfile?.name.orEmpty()
@@ -2454,6 +2450,14 @@ fun StreamCloudApp(
 
 // ── Netflix-style transparent TV top navigation bar ──────────────────────────
 
+private data class TvTopNavigationDestination(
+    val key: String,
+    val label: String,
+    val selected: Boolean,
+    val route: String? = null,
+    val isSearch: Boolean = false,
+)
+
 @Composable
 private fun TvNetflixTopNav(
     tabs: List<Tab>,
@@ -2466,7 +2470,6 @@ private fun TvNetflixTopNav(
     onDownFocusHandoffRequested: () -> Unit = {},
     onTabSelected: (String) -> Unit,
     onSearchClick: () -> Unit,
-    selectedTabColor: Color,
     adultTabEnabled: Boolean = false,
     onProfileClick: () -> Unit = {},
     profileAvatarSeed: String = "",
@@ -2478,39 +2481,9 @@ private fun TvNetflixTopNav(
 ) {
     var navHasFocus by remember { mutableStateOf(false) }
     var pendingDownFocusHandoff by remember { mutableStateOf(false) }
-    var downFocusAttempt by remember { mutableStateOf(0) }
-    var searchActionFocused by remember { mutableStateOf(false) }
-    var settingsActionFocused by remember { mutableStateOf(false) }
+    var downFocusAttempt by remember { mutableIntStateOf(0) }
     var overflowExpanded by remember { mutableStateOf(false) }
     var profileActionFocused by remember { mutableStateOf(false) }
-    val density = LocalDensity.current
-    var activeTabLeftPx by remember { mutableStateOf(0f) }
-    var activeTabTopPx by remember { mutableStateOf(0f) }
-    var activeTabWidthPx by remember { mutableStateOf(0f) }
-    var activeTabHeightPx by remember { mutableStateOf(0f) }
-    var activeTabMeasured by remember { mutableStateOf(false) }
-    val navTabShape = CircleShape
-    val remoteTabFocusColor = Color(0xFF62D8FF)
-    val animatedActiveTabLeft by animateDpAsState(
-        targetValue = with(density) { activeTabLeftPx.toDp() },
-        animationSpec = tween(durationMillis = 320),
-        label = "tvNavSelectedPillPosition",
-    )
-    val animatedActiveTabWidth by animateDpAsState(
-        targetValue = with(density) { activeTabWidthPx.toDp() },
-        animationSpec = tween(durationMillis = 320),
-        label = "tvNavSelectedPillWidth",
-    )
-    val animatedActiveTabTop by animateDpAsState(
-        targetValue = with(density) { activeTabTopPx.toDp() },
-        animationSpec = tween(durationMillis = 320),
-        label = "tvNavSelectedPillTop",
-    )
-    val animatedActiveTabHeight by animateDpAsState(
-        targetValue = with(density) { activeTabHeightPx.toDp() },
-        animationSpec = tween(durationMillis = 320),
-        label = "tvNavSelectedPillHeight",
-    )
     val clockFormatter = remember {
         java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
     }
@@ -2591,6 +2564,73 @@ private fun TvNetflixTopNav(
         }
         pendingDownFocusHandoff = false
     }
+    val route = currentRoute.orEmpty()
+    val visibleTabs = tabs.filter {
+        adultTabEnabled || it.route != Tab.Adult.route
+    }
+    val searchAfterRoute = visibleTabs.firstOrNull { it.route == Tab.Movies.route }?.route
+        ?: visibleTabs.firstOrNull()?.route
+    val destinations = buildList {
+        visibleTabs.forEach { tab ->
+            val selected = route == tab.route || when (tab.route) {
+                Tab.Movies.route ->
+                    route.startsWith("movie/") ||
+                        route.startsWith("tv/") ||
+                        route.startsWith("catalog/") ||
+                        route.startsWith("cloudstream/") ||
+                        route.startsWith("cs-") ||
+                        route.startsWith("stremio-")
+                Tab.Music.route ->
+                    (route.startsWith("music-") && route != "music-search") ||
+                        (route.startsWith("spotify-") && !route.contains("search", ignoreCase = true)) ||
+                        route.startsWith("artist/")
+                Tab.Library.route ->
+                    route.startsWith("library-") ||
+                        route.startsWith("collection")
+                Tab.Adult.route -> route.startsWith("adult-")
+                else -> false
+            }
+            add(
+                TvTopNavigationDestination(
+                    key = tab.route,
+                    label = if (tab.route == Tab.Movies.route) "Home" else tab.label,
+                    selected = selected,
+                    route = tab.route,
+                ),
+            )
+            if (tab.route == searchAfterRoute) {
+                add(
+                    TvTopNavigationDestination(
+                        key = "search",
+                        label = "Search",
+                        selected = route.contains("search", ignoreCase = true),
+                        isSearch = true,
+                    ),
+                )
+            }
+        }
+    }
+    val selectedDestinationIndex = destinations.indexOfFirst { it.selected }
+    val selectedDestinationKey = destinations.getOrNull(selectedDestinationIndex)?.key
+    var focusedDestinationKey by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(currentRoute, navHasFocus, selectedDestinationKey) {
+        if (!navHasFocus) focusedDestinationKey = selectedDestinationKey
+    }
+    val activeDestinationIndex = destinations.indexOfFirst {
+        it.key == (if (navHasFocus) focusedDestinationKey else selectedDestinationKey)
+    }.takeIf { it >= 0 }
+        ?: selectedDestinationIndex.takeIf { it >= 0 }
+        ?: 0
+    val focusRequesterIndex = selectedDestinationIndex.takeIf { it >= 0 } ?: 0
+
+    fun selectDestination(destination: TvTopNavigationDestination) {
+        focusedDestinationKey = destination.key
+        if (destination.isSearch) {
+            onSearchClick()
+        } else {
+            destination.route?.let(onTabSelected)
+        }
+    }
     Box(
         modifier = modifier
             .tvFocusGroup()
@@ -2626,30 +2666,12 @@ private fun TvNetflixTopNav(
                 }
             },
     ) {
-        // Compact inset banner matching the rounded black navigation strip
-        // shown in the TV detail reference.
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = TvOverscanPadding, vertical = 6.dp)
-                .height(62.dp)
-                .background(
-                    color = Color(0xF50A0A0A),
-                    shape = RoundedCornerShape(20.dp),
-                )
-                .border(
-                    width = 1.dp,
-                    color = Color.White.copy(alpha = 0.06f),
-                    shape = RoundedCornerShape(20.dp),
-                )
-        )
-
         // Profile, destinations, Search, and Settings share one compact row.
         Box(
             Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = TvOverscanPadding + 10.dp, vertical = 14.dp),
+                .padding(horizontal = TvOverscanPadding + 10.dp, vertical = 8.dp),
         ) {
             Row(
                 modifier = Modifier.align(Alignment.CenterStart),
@@ -2754,108 +2776,79 @@ private fun TvNetflixTopNav(
                 }
             }
 
-            // Keep Search with the centered destinations; Settings remains
-            // at the far edge as in the supplied TV reference.
-            Row(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = 112.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                val primaryTabs = tabs.filter {
-                    it.route != Tab.Settings.route &&
-                        (adultTabEnabled || it.route != Tab.Adult.route)
-                }
-                val searchAfterRoute =
-                    primaryTabs.firstOrNull { it.route == Tab.Movies.route }?.route
-                        ?: primaryTabs.firstOrNull()?.route
-                primaryTabs.forEachIndexed { index, tab ->
-                            val route = currentRoute.orEmpty()
-                            val selected = route == tab.route || when (tab.route) {
-                                Tab.Movies.route ->
-                                    route.startsWith("movie/") ||
-                                        route.startsWith("tv/") ||
-                                        route.startsWith("catalog/") ||
-                                        route.startsWith("cloudstream/") ||
-                                        route.startsWith("cs-") ||
-                                        route.startsWith("stremio-")
-                                Tab.Music.route ->
-                                    (route.startsWith("music-") && route != "music-search") ||
-                                        (route.startsWith("spotify-") && !route.contains("search", ignoreCase = true)) ||
-                                        route.startsWith("artist/")
-                                Tab.Library.route ->
-                                    route.startsWith("library-") ||
-                                        route.startsWith("collection")
-                                Tab.Adult.route -> route.startsWith("adult-")
-                                else -> false
-                            }
-                            var itemFocused by remember { mutableStateOf(false) }
+            if (destinations.isNotEmpty()) {
+                BoxWithConstraints(
+                    Modifier
+                        .align(Alignment.Center)
+                        .fillMaxWidth()
+                        .padding(horizontal = 112.dp)
+                        .height(52.dp),
+                ) {
+                    val slotWidth = maxWidth / destinations.size
+                    val activeTabOffset by animateDpAsState(
+                        targetValue = slotWidth * activeDestinationIndex,
+                        animationSpec = tween(durationMillis = 240),
+                        label = "tvTopNavigationSelection",
+                    )
+                    Box(
+                        Modifier
+                            .align(Alignment.CenterStart)
+                            .offset(x = activeTabOffset)
+                            .width(slotWidth)
+                            .height(38.dp)
+                            .padding(horizontal = 4.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color.White),
+                    )
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        destinations.forEachIndexed { index, destination ->
+                            val active = index == activeDestinationIndex
                             Box(
                                 contentAlignment = Alignment.Center,
                                 modifier = Modifier
-                                    .then(if (index == 0) Modifier.focusRequester(firstTabFocus) else Modifier)
-                                    .size(44.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(
-                                        when {
-                                            itemFocused -> selectedTabColor.copy(alpha = 0.85f)
-                                            selected -> selectedTabColor.copy(alpha = 0.34f)
-                                            else -> Color.Transparent
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .then(
+                                        if (index == focusRequesterIndex) {
+                                            Modifier.focusRequester(firstTabFocus)
+                                        } else {
+                                            Modifier
                                         },
                                     )
-                                    .onFocusChanged { itemFocused = it.isFocused }
-                                    .tvFocusBorder(RoundedCornerShape(10.dp), showOutline = false)
-                                    .clickable { onTabSelected(tab.route) }
-                                    .border(
-                                        width = if (itemFocused) 2.dp else 0.dp,
-                                        color = if (itemFocused) remoteTabFocusColor else Color.Transparent,
-                                        shape = RoundedCornerShape(10.dp),
-                                    ),
+                                    .onFocusChanged { focusState ->
+                                        if (focusState.isFocused) {
+                                            focusedDestinationKey = destination.key
+                                            if (!destination.selected) {
+                                                selectDestination(destination)
+                                            }
+                                        }
+                                    }
+                                    .clickable { selectDestination(destination) },
                             ) {
-                                Icon(
-                                    imageVector = tab.icon,
-                                    contentDescription = tab.label,
-                                    tint = if (selected || itemFocused) {
-                                        Color.White
+                                Text(
+                                    text = destination.label,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = if (active) {
+                                        FontWeight.SemiBold
                                     } else {
-                                        Color.White.copy(alpha = 0.76f)
+                                        FontWeight.Medium
                                     },
-                                    modifier = Modifier.size(21.dp),
+                                    color = if (active) {
+                                        Color(0xFF111216)
+                                    } else {
+                                        Color.White.copy(alpha = 0.9f)
+                                    },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
-                            if (tab.route == searchAfterRoute) {
-                                val searchSelected =
-                                    route.contains("search", ignoreCase = true)
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(
-                                            when {
-                                                searchActionFocused -> selectedTabColor.copy(alpha = 0.85f)
-                                                searchSelected -> selectedTabColor.copy(alpha = 0.34f)
-                                                else -> Color.Transparent
-                                            },
-                                        )
-                                        .onFocusChanged { searchActionFocused = it.isFocused }
-                                        .tvFocusBorder(RoundedCornerShape(10.dp), showOutline = false)
-                                        .clickable(onClick = onSearchClick)
-                                        .border(
-                                            width = if (searchActionFocused) 2.dp else 0.dp,
-                                            color = if (searchActionFocused) remoteTabFocusColor else Color.Transparent,
-                                            shape = RoundedCornerShape(10.dp),
-                                        ),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Search,
-                                        contentDescription = "Search",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(21.dp),
-                                    )
-                                }
-                            }
+                        }
+                    }
                 }
             }
 
@@ -2864,32 +2857,6 @@ private fun TvNetflixTopNav(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(
-                            when {
-                                currentRoute == Tab.Settings.route ->
-                                    Color.White.copy(alpha = 0.20f)
-                                settingsActionFocused ->
-                                    Color.White.copy(alpha = 0.16f)
-                                else -> Color.Transparent
-                            },
-                        )
-                        .onFocusChanged { settingsActionFocused = it.isFocused }
-                        .tvFocusBorder(CircleShape, showOutline = false)
-                        .clickable { onTabSelected(Tab.Settings.route) },
-                ) {
-                    Icon(
-                        Icons.Default.Settings,
-                        contentDescription = "Settings",
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
-
                 if (showBranding) Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier

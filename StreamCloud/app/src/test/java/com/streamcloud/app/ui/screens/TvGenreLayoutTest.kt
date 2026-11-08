@@ -83,7 +83,7 @@ class TvGenreLayoutTest {
     }
 
     @Test
-    fun staleShelfIsNotUsedAsTheSourceAfterFocusLeavesIt() {
+    fun staleShelfIsNotUsedAfterFocusLeavesIt() {
         assertEquals(
             "home_genres",
             activeTvHomeFocusSourceRowKey("home_genres", rowHasFocus = true),
@@ -91,12 +91,8 @@ class TvGenreLayoutTest {
         assertNull(activeTvHomeFocusSourceRowKey("home_genres", rowHasFocus = false))
         assertNull(activeTvHomeFocusSourceRowKey(null, rowHasFocus = false))
         assertEquals(
-            "continue_watching",
-            activeTvHomeFocusSourceRowKey(
-                focusedRowKey = null,
-                rowHasFocus = false,
-                lastFocusedRowKey = "continue_watching",
-            ),
+            null,
+            activeTvHomeFocusSourceRowKey(focusedRowKey = null, rowHasFocus = false),
         )
     }
 

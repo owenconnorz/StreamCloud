@@ -13,7 +13,7 @@
 - [Nuvio trailer resolution](nuvio-trailer-resolution.md) — Trailer IDs come from TMDB; pair adaptive YouTube audio/video only in players that merge both tracks.
 - [Personalized DJ privacy](personalized-dj-privacy.md) — Keep listener preference signals on-device; external music searches are discovery-only and disclosed.
 - [Music prefetch priority](music-prefetch-priority.md) — Foreground playback and the active queue must outrank speculative visible-list stream warm-up.
-- [Fire TV focus handoff](tv-focus-handoff.md) — Keep TV navigation hidden while browsing; left-edge opens the drawer, and closing it restores saved page focus.
+- [TV focus handoff](tv-focus-handoff.md) — Keep transparent top tabs, use exact nav-to-page D-pad targets, and move only from the shelf that currently owns focus.
 - [Android build validation](android-build-validation.md) — This Repl lacks a local Android SDK; use the nested StreamCloud GitHub Actions build for compile validation.
 - [StreamCloud release scope](streamcloud-release-scope.md) — Publish and mirror APK updates only within StreamCloud; AioWeb is not part of this project.
 - [Android Auto queue resumption](android-auto-queue-resumption.md) — Resume from durable logical media identities and position, never in-memory timelines or signed CDN URLs.

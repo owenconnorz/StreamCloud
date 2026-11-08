@@ -3,11 +3,11 @@ name: Fire TV focus handoff
 description: Android TV spatial focus behavior — pager trapping, drawer open trigger, and vertical scroll suppression
 ---
 
-Keep the persistent, icon-only TV navigation bar at the top of the screen. D-pad Down must hand off to the first attached focusable item on the active screen; D-pad Up from the first home shelf should return focus to the navigation bar.
+Keep the persistent TV navigation at the top, transparent with no enclosing black bar, and use horizontal text destinations. Moving focus left/right immediately opens that destination and slides a white selection pill to it. D-pad Down must hand off to the exact first focus target on the active screen. On Movies, Down from navigation lands on the Watch now hero action; Down from the hero reaches the first real shelf card, and Up from that first shelf returns to the hero before navigation.
 
 **Why:** The user requested the top navigation layout from their TV reference and reported that Down from navigation and Up/Down around page content could leave focus trapped or skip rows.
 
-**How to apply:** Give each route a bounded, screen-owned Down handoff to a real visible target; never point native directional focus at a detached Lazy item. On Movies, scroll to the top and focus the first Continue Watching card or first genre card. Search should focus its first on-screen keyboard key, and details should focus the primary play/continue action. Keep Up at the top navigation bar trapped.
+**How to apply:** Give each route a bounded, screen-owned Down handoff to a real visible target; never point native directional focus at a detached Lazy item. Search should focus its first on-screen keyboard key, and details should focus the primary play/continue action. Keep Up at the top navigation bar trapped.
 
 Nested TV rails should rely on the focusable item's normal list reveal behavior rather than adding an unconditional `BringIntoViewRequester` to every focused card. Repeated D-pad events should also be consumed after throttled focus movement, including at a group edge.
 
@@ -61,13 +61,21 @@ if (value != null) {
 }
 ```
 
+## Movies home vertical D-pad
+
+For vertical movement within the TV Movies home, handle Android D-pad Up/Down only when a real shelf currently owns focus, then route to the adjacent real shelf card. Do not choose a source from stale last-focused-row state. If no active shelf is confirmed, let normal focus traversal proceed.
+
+**Why:** The user reports Up/Down on Movies home skipping or losing the highlighted row, while Settings navigation remains predictable.
+
+**How to apply:** Keep this behavior scoped to Movies home (not its search results); preserve the route's explicit nav-to-hero, hero-to-shelf, and shelf-to-shelf handoffs. Throttle held-key repeats and consume repeated events while a handoff is in progress.
+
 ## Hero-to-first-card handoff
 
 On TV, D-pad Down from the hero actions must focus the first actual content item, not a clickable shelf heading or a small ‘View all’ label. Keep header actions touch-clickable, but not D-pad focusable; preserve TV access through the shelf’s trailing View All card.
 
 **Why:** Spatial focus can choose an invisible header action or lose the hero button when its details hide, leaving the viewer without a visible selection. Native focus search can also skip a shelf when the next lazy row is detached.
 
-**How to apply:** Route Down through the hero action row to the first Continue Watching card, or the first genre card when Continue Watching is empty. Retry after layout frames because lazy content may not be attached immediately. For later Down presses, reveal the nearest later focusable row in the parent list, skipping headings; do not fall through to native focus search when a lazy target is detached. Consume D-pad repeats during the handoff and keep actual hero focus state separate from first-card focus state. Keep a TV View All card for shelves whose header action is no longer focusable.
+**How to apply:** Route Down from the Watch now action to the first Continue Watching card, or the first genre card when Continue Watching is empty. Retry after layout frames because lazy content may not be attached immediately. For later Down presses, reveal the nearest later focusable row in the parent list, skipping headings; do not fall through to native focus search when a lazy target is detached. Consume D-pad repeats during the handoff and keep actual hero focus state separate from first-card focus state. Keep a TV View All card for shelves whose header action is no longer focusable.
 
 ## Wait for nested row focus targets
 

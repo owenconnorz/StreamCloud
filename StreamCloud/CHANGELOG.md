@@ -1,3 +1,12 @@
+## TV update — Prime-style navigation and Movies home
+
+### Android TV
+- **The top navigation now sits directly over the hero** — removed the enclosing black bar and changed the destinations to horizontal text tabs.
+- **Remote focus activates destinations immediately** — left/right moves the highlighted tab and opens its page without requiring Select; the white selection pill slides to the focused tab.
+- **Movies home now has a cinematic featured hero** — artwork fills the background under the navigation with the title, type, year, rating, synopsis, a single Watch now action, and carousel dots.
+- **Up/Down follows the actual focus chain** — navigation Down reaches the hero action, then the first shelf; Up returns from the first shelf to the hero and then the navigation.
+- **Stale shelf focus no longer drives vertical jumps** — the Movies handler only moves from the row that currently owns focus.
+
 ## TV update — Search and top bar refinement
 
 ### Android TV
