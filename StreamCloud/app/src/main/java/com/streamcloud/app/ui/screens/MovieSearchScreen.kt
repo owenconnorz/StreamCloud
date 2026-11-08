@@ -84,8 +84,10 @@ fun MovieSearchScreen(
     // Keep this independent of profile-load timing so returning from a detail
     // route cannot reset a query when the active-profile key changes.
     var query by rememberSaveable { mutableStateOf("") }
+    var submittedTvQuery by rememberSaveable { mutableStateOf("") }
     var focusResultsAfterSearch by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
+    val firstKeyboardKeyFocusRequester = remember { FocusRequester() }
     val firstResultFocusRequester = remember { FocusRequester() }
     val firstHistoryFocusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -97,24 +99,40 @@ fun MovieSearchScreen(
         state.stremioSearchResults.isNotEmpty() -> "stremio-${state.stremioSearchResults.size}"
         else -> null
     }
+    val searchIsLoading =
+        state.moviesLoading || state.seriesLoading || state.csLoading || state.stremioLoading
 
-    // Start on the search field on every form factor. The TV key handler below
-    // explicitly moves Down into history/results, so the field remains usable
-    // without trapping remote navigation.
-    LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
-
-    // Pressing Search on an Android TV keyboard clears the TextField focus. Once
-    // the first result is composed, put focus on the actual card so the next
-    // D-pad press is not dependent on spatial navigation across nested LazyRows.
-    LaunchedEffect(focusResultsAfterSearch, firstResultKey) {
-        if (isTv && focusResultsAfterSearch && firstResultKey != null) {
+    // TV starts on the custom key grid; touch-first layouts start in the text field.
+    LaunchedEffect(isTv) {
+        val target = if (isTv) firstKeyboardKeyFocusRequester else focusRequester
+        repeat(10) {
+            if (runCatching { target.requestFocus() }.getOrDefault(false)) {
+                return@LaunchedEffect
+            }
             delay(100)
-            runCatching { firstResultFocusRequester.requestFocus() }
-            focusResultsAfterSearch = false
         }
     }
 
-    LaunchedEffect(query, vm) {
+    // Move into results only after a result card exists. If the search is empty,
+    // restore the keyboard focus rather than leaving the remote with no highlight.
+    LaunchedEffect(focusResultsAfterSearch, firstResultKey, searchIsLoading) {
+        if (isTv && focusResultsAfterSearch) {
+            delay(100)
+            when {
+                firstResultKey != null -> {
+                    runCatching { firstResultFocusRequester.requestFocus() }
+                    focusResultsAfterSearch = false
+                }
+                !searchIsLoading -> {
+                    runCatching { firstKeyboardKeyFocusRequester.requestFocus() }
+                    focusResultsAfterSearch = false
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(query, vm, isTv) {
+        if (isTv) return@LaunchedEffect
         if (query.length >= 2) {
             // Clear previous results immediately so screen feels instant
             vm.search(query)
@@ -132,9 +150,36 @@ fun MovieSearchScreen(
             // first result once the result rail has been composed.
             vm.search(submittedQuery, forceRefresh = true)
             vm.saveToHistory(submittedQuery)
+            if (isTv) submittedTvQuery = submittedQuery
             focusResultsAfterSearch = true
+        } else if (isTv) {
+            submittedTvQuery = ""
+            vm.search("")
         }
-        focusManager.clearFocus(force = true)
+        if (!isTv) focusManager.clearFocus(force = true)
+    }
+
+    val appendTvSearchText: (String) -> Unit = { text ->
+        query += text
+        focusResultsAfterSearch = false
+        if (isTv && submittedTvQuery.isNotEmpty()) {
+            submittedTvQuery = ""
+            vm.search("")
+        }
+    }
+    val deleteTvSearchCharacter: () -> Unit = {
+        if (query.isNotEmpty()) query = query.dropLast(1)
+        focusResultsAfterSearch = false
+        if (isTv && submittedTvQuery.isNotEmpty()) {
+            submittedTvQuery = ""
+            vm.search("")
+        }
+    }
+    val clearSearch: () -> Unit = {
+        query = ""
+        submittedTvQuery = ""
+        focusResultsAfterSearch = false
+        if (isTv) vm.search("")
     }
 
     // Back always leaves search on TV. Do not turn the remote's Back key into
@@ -157,12 +202,7 @@ fun MovieSearchScreen(
                         when (event.key) {
                             Key.Back, Key.Escape -> false
                             Key.DirectionDown -> runCatching {
-                                if (query.length < 2) {
-                                    firstHistoryFocusRequester.requestFocus()
-                                } else {
-                                    firstResultFocusRequester.requestFocus()
-                                }
-                                true
+                                firstKeyboardKeyFocusRequester.requestFocus()
                             }.getOrDefault(false)
                             else -> false
                         }
@@ -170,7 +210,10 @@ fun MovieSearchScreen(
                         false
                     }
                 }
-                .tvFocusBorder(RoundedCornerShape(28.dp)),
+                .tvFocusBorder(
+                    RoundedCornerShape(28.dp),
+                    color = if (isTv) Color(0xFF13BCEB) else Color.White,
+                ),
             placeholder = {
                 Text(
                     "Search movies, series & add-ons",
@@ -188,23 +231,26 @@ fun MovieSearchScreen(
             },
             trailingIcon = {
                 if (query.isNotEmpty()) {
-                    IconButton(onClick = { query = "" }) {
+                    IconButton(onClick = clearSearch) {
                         Icon(Icons.Default.Close, "Clear")
                     }
                 }
             },
+            readOnly = isTv,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(
                 onSearch = { submitSearch(query) },
             ),
             shape = RoundedCornerShape(28.dp),
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                focusedContainerColor = if (isTv) Color(0xFF17232D) else MaterialTheme.colorScheme.surfaceContainerHigh,
+                unfocusedContainerColor = if (isTv) Color(0xFF111922) else MaterialTheme.colorScheme.surfaceContainerHigh,
                 focusedIndicatorColor = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,
                 disabledIndicatorColor = Color.Transparent,
-                cursorColor = MaterialTheme.colorScheme.primary,
+                cursorColor = if (isTv) Color(0xFF13BCEB) else MaterialTheme.colorScheme.primary,
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
             ),
         )
     }
@@ -212,21 +258,7 @@ fun MovieSearchScreen(
     LegacyMoviesThemeWrapper(moviesThemeName) {
     Scaffold(
         topBar = {
-            if (isTv) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    searchField(
-                        Modifier
-                            .fillMaxWidth(0.82f)
-                            .widthIn(max = 620.dp)
-                            .height(64.dp),
-                    )
-                }
-            } else {
+            if (!isTv) {
                 TopAppBar(
                     title = {
                         searchField(Modifier.fillMaxWidth())
@@ -243,34 +275,231 @@ fun MovieSearchScreen(
                 )
             }
         },
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = if (isTv) Color(0xFF080C12) else MaterialTheme.colorScheme.background,
     ) { padding ->
-        if (query.length < 2) {
-            RecentSearches(
-                history = state.searchHistory,
-                padding = padding,
-                firstItemFocusRequester = firstHistoryFocusRequester,
-                onSelect = { submitSearch(it) },
-                onRemove = { vm.removeFromSearchHistory(it) },
-                onClearAll = { vm.clearSearchHistory() },
-            )
+        val displayedQuery = if (isTv) submittedTvQuery else query
+        if (isTv) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            ) {
+                TvSearchSidebar(
+                    query = query,
+                    searchField = searchField,
+                    firstKeyboardKeyFocusRequester = firstKeyboardKeyFocusRequester,
+                    searchFieldFocusRequester = focusRequester,
+                    onCharacter = appendTvSearchText,
+                    onBackspace = deleteTvSearchCharacter,
+                    onClear = clearSearch,
+                    onSearch = {
+                        if (query.trim().length >= 2) {
+                            submitSearch(query)
+                        } else {
+                            runCatching { firstKeyboardKeyFocusRequester.requestFocus() }
+                        }
+                    },
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                ) {
+                    if (displayedQuery.length < 2) {
+                        RecentSearches(
+                            history = state.searchHistory,
+                            padding = PaddingValues(),
+                            firstItemFocusRequester = firstHistoryFocusRequester,
+                            onSelect = { submitSearch(it) },
+                            onRemove = { vm.removeFromSearchHistory(it) },
+                            onClearAll = { vm.clearSearchHistory() },
+                        )
+                    } else {
+                        CombinedResultsList(
+                            state = state,
+                            query = displayedQuery,
+                            padding = PaddingValues(),
+                            watchedTmdbIds = watchedTmdbIds,
+                            firstResultFocusRequester = firstResultFocusRequester,
+                            keyboardFocusRequester = firstKeyboardKeyFocusRequester,
+                            onMovieClick = onMovieClick,
+                            onTvClick = onTvClick,
+                            onLoadMoreMovies = vm::loadMoreMovies,
+                            onLoadMoreTv = vm::loadMoreTv,
+                            onOpenCsItem = onOpenCsItem,
+                            onOpenStremio = onOpenStremio,
+                        )
+                    }
+                }
+            }
         } else {
-            CombinedResultsList(
-                state = state,
-                query = query,
-                padding = padding,
-                watchedTmdbIds = watchedTmdbIds,
-                firstResultFocusRequester = firstResultFocusRequester,
-                onMovieClick = onMovieClick,
-                onTvClick = onTvClick,
-                onLoadMoreMovies = vm::loadMoreMovies,
-                onLoadMoreTv = vm::loadMoreTv,
-                onOpenCsItem = onOpenCsItem,
-                onOpenStremio = onOpenStremio,
-            )
+            if (displayedQuery.length < 2) {
+                RecentSearches(
+                    history = state.searchHistory,
+                    padding = padding,
+                    firstItemFocusRequester = firstHistoryFocusRequester,
+                    onSelect = { submitSearch(it) },
+                    onRemove = { vm.removeFromSearchHistory(it) },
+                    onClearAll = { vm.clearSearchHistory() },
+                )
+            } else {
+                CombinedResultsList(
+                    state = state,
+                    query = displayedQuery,
+                    padding = padding,
+                    watchedTmdbIds = watchedTmdbIds,
+                    firstResultFocusRequester = firstResultFocusRequester,
+                    keyboardFocusRequester = firstKeyboardKeyFocusRequester,
+                    onMovieClick = onMovieClick,
+                    onTvClick = onTvClick,
+                    onLoadMoreMovies = vm::loadMoreMovies,
+                    onLoadMoreTv = vm::loadMoreTv,
+                    onOpenCsItem = onOpenCsItem,
+                    onOpenStremio = onOpenStremio,
+                )
+            }
         }
     }
     } // MoviesThemeWrapper
+}
+
+@Composable
+private fun TvSearchSidebar(
+    query: String,
+    searchField: @Composable (Modifier) -> Unit,
+    firstKeyboardKeyFocusRequester: FocusRequester,
+    searchFieldFocusRequester: FocusRequester,
+    onCharacter: (String) -> Unit,
+    onBackspace: () -> Unit,
+    onClear: () -> Unit,
+    onSearch: () -> Unit,
+) {
+    val keyboardRows = remember {
+        listOf("QWERT", "YUIOP", "ASDFG", "HJKL", "ZXCVB", "NM123", "45678", "90-.'")
+            .map { row -> row.map { it.toString() } + List(5 - row.length) { "" } }
+    }
+    Column(
+        modifier = Modifier
+            .width(420.dp)
+            .fillMaxHeight()
+            .background(Color(0xFF0D151E))
+            .padding(horizontal = 22.dp, vertical = 20.dp),
+        horizontalAlignment = Alignment.Start,
+    ) {
+        Text(
+            "Search",
+            style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
+            color = Color.White,
+        )
+        Spacer(Modifier.height(12.dp))
+        searchField(Modifier.fillMaxWidth().height(62.dp))
+        Spacer(Modifier.height(14.dp))
+        Text(
+            "ON-SCREEN KEYBOARD",
+            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+            color = Color(0xFF9EABB8),
+        )
+        Spacer(Modifier.height(8.dp))
+        keyboardRows.forEachIndexed { rowIndex, row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                row.forEachIndexed { columnIndex, key ->
+                    if (key.isBlank()) {
+                        Spacer(Modifier.weight(1f).height(38.dp))
+                    } else {
+                        val firstKey = rowIndex == 0 && columnIndex == 0
+                        val keyModifier = Modifier
+                            .weight(1f)
+                            .then(
+                                if (rowIndex == 0) {
+                                    Modifier.onPreviewKeyEvent { event ->
+                                        if (
+                                            event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.DirectionUp
+                                        ) {
+                                            runCatching { searchFieldFocusRequester.requestFocus() }
+                                                .getOrDefault(false)
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                } else Modifier
+                            )
+                        TvSearchKey(
+                            label = key,
+                            modifier = keyModifier,
+                            focusRequester = if (firstKey) firstKeyboardKeyFocusRequester else null,
+                            onClick = { onCharacter(key) },
+                        )
+                    }
+                }
+            }
+            if (rowIndex != keyboardRows.lastIndex) Spacer(Modifier.height(6.dp))
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            TvSearchKey(
+                label = "SPACE",
+                modifier = Modifier.weight(2f),
+                onClick = { onCharacter(" ") },
+            )
+            TvSearchKey(
+                label = "⌫",
+                modifier = Modifier.weight(1f),
+                onClick = onBackspace,
+            )
+            TvSearchKey(
+                label = "CLEAR",
+                modifier = Modifier.weight(1.25f),
+                onClick = onClear,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        TvSearchKey(
+            label = if (query.length >= 2) "SEARCH" else "SEARCH (2+ LETTERS)",
+            modifier = Modifier.fillMaxWidth(),
+            height = 44.dp,
+            isPrimary = true,
+            onClick = onSearch,
+        )
+    }
+}
+
+@Composable
+private fun TvSearchKey(
+    label: String,
+    modifier: Modifier = Modifier,
+    height: androidx.compose.ui.unit.Dp = 38.dp,
+    focusRequester: FocusRequester? = null,
+    isPrimary: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(8.dp)
+    Box(
+        modifier = modifier
+            .height(height)
+            .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
+            .clip(shape)
+            .background(if (isPrimary) Color(0xFF079FC5) else Color(0xFF1A2732))
+            .tvFocusBorder(shape, borderWidth = 3.dp, color = Color(0xFF13BCEB))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = Color.White,
+            style = MaterialTheme.typography.labelLarge.copy(
+                fontWeight = if (isPrimary) FontWeight.Bold else FontWeight.SemiBold,
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -286,26 +515,47 @@ private fun RecentSearches(
     onRemove: (String) -> Unit,
     onClearAll: () -> Unit,
 ) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     if (history.isEmpty()) {
         Box(
             Modifier.fillMaxSize().padding(padding),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                "Type to search across Movies, Series,\nCloudStream & Stremio addons",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 32.dp),
-                textAlign = TextAlign.Center,
-            )
+            if (isTv) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 40.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        "Find something to watch",
+                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                        color = Color.White,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Search movies, series, CloudStream, and Stremio add-ons.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color(0xFF9EABB8),
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            } else {
+                Text(
+                    "Type to search across Movies, Series,\nCloudStream & Stremio addons",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 32.dp),
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
         return
     }
 
-    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val tvContentWidth = Modifier
-        .fillMaxWidth(0.82f)
-        .widthIn(max = 620.dp)
+        .fillMaxWidth(0.92f)
+        .widthIn(max = 1360.dp)
 
     LazyColumn(
         contentPadding = PaddingValues(
@@ -324,9 +574,10 @@ private fun RecentSearches(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    "Recent",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onBackground,
+                    "Recent searches",
+                    style = (if (isTv) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium)
+                        .copy(fontWeight = FontWeight.Bold),
+                    color = if (isTv) Color.White else MaterialTheme.colorScheme.onBackground,
                 )
                 TextButton(onClick = onClearAll) {
                     Text("Clear all", color = MaterialTheme.colorScheme.primary)
@@ -395,6 +646,7 @@ private fun CombinedResultsList(
     padding: PaddingValues,
     watchedTmdbIds: Set<Long>,
     firstResultFocusRequester: FocusRequester,
+    keyboardFocusRequester: FocusRequester,
     onMovieClick: (Long) -> Unit,
     onTvClick: (Long) -> Unit,
     onLoadMoreMovies: () -> Unit,
@@ -423,8 +675,8 @@ private fun CombinedResultsList(
         ) {
             Text(
                 "No results for \"$query\"",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = if (isTv) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.bodyLarge,
+                color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         return
@@ -438,13 +690,13 @@ private fun CombinedResultsList(
         // verticalOnly = true so held Left/Right fall through to the nested LazyRows
         // (NuvioSection card rails) instead of being consumed by this outer column.
         modifier = Modifier.fillMaxSize().tvFocusGroup(),
-        verticalArrangement = Arrangement.spacedBy(28.dp),
+        verticalArrangement = Arrangement.spacedBy(if (isTv) 38.dp else 28.dp),
     ) {
         state.searchCorrection?.let { correctedQuery ->
             item(key = "search-correction") {
                 Text(
                     "Showing results for \"$correctedQuery\"",
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier.padding(horizontal = if (isTv) 40.dp else 16.dp),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -468,6 +720,9 @@ private fun CombinedResultsList(
                             focusRequester = if (
                                 isTv && firstResultSection == "series" && movie == state.tvSearchResults.firstOrNull()
                             ) firstResultFocusRequester else null,
+                            returnToKeyboardFocusRequester = if (
+                                isTv && firstResultSection == "series" && movie == state.tvSearchResults.firstOrNull()
+                            ) keyboardFocusRequester else null,
                             onClick = { onTvClick(movie.id) },
                         )
                     }
@@ -502,6 +757,9 @@ private fun CombinedResultsList(
                             focusRequester = if (
                                 isTv && firstResultSection == "movies" && movie == state.searchResults.firstOrNull()
                             ) firstResultFocusRequester else null,
+                            returnToKeyboardFocusRequester = if (
+                                isTv && firstResultSection == "movies" && movie == state.searchResults.firstOrNull()
+                            ) keyboardFocusRequester else null,
                             onClick = { onMovieClick(movie.id) },
                         )
                     }
@@ -532,6 +790,9 @@ private fun CombinedResultsList(
                             focusRequester = if (
                                 isTv && firstResultSection == "cloudstream" && r == results.firstOrNull()
                             ) firstResultFocusRequester else null,
+                            returnToKeyboardFocusRequester = if (
+                                isTv && firstResultSection == "cloudstream" && r == results.firstOrNull()
+                            ) keyboardFocusRequester else null,
                             onClick = { onOpenCsItem(r.pluginInternalName, r.item.url, r.item.name, r.item.posterUrl) },
                         )
                     }
@@ -558,6 +819,9 @@ private fun CombinedResultsList(
                             focusRequester = if (
                                 isTv && firstResultSection == "stremio" && r == results.firstOrNull()
                             ) firstResultFocusRequester else null,
+                            returnToKeyboardFocusRequester = if (
+                                isTv && firstResultSection == "stremio" && r == results.firstOrNull()
+                            ) keyboardFocusRequester else null,
                             onClick = { onOpenStremio(r.addonId, r.item.type, r.item.id, r.item.name, r.item.poster) },
                         )
                     }
@@ -582,23 +846,25 @@ private fun NuvioSection(
     loading: Boolean,
     cards: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
 ) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Column {
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 0.dp)
-                .padding(bottom = 12.dp),
+                .padding(horizontal = if (isTv) 40.dp else 16.dp)
+                .padding(bottom = if (isTv) 16.dp else 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
                 header,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onBackground,
+                style = (if (isTv) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium)
+                    .copy(fontWeight = FontWeight.Bold),
+                color = if (isTv) Color.White else MaterialTheme.colorScheme.onBackground,
             )
             if (loading) {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(if (isTv) 22.dp else 16.dp),
                     strokeWidth = 2.dp,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -608,8 +874,8 @@ private fun NuvioSection(
         // unlike a regular Row+horizontalScroll which intercepts directional events.
         LazyRow(
             modifier = Modifier.fillMaxWidth().tvFocusGroup(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(horizontal = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (isTv) 18.dp else 10.dp),
+            contentPadding = PaddingValues(horizontal = if (isTv) 40.dp else 6.dp),
             content = cards,
         )
     }
@@ -627,8 +893,10 @@ private fun NuvioCard(
     fallbackImageUrl: String? = null,
     isWatched: Boolean = false,
     focusRequester: FocusRequester? = null,
+    returnToKeyboardFocusRequester: FocusRequester? = null,
 ) {
-    val cardWidth = if (LocalUiFormFactor.current == UiFormFactor.Tv) 148.dp else 132.dp
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val cardWidth = if (isTv) 210.dp else 132.dp
     Column(modifier = Modifier.width(cardWidth)) {
         Box(
             modifier = Modifier
@@ -637,7 +905,24 @@ private fun NuvioCard(
                 .clip(RoundedCornerShape(10.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
-                .tvFocusBorder(RoundedCornerShape(10.dp), borderWidth = 5.dp)
+                .onPreviewKeyEvent { event ->
+                    if (
+                        isTv &&
+                        returnToKeyboardFocusRequester != null &&
+                        event.type == KeyEventType.KeyDown &&
+                        event.key == Key.DirectionLeft
+                    ) {
+                        runCatching { returnToKeyboardFocusRequester.requestFocus() }
+                            .getOrDefault(false)
+                    } else {
+                        false
+                    }
+                }
+                .tvFocusBorder(
+                    RoundedCornerShape(10.dp),
+                    borderWidth = if (isTv) 5.dp else 3.dp,
+                    color = if (isTv) Color(0xFF13BCEB) else Color.White,
+                )
                 .clickable(onClick = onClick),
         ) {
             MovieArtwork(
@@ -654,8 +939,8 @@ private fun NuvioCard(
         Spacer(Modifier.height(5.dp))
         Text(
             text = title,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onBackground,
+            style = if (isTv) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelMedium,
+            color = if (isTv) Color.White else MaterialTheme.colorScheme.onBackground,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 2.dp),

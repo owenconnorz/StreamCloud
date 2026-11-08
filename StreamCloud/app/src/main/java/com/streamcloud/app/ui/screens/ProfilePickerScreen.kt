@@ -256,22 +256,32 @@ private fun ProfileGridView(
             .navigationBarsPadding(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Spacer(Modifier.height(if (isTv) 20.dp else 48.dp))
+        Spacer(Modifier.height(if (isTv) 32.dp else 48.dp))
         Text(
             "Who's watching?",
-            style = (if (isTv) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.headlineLarge)
-                .copy(fontWeight = FontWeight.Bold),
+            style = MaterialTheme.typography.headlineLarge.copy(
+                fontWeight = FontWeight.Bold,
+                fontSize = if (isTv) 40.sp else 32.sp,
+            ),
             color = Color.White,
         )
-        Spacer(Modifier.height(if (isTv) 20.dp else 36.dp))
+        if (isTv) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Choose a profile to continue",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color(0xFF9EABB8),
+            )
+        }
+        Spacer(Modifier.height(if (isTv) 28.dp else 36.dp))
         if (isTv) {
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(220.dp)
-                    .padding(horizontal = 24.dp),
-                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(32.dp, Alignment.CenterHorizontally),
+                    .height(252.dp)
+                    .padding(horizontal = 32.dp),
+                contentPadding = PaddingValues(horizontal = 32.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(40.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 lazyRowItems(profiles, key = { it.id }) { profile ->
@@ -348,17 +358,20 @@ private fun ProfileManagementButton(
     OutlinedButton(
         onClick = onClick,
         shape = RoundedCornerShape(50),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.18f)),
+        border = BorderStroke(
+            if (isTv) 2.dp else 1.dp,
+            if (isTv) Color(0xFF13BCEB).copy(alpha = 0.72f) else Color.White.copy(alpha = 0.18f),
+        ),
         colors = ButtonDefaults.outlinedButtonColors(
-            contentColor = Color(0xFFB4B4BA),
+            contentColor = if (isTv) Color.White else Color(0xFFB4B4BA),
         ),
         modifier = Modifier
-            .width(if (isManaging) 112.dp else if (isTv) 230.dp else 190.dp)
-            .height(if (isTv) 56.dp else 48.dp),
+            .width(if (isManaging) 112.dp else if (isTv) 256.dp else 190.dp)
+            .height(if (isTv) 60.dp else 48.dp),
     ) {
         Text(
             text = if (isManaging) "Done" else "Manage Profiles",
-            fontSize = 15.sp,
+            fontSize = if (isTv) 18.sp else 15.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             softWrap = false,
@@ -387,7 +400,7 @@ private fun ProfileGridItem(
         Box(contentAlignment = Alignment.BottomEnd) {
             Box(
                 Modifier
-                    .size(120.dp)
+                    .size(if (isTv) 140.dp else 120.dp)
                     .then(
                         if (initialFocusRequester != null) {
                             Modifier.focusRequester(initialFocusRequester)
@@ -396,16 +409,23 @@ private fun ProfileGridItem(
                     .clip(CircleShape)
                     .then(
                         if (isActive)
-                            Modifier.border(3.dp, Color(0xFF1E4EA8), CircleShape)
+                            Modifier.border(
+                                if (isTv) 4.dp else 3.dp,
+                                if (isTv) Color(0xFF13BCEB) else Color(0xFF1E4EA8),
+                                CircleShape,
+                            )
                         else Modifier
                     )
                     .then(
                         if (isTv)
-                            // tvFocusBorder makes the circle focusable and shows a white
+                            // tvFocusBorder makes the circle focusable and shows a cyan
                             // border when focused. Selection and editing follow the same
                             // Manage Profiles mode as the mobile layout.
                             Modifier
-                                .tvFocusBorder(CircleShape)
+                                .tvFocusBorder(
+                                    CircleShape,
+                                    color = Color(0xFF13BCEB),
+                                )
                                 .combinedClickable(
                                     onClick = activate,
                                     onLongClick = if (isManaging) onEdit else null,
@@ -440,7 +460,7 @@ private fun ProfileGridItem(
         Text(
             profile.name,
             color = Color.White,
-            fontSize = 15.sp,
+            fontSize = if (isTv) 18.sp else 15.sp,
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.Center,
             maxLines = 1,
@@ -461,18 +481,24 @@ private fun AddProfileItem(
     ) {
         Box(
             Modifier
-                .size(120.dp)
+                .size(if (isTv) 140.dp else 120.dp)
                 .then(
                     if (initialFocusRequester != null) {
                         Modifier.focusRequester(initialFocusRequester)
                     } else Modifier
                 )
                 .clip(CircleShape)
-                .background(Color(0xFF111315))
-                .border(2.dp, Color.White.copy(alpha = 0.1f), CircleShape)
+                .background(if (isTv) Color(0xFF112631) else Color(0xFF111315))
+                .border(
+                    2.dp,
+                    if (isTv) Color(0xFF13BCEB).copy(alpha = 0.4f) else Color.White.copy(alpha = 0.1f),
+                    CircleShape,
+                )
                 .then(
                     if (isTv) {
-                        Modifier.tvFocusBorder(CircleShape).clickable(onClick = onClick)
+                        Modifier
+                            .tvFocusBorder(CircleShape, color = Color(0xFF13BCEB))
+                            .clickable(onClick = onClick)
                     } else Modifier
                 ),
             contentAlignment = Alignment.Center,
@@ -480,15 +506,15 @@ private fun AddProfileItem(
             Icon(
                 Icons.Default.Add,
                 contentDescription = "Add Profile",
-                tint = Color(0xFF8E8E93),
-                modifier = Modifier.size(40.dp),
+                tint = if (isTv) Color(0xFF13BCEB) else Color(0xFF8E8E93),
+                modifier = Modifier.size(if (isTv) 48.dp else 40.dp),
             )
         }
         Spacer(Modifier.height(8.dp))
         Text(
             "Add Profile",
-            color = Color(0xFF8E8E93),
-            fontSize = 15.sp,
+            color = if (isTv) Color(0xFFB7C3CC) else Color(0xFF8E8E93),
+            fontSize = if (isTv) 18.sp else 15.sp,
             fontWeight = FontWeight.Medium,
         )
     }

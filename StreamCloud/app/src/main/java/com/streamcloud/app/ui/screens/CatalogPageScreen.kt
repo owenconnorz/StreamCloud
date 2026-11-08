@@ -116,7 +116,7 @@ fun CatalogPageScreen(
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    val columns = if (isTv) 6 else 3
+    val columns = if (isTv) 5 else 3
     val stremioFetchSemaphore = remember(source) { Semaphore(4) }
 
     var tmdbItems by remember(source) { mutableStateOf<List<TmdbMovie>>(emptyList()) }
@@ -228,7 +228,11 @@ fun CatalogPageScreen(
         }.collect { reachedEnd -> if (reachedEnd) loadNext() }
     }
 
-    Column(Modifier.fillMaxSize().background(if (isTv) Color.Black else MaterialTheme.colorScheme.background)) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(if (isTv) Color(0xFF080C12) else MaterialTheme.colorScheme.background),
+    ) {
 
         if (!isTv) {
             Row(
@@ -244,17 +248,23 @@ fun CatalogPageScreen(
         }
         Text(
             title,
-            style = MaterialTheme.typography.displayLarge,
-            color = MaterialTheme.colorScheme.onBackground,
+            style = if (isTv) MaterialTheme.typography.headlineLarge else MaterialTheme.typography.displayLarge,
+            color = if (isTv) Color.White else MaterialTheme.colorScheme.onBackground,
             fontWeight = FontWeight.Black,
-            modifier = Modifier.padding(horizontal = 20.dp),
+            modifier = Modifier.padding(
+                horizontal = if (isTv) 40.dp else 20.dp,
+                vertical = if (isTv) 10.dp else 0.dp,
+            ),
         )
         if (subtitle.isNotBlank()) {
             Text(
                 subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+                style = if (isTv) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium,
+                color = if (isTv) Color(0xFF9EABB8) else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(
+                    horizontal = if (isTv) 40.dp else 20.dp,
+                    vertical = 2.dp,
+                ),
             )
         }
         notice?.let {
@@ -269,9 +279,14 @@ fun CatalogPageScreen(
         LazyVerticalGrid(
             state = gridState,
             columns = GridCells.Fixed(columns),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(
+                start = if (isTv) 40.dp else 16.dp,
+                end = if (isTv) 40.dp else 16.dp,
+                top = if (isTv) 20.dp else 12.dp,
+                bottom = if (isTv) 40.dp else 24.dp,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(if (isTv) 18.dp else 10.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isTv) 22.dp else 14.dp),
         ) {
             if (isTmdb) {
                 items(tmdbItems.distinctBy { it.id }, key = { "tmdb_${it.id}" }) { m ->
@@ -374,9 +389,14 @@ fun CatalogPageScreen(
 
 @Composable
 private fun GridPosterTmdb(m: TmdbMovie, isWatched: Boolean, onClick: () -> Unit) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Column(
         Modifier
-            .tvFocusBorder(RoundedCornerShape(12.dp))
+            .tvFocusBorder(
+                RoundedCornerShape(12.dp),
+                borderWidth = if (isTv) 5.dp else 3.dp,
+                color = if (isTv) Color(0xFF13BCEB) else Color.White,
+            )
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
     ) {
@@ -398,8 +418,8 @@ private fun GridPosterTmdb(m: TmdbMovie, isWatched: Boolean, onClick: () -> Unit
         Spacer(Modifier.height(6.dp))
         Text(
             m.displayTitle,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onBackground,
+            style = if (isTv) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium,
+            color = if (isTv) Color.White else MaterialTheme.colorScheme.onBackground,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
@@ -408,9 +428,14 @@ private fun GridPosterTmdb(m: TmdbMovie, isWatched: Boolean, onClick: () -> Unit
 
 @Composable
 private fun GridPosterStremio(meta: StremioMetaPreview, onClick: () -> Unit) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     Column(
         Modifier
-            .tvFocusBorder(RoundedCornerShape(12.dp))
+            .tvFocusBorder(
+                RoundedCornerShape(12.dp),
+                borderWidth = if (isTv) 5.dp else 3.dp,
+                color = if (isTv) Color(0xFF13BCEB) else Color.White,
+            )
             .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
     ) {
@@ -426,8 +451,8 @@ private fun GridPosterStremio(meta: StremioMetaPreview, onClick: () -> Unit) {
         Spacer(Modifier.height(6.dp))
         Text(
             meta.name,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onBackground,
+            style = if (isTv) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium,
+            color = if (isTv) Color.White else MaterialTheme.colorScheme.onBackground,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )

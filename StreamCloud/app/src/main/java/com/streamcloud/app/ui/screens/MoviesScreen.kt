@@ -2627,6 +2627,21 @@ private fun TvHeroBackdrop(
                     ),
                 ),
         )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.horizontalGradient(
+                        colorStops = arrayOf(
+                            0f to Color(0xFF05070A).copy(alpha = 0.88f),
+                            0.22f to Color(0xFF05070A).copy(alpha = 0.70f),
+                            0.48f to Color(0xFF05070A).copy(alpha = 0.24f),
+                            0.72f to Color.Transparent,
+                            1f to Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
         val hero = items.getOrNull(currentPage)
         if (hero != null) {
             val meta = listOfNotNull(
@@ -2643,33 +2658,36 @@ private fun TvHeroBackdrop(
                 Column(
                     modifier = Modifier
                         .padding(
-                            start = 24.dp,
-                            end = LocalConfiguration.current.screenWidthDp.dp * 0.48f,
-                            bottom = rowsViewportHeight + 12.dp,
+                            start = 48.dp,
+                            end = LocalConfiguration.current.screenWidthDp.dp * 0.46f,
+                            bottom = rowsViewportHeight + 20.dp,
                         )
-                        .widthIn(max = 560.dp),
-                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                        .widthIn(max = 680.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp),
                 ) {
                     Text(
                         hero.title,
                         color = Color.White,
-                        style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp),
+                        style = MaterialTheme.typography.headlineMedium.copy(
+                            fontSize = 38.sp,
+                            lineHeight = 42.sp,
+                        ),
                         fontWeight = FontWeight.Bold,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         meta,
-                        color = Color.White.copy(alpha = 0.84f),
-                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.labelLarge.copy(fontSize = 15.sp),
                         maxLines = 1,
                     )
                     hero.overview.trim().takeIf(String::isNotBlank)?.let { overview ->
                         Text(
                             overview,
-                            color = Color.White.copy(alpha = 0.9f),
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
-                            maxLines = 2,
+                            color = Color.White.copy(alpha = 0.88f),
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 16.sp, lineHeight = 23.sp),
+                            maxLines = 3,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
@@ -2706,7 +2724,7 @@ private fun TvHeroBackdrop(
                                     true
                                 }
                             },
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Row(
@@ -2726,24 +2744,24 @@ private fun TvHeroBackdrop(
                                     },
                                 )
                                 .clip(RoundedCornerShape(50))
-                                .background(Color.White)
+                                .background(Color(0xFF079FC5))
                                 .tvFocusBorder(RoundedCornerShape(50))
                                 .tvOkPress({ onPlayNow(hero) }, onLongPress = {})
                                 .clickable { onPlayNow(hero) }
-                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                                .padding(horizontal = 21.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             Icon(
                                 Icons.Filled.PlayArrow,
                                 contentDescription = null,
-                                tint = Color.Black,
-                                modifier = Modifier.size(19.dp),
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp),
                             )
                             Text(
                                 "Play Now",
-                                color = Color.Black,
-                                style = MaterialTheme.typography.labelLarge.copy(
+                                color = Color.White,
+                                style = MaterialTheme.typography.titleSmall.copy(
                                     fontWeight = FontWeight.Bold,
                                 ),
                             )
@@ -2751,12 +2769,12 @@ private fun TvHeroBackdrop(
                         Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(50))
-                                .background(Color.White.copy(alpha = 0.2f))
-                                .border(1.dp, Color.White.copy(alpha = 0.42f), RoundedCornerShape(50))
+                                .background(Color(0xFF141B22).copy(alpha = 0.88f))
+                                .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(50))
                                 .tvFocusBorder(RoundedCornerShape(50))
                                 .tvOkPress({ onMoreInfo(hero) }, onLongPress = {})
                                 .clickable { onMoreInfo(hero) }
-                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                                .padding(horizontal = 19.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {

@@ -602,15 +602,15 @@ fun MovieDetailScreen(
     )
     MaterialTheme(
         colorScheme = MaterialTheme.colorScheme.copy(
-            primary = bannerPalette.accent,
-            onPrimary = bannerPalette.onAccent,
-            secondary = bannerPalette.accent,
-            onSecondary = bannerPalette.onAccent,
-            primaryContainer = bannerPalette.accentContainer,
+            primary = if (isTv) Color(0xFF079FC5) else bannerPalette.accent,
+            onPrimary = if (isTv) Color.White else bannerPalette.onAccent,
+            secondary = if (isTv) Color(0xFF079FC5) else bannerPalette.accent,
+            onSecondary = if (isTv) Color.White else bannerPalette.onAccent,
+            primaryContainer = if (isTv) Color(0xFF123B4A) else bannerPalette.accentContainer,
             onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-            background = Color.Black,
-            surface = bannerPalette.surfaceTint,
-            surfaceVariant = bannerPalette.surfaceTint,
+            background = if (isTv) Color(0xFF07080D) else Color.Black,
+            surface = if (isTv) Color(0xFF111820) else bannerPalette.surfaceTint,
+            surfaceVariant = if (isTv) Color(0xFF111820) else bannerPalette.surfaceTint,
         ),
     ) {
     val scrollState = rememberScrollState()
@@ -628,8 +628,8 @@ fun MovieDetailScreen(
                 contentScale = ContentScale.Fit,
                 onError = { titleLogoUrl = null },
                 modifier = Modifier
-                    .fillMaxWidth(if (isTv) 0.82f else 0.72f)
-                    .height(if (isTv) 84.dp else 72.dp),
+                    .fillMaxWidth(if (isTv) 0.88f else 0.72f)
+                    .height(if (isTv) 96.dp else 72.dp),
             )
         } else {
             Text(
@@ -637,8 +637,8 @@ fun MovieDetailScreen(
                 style = if (isTv) {
                     MaterialTheme.typography.headlineLarge.copy(
                         fontWeight = FontWeight.Bold,
-                        fontSize = 40.sp,
-                        lineHeight = 44.sp,
+                        fontSize = 48.sp,
+                        lineHeight = 52.sp,
                     )
                 } else {
                     MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.Bold)
@@ -647,6 +647,50 @@ fun MovieDetailScreen(
                 maxLines = if (isTv) 2 else Int.MAX_VALUE,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+
+        if (isTv) {
+            movie?.let { title ->
+                val year = (title.releaseDate ?: title.firstAirDate)
+                    ?.substringBefore('-')?.takeIf { it.length == 4 }
+                val metadata = listOfNotNull(
+                    year,
+                    title.displayRuntime(),
+                    certification?.takeIf(String::isNotBlank),
+                    title.voteAverage.takeIf { it > 0 }?.let { "★ ${"%.1f".format(it)}" },
+                )
+                if (metadata.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        metadata.joinToString("   ·   "),
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp),
+                        color = Color.White.copy(alpha = 0.82f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                title.overview?.takeIf(String::isNotBlank)?.let { synopsis ->
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        synopsis,
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontSize = 16.sp,
+                            lineHeight = 23.sp,
+                        ),
+                        color = Color.White.copy(alpha = 0.88f),
+                        maxLines = if (overviewExpanded) Int.MAX_VALUE else 3,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (!overviewExpanded && synopsis.length > 180) {
+                        Text(
+                            "Show More",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Color.White.copy(alpha = 0.78f),
+                            modifier = Modifier.clickable { overviewExpanded = true },
+                        )
+                    }
+                }
+            }
         }
 
         movie?.genres?.takeIf { it.isNotEmpty() && mediaType == "tv" }?.let { genres ->
@@ -859,7 +903,7 @@ fun MovieDetailScreen(
         }
     }
     BoxWithConstraints(
-        Modifier.fillMaxSize().background(Color.Black)
+        Modifier.fillMaxSize().background(if (isTv) Color(0xFF07080D) else Color.Black)
             .focusRequester(focusRequester)
             .then(
                 if (!isTv) {
@@ -910,13 +954,23 @@ fun MovieDetailScreen(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0f to bannerPalette.artworkColor.copy(alpha = 0.30f),
-                            0.34f to bannerPalette.artworkColor.copy(alpha = 0.20f),
-                            0.62f to bannerPalette.artworkColor.copy(alpha = 0.08f),
-                            0.88f to Color.Black.copy(alpha = 0.72f),
-                            1f to Color.Black,
-                        ),
+                        colorStops = if (isTv) {
+                            arrayOf(
+                                0f to Color(0xFF07080D).copy(alpha = 0.46f),
+                                0.28f to Color(0xFF07080D).copy(alpha = 0.10f),
+                                0.56f to Color.Transparent,
+                                0.82f to Color(0xFF07080D).copy(alpha = 0.76f),
+                                1f to Color(0xFF07080D),
+                            )
+                        } else {
+                            arrayOf(
+                                0f to bannerPalette.artworkColor.copy(alpha = 0.30f),
+                                0.34f to bannerPalette.artworkColor.copy(alpha = 0.20f),
+                                0.62f to bannerPalette.artworkColor.copy(alpha = 0.08f),
+                                0.88f to Color.Black.copy(alpha = 0.72f),
+                                1f to Color.Black,
+                            )
+                        },
                     ),
                 ),
         )
@@ -925,14 +979,24 @@ fun MovieDetailScreen(
                 .fillMaxSize()
                 .background(
                     Brush.horizontalGradient(
-                        colorStops = arrayOf(
-                            0f to bannerPalette.artworkColor.copy(alpha = 0.20f),
-                            0.14f to bannerPalette.artworkColor.copy(alpha = 0.09f),
-                            0.30f to Color.Transparent,
-                            0.70f to Color.Transparent,
-                            0.86f to bannerPalette.artworkColor.copy(alpha = 0.09f),
-                            1f to bannerPalette.artworkColor.copy(alpha = 0.20f),
-                        ),
+                        colorStops = if (isTv) {
+                            arrayOf(
+                                0f to Color(0xFF05070A).copy(alpha = 0.94f),
+                                0.22f to Color(0xFF05070A).copy(alpha = 0.76f),
+                                0.48f to Color(0xFF05070A).copy(alpha = 0.30f),
+                                0.72f to Color.Transparent,
+                                1f to Color.Transparent,
+                            )
+                        } else {
+                            arrayOf(
+                                0f to bannerPalette.artworkColor.copy(alpha = 0.20f),
+                                0.14f to bannerPalette.artworkColor.copy(alpha = 0.09f),
+                                0.30f to Color.Transparent,
+                                0.70f to Color.Transparent,
+                                0.86f to bannerPalette.artworkColor.copy(alpha = 0.09f),
+                                1f to bannerPalette.artworkColor.copy(alpha = 0.20f),
+                            )
+                        },
                     ),
                 ),
         )
@@ -1010,7 +1074,7 @@ fun MovieDetailScreen(
                 Column(
                     Modifier
                         .align(Alignment.BottomStart)
-                        .fillMaxWidth()
+                        .fillMaxWidth(if (isTv) 0.62f else 1f)
                         .padding(horizontal = if (isTv) 40.dp else 20.dp, vertical = 18.dp),
                 ) {
                     detailHeader()
@@ -1046,7 +1110,7 @@ fun MovieDetailScreen(
                 }
 
                 // ── Metadata row: Year · Runtime · Cert · IMDb ────────────────
-                movie?.let { m ->
+                movie?.takeIf { !isTv }?.let { m ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1129,22 +1193,24 @@ fun MovieDetailScreen(
                 }
 
                 // ── Overview ──────────────────────────────────────────────────
-                val overview = movie?.overview?.takeIf { it.isNotBlank() } ?: "—"
-                Text(
-                    overview,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = if (overviewExpanded) Int.MAX_VALUE else 4,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (!overviewExpanded && overview.length > 180) {
-                    Spacer(Modifier.height(2.dp))
+                if (!isTv) {
+                    val overview = movie?.overview?.takeIf { it.isNotBlank() } ?: "—"
                     Text(
-                        "Show More ▾",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        modifier = Modifier.clickable { overviewExpanded = true },
+                        overview,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = if (overviewExpanded) Int.MAX_VALUE else 4,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                    if (!overviewExpanded && overview.length > 180) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "Show More ▾",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.clickable { overviewExpanded = true },
+                        )
+                    }
                 }
 
                 // ── Production / Networks ─────────────────────────────────────
