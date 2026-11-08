@@ -665,12 +665,18 @@ fun MovieDetailScreen(
             movie?.let { title ->
                 val year = (title.releaseDate ?: title.firstAirDate)
                     ?.substringBefore('-')?.takeIf { it.length == 4 }
-                val metadata = listOfNotNull(
-                    year,
-                    title.displayRuntime(),
-                    certification?.takeIf(String::isNotBlank),
-                    title.voteAverage.takeIf { it > 0 }?.let { "★ ${"%.1f".format(it)}" },
-                )
+                val metadata = buildList {
+                    add(if (mediaType == "tv") "TV Series" else "Movie")
+                    if (mediaType == "tv") {
+                        tvSeasons.size.takeIf { it > 0 }?.let { add("$it Seasons") }
+                    }
+                    year?.let { add(it) }
+                    title.displayRuntime()?.let { add(it) }
+                    certification?.takeIf(String::isNotBlank)?.let { add(it) }
+                    title.voteAverage.takeIf { it > 0 }?.let {
+                        add("★ ${"%.1f".format(it)}")
+                    }
+                }
                 if (metadata.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
                     Text(
@@ -705,7 +711,7 @@ fun MovieDetailScreen(
             }
         }
 
-        movie?.genres?.takeIf { it.isNotEmpty() && mediaType == "tv" }?.let { genres ->
+        movie?.genres?.takeIf { it.isNotEmpty() }?.let { genres ->
             Spacer(Modifier.height(4.dp))
             Text(
                 genres.joinToString(" • ") { it.name },
@@ -720,7 +726,127 @@ fun MovieDetailScreen(
 
         val addonCount = installedAddons.size + installedNuvio.size + installedCsPlugins.size
         val playEnabled = imdbId != null && addonCount > 0 && !resolving
-        if (mediaType == "tv") {
+        if (isTv) {
+            Column(
+                modifier = Modifier.widthIn(max = 260.dp),
+                verticalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                if (mediaType == "tv") {
+                    Button(
+                        onClick = {
+                            episodePlaybackTarget?.let { target ->
+                                val episodeTitle = target.episodeTitle ?: tvEpisodes
+                                    .firstOrNull {
+                                        it.seasonNumber == target.seasonNumber &&
+                                            it.episodeNumber == target.episodeNumber
+                                    }
+                                    ?.name
+                                playEpisode(target.seasonNumber, target.episodeNumber, episodeTitle)
+                            } ?: run { resolverMessage = "Episodes are not available yet." }
+                        },
+                        enabled = playEnabled && episodePlaybackTarget != null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .tvFocusBorder(RoundedCornerShape(50))
+                            .focusRequester(playBtnFocus)
+                            .semantics {
+                                contentDescription = episodePlaybackTarget?.buttonLabel
+                                    ?: "Loading episode"
+                            },
+                        shape = RoundedCornerShape(50),
+                        contentPadding = ButtonDefaults.ContentPadding,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (episodePlaybackTarget?.isContinue == true) {
+                                Color.Black.copy(alpha = 0.52f)
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
+                            contentColor = if (episodePlaybackTarget?.isContinue == true) {
+                                Color.White
+                            } else {
+                                MaterialTheme.colorScheme.onPrimary
+                            },
+                            disabledContainerColor = if (episodePlaybackTarget?.isContinue == true) {
+                                Color.Black.copy(alpha = 0.35f)
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            },
+                            disabledContentColor = if (episodePlaybackTarget?.isContinue == true) {
+                                Color.White.copy(alpha = 0.62f)
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        ),
+                    ) {
+                        Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(22.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            episodePlaybackTarget?.buttonLabel ?: "Loading…",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                } else {
+                    PlayMovieCta(
+                        enabled = playEnabled,
+                        loading = resolving,
+                        downloadProgress = downloadProgress,
+                        onClick = { playMovie() },
+                        isTv = true,
+                        buttonLabel = if (hasRestartPoint) "Resume" else "Play Movie",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(playBtnFocus),
+                    )
+                }
+                if (hasRestartPoint) {
+                    RestartPlaybackButton(
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        description = if (mediaType == "tv") {
+                            "Restart episode from the beginning"
+                        } else {
+                            "Restart movie from the beginning"
+                        },
+                        isTv = true,
+                        onClick = {
+                            if (mediaType == "tv") {
+                                inProgressEpisode?.let { progress ->
+                                    val episodeTitle = tvEpisodes
+                                        .firstOrNull {
+                                            it.seasonNumber == progress.seasonNumber &&
+                                                it.episodeNumber == progress.episodeNumber
+                                        }
+                                        ?.name
+                                    playEpisode(
+                                        progress.seasonNumber,
+                                        progress.episodeNumber,
+                                        episodeTitle,
+                                        restart = true,
+                                    )
+                                }
+                            } else {
+                                playMovie(restart = true)
+                            }
+                        },
+                    )
+                }
+                TrailerBannerToggle(
+                    enabled = movie != null,
+                    isTv = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { showTrailerFullscreen = true },
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MovieActionCircle(
+                        icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
+                        active = isWatched,
+                        description = if (isWatched) "Mark as unwatched" else "Mark as watched",
+                    ) { toggleWatched() }
+                }
+            }
+        } else if (mediaType == "tv") {
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1917,12 +2043,13 @@ fun MovieDetailScreen(
 private fun TrailerBannerToggle(
     enabled: Boolean,
     isTv: Boolean,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Button(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier
+        modifier = modifier
             .height(if (isTv) 44.dp else 52.dp)
             .tvFocusBorder(RoundedCornerShape(50)),
         shape = RoundedCornerShape(50),
@@ -2372,6 +2499,7 @@ private fun PlayMovieCta(
     downloadProgress: Float? = null,
     onClick: () -> Unit,
     isTv: Boolean = false,
+    buttonLabel: String = "Play Movie",
     modifier: Modifier = Modifier,
 ) {
     val primary  = MaterialTheme.colorScheme.primary
@@ -2444,7 +2572,7 @@ private fun PlayMovieCta(
                     tint = if (enabled) playContent else onSurfaceVariant,
                     modifier = Modifier.size(26.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("Play Movie",
+                Text(buttonLabel,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = if (enabled) playContent else onSurfaceVariant,
                     maxLines = if (isTv) Int.MAX_VALUE else 1,

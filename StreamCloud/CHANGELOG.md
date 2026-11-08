@@ -1,3 +1,9 @@
+## TV update — Movie and series details
+
+### Android TV
+- **Movie and series details share the same hero layout** — title, media type, metadata, synopsis, and stacked playback actions use a consistent arrangement.
+- **Existing details remain below the hero** — cast, creators, seasons, episodes, trailers, and related titles are preserved.
+
 ## TV update — Navigation and search
 
 ### Android TV
