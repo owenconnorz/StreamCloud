@@ -106,7 +106,7 @@ fun MovieSearchScreen(
     LaunchedEffect(isTv) {
         val target = if (isTv) firstKeyboardKeyFocusRequester else focusRequester
         repeat(10) {
-            if (runCatching { target.requestFocus() }.getOrDefault(false)) {
+            if (runCatching { target.requestFocus() }.isSuccess) {
                 return@LaunchedEffect
             }
             delay(100)
@@ -203,7 +203,7 @@ fun MovieSearchScreen(
                             Key.Back, Key.Escape -> false
                             Key.DirectionDown -> runCatching {
                                 firstKeyboardKeyFocusRequester.requestFocus()
-                            }.getOrDefault(false)
+                            }.isSuccess
                             else -> false
                         }
                     } else {
@@ -420,7 +420,7 @@ private fun TvSearchSidebar(
                                             event.key == Key.DirectionUp
                                         ) {
                                             runCatching { searchFieldFocusRequester.requestFocus() }
-                                                .getOrDefault(false)
+                                                .isSuccess
                                         } else {
                                             false
                                         }
@@ -913,7 +913,7 @@ private fun NuvioCard(
                         event.key == Key.DirectionLeft
                     ) {
                         runCatching { returnToKeyboardFocusRequester.requestFocus() }
-                            .getOrDefault(false)
+                            .isSuccess
                     } else {
                         false
                     }
