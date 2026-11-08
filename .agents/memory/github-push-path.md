@@ -9,6 +9,12 @@ The local checkout may expose only internal backup/sub-Repl remotes rather than 
 
 **How to apply:** Check the GitHub `main` tip first. If local and remote histories diverged, review and overlay only the intended source changes onto that tip; do not push the local branch or replace whole files with stale copies. Update `refs/heads/main` without force, then verify the remote SHA and Actions run.
 
+The GitHub login can differ from the user's cross-project profile handle.
+
+**Why:** Using the profile handle as the expected GitHub login can incorrectly reject a correctly attributed commit.
+
+**How to apply:** Read the target repository's `owner.login`, then source author and committer emails from an existing commit linked to that owner. Verify both linked logins before moving a branch ref.
+
 The GitHub Contents API requires both `repo` and the separate `workflow` OAuth scope to modify files under `.github/workflows`. A connection can report repository admin/push access while still lacking this scope.
 
 **Why:** Publishing source changes without the related workflow update can leave the intended CI tests unrun, while partially updating `main` is unsafe.

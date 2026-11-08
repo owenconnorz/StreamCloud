@@ -142,6 +142,7 @@ fun MovieDetailScreen(
     openSourcePickerOnStart: Boolean = false,
     initialPickerSeason: Int? = null,
     initialPickerEpisode: Int? = null,
+    tvNavDownFocusHandoffVersion: Int = 0,
 ) {
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
@@ -179,6 +180,17 @@ fun MovieDetailScreen(
     LaunchedEffect(movie != null, openSourcePickerOnStart) {
         if (isTv && movie != null && !openSourcePickerOnStart) {
             try { playBtnFocus.requestFocus() } catch (_: Exception) {}
+        }
+    }
+    LaunchedEffect(isTv, tvNavDownFocusHandoffVersion, movie, openSourcePickerOnStart) {
+        if (!isTv || tvNavDownFocusHandoffVersion <= 0 || movie == null || openSourcePickerOnStart) {
+            return@LaunchedEffect
+        }
+        repeat(12) {
+            if (runCatching { playBtnFocus.requestFocus() }.isSuccess) {
+                return@LaunchedEffect
+            }
+            delay(60L)
         }
     }
 

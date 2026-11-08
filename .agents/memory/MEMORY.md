@@ -39,3 +39,4 @@
 - [SC Engine branding](sc-engine-branding.md) — Call the torrent integration SC Engine in StreamCloud, while retaining Nuvio Engine upstream attribution in legal notices.
 - [Beeg native playback](beeg-native-playback.md) — Use Beeg's official player stream response for native playback and preserve provider verification failures.
 - [Adult-site native playback](adult-website-native-playback.md) — Use only provider-declared streams; keep preview clips and external host players on the official page.
+- [TV UI reference](tv-ui-reference.md) — Use a persistent icon-only top bar, centered rectangular profile cards, and debounced type-ahead TV search.

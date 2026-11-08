@@ -271,7 +271,10 @@ fun MoviesScreen(
     val settingsRepo = remember { SettingsRepository(context) }
     val appearancePalette by settingsRepo.colorPalette.collectAsState(initial = "modern_blue")
     val posterStyle by settingsRepo.posterStyle.collectAsState(initial = "portrait")
-    val homeCardStyle by settingsRepo.homeCardStyle.collectAsState(initial = "expanding")
+    val configuredHomeCardStyle by settingsRepo.homeCardStyle.collectAsState(initial = "expanding")
+    // The TV reference uses wide, cinematic cards throughout the home shelves.
+    // Keep the user's saved preference for mobile, but make TV cards consistently 16:9.
+    val homeCardStyle = if (isTv) "landscape" else configuredHomeCardStyle
     val adultAgeGateConfirmed by settingsRepo.ageGateConfirmed.collectAsState(initial = false)
     val adultStremioRows = remember(
         state.stremioRows,
@@ -544,10 +547,17 @@ fun MoviesScreen(
         tvHomeFocusedItemIndices[rowKey] = itemIndex
         updateTvHomeRowFocus(rowKey, true)
     }
-    val tvHeroDetailsVisible by remember(moviesListState, query, focusedCwEntry) {
+        var focusedHomeHero by remember { mutableStateOf<HeroBannerItem?>(null) }
+    val tvHeroDetailsVisible by remember(
+        moviesListState,
+        query,
+        focusedCwEntry,
+        focusedHomeHero,
+    ) {
         derivedStateOf {
             query.isBlank() && (
                 focusedCwEntry != null ||
+                    focusedHomeHero != null ||
                     (
                         moviesListState.firstVisibleItemIndex == 0 &&
                             moviesListState.firstVisibleItemScrollOffset <= 16
@@ -564,19 +574,9 @@ fun MoviesScreen(
     // When TV focus returns to the nav bar, jump to the top immediately. An
     // animated scroll can still be running when the next Down handoff starts.
     LaunchedEffect(navScrollToTopVersion) {
-        if (navScrollToTopVersion > 0) moviesListState.scrollToItem(0)
-    }
-    // A Down key can arrive before the previous scroll settles, leaving the hero
-    // focus target detached. Reset synchronously and retry the exact target after
-    // the lazy item has had time to reattach.
-    LaunchedEffect(isTv, tvNavDownFocusHandoffVersion) {
-        if (!isTv || tvNavDownFocusHandoffVersion <= 0) return@LaunchedEffect
-        moviesListState.scrollToItem(0)
-        if (query.isNotBlank()) return@LaunchedEffect
-        repeat(16) {
-            if (tvNavHeroHasFocus) return@LaunchedEffect
-            kotlinx.coroutines.delay(100L)
-            runCatching { tvNavHeroFocus?.requestFocus() }
+        if (navScrollToTopVersion > 0) {
+            focusedHomeHero = null
+            moviesListState.scrollToItem(0)
         }
     }
     val firstCollectionRowId = state.collections
@@ -995,13 +995,13 @@ fun MoviesScreen(
 
             if (hasTvHero) {
                 moviesListState.scrollToItem(0)
-                val heroRequester = tvNavHeroFocus
-                if (heroRequester != null) {
+                val navRequester = tvNavSafeFocusRequester
+                if (navRequester != null) {
                     repeat(12) {
                         withFrameNanos { }
-                        runCatching { heroRequester.requestFocus() }
+                        runCatching { navRequester.requestFocus() }
                         withFrameNanos { }
-                        if (tvNavHeroHasFocus) return true
+                        if (tvNavSafeFocusReceived) return true
                     }
                 }
             }
@@ -1078,6 +1078,19 @@ fun MoviesScreen(
             hasContinueWatching = visibleContinueWatching.isNotEmpty(),
             hasGenres = homeGenres.isNotEmpty(),
         )
+        LaunchedEffect(isTv, tvNavDownFocusHandoffVersion, tvHeroFirstFocusRowKey, query) {
+            if (!isTv || tvNavDownFocusHandoffVersion <= 0 || query.isNotBlank()) {
+                return@LaunchedEffect
+            }
+            moviesListState.scrollToItem(0)
+            val firstRow = tvHeroFirstFocusRowKey ?: return@LaunchedEffect
+            repeat(3) {
+                if (requestTvHomeRowFocus(firstRow, focusFirstItem = true)) {
+                    return@LaunchedEffect
+                }
+                kotlinx.coroutines.delay(90L)
+            }
+        }
 
         fun handleTvHomeSingleVerticalPress(direction: Int): Boolean {
             if (tvHomeFocusTransferInProgress) return true
@@ -1149,6 +1162,7 @@ fun MoviesScreen(
         if (hasTvHero) {
             TvHeroBackdrop(
                 items = state.heroBanner,
+                focusedItem = focusedHomeHero,
                 rowsViewportHeight = tvHomeRowsViewportHeight,
                 initialFocusRequester = if (startupFocusTarget == "hero") {
                     initialFocusRequester
@@ -1432,6 +1446,12 @@ fun MoviesScreen(
                                         cachedBackdropUrl = continueWatchingBackdropCache[backdropCacheKey],
                                         onBackdropResolved = { url ->
                                             continueWatchingBackdropCache[backdropCacheKey] = url
+                                            if (
+                                                isTv &&
+                                                focusedCwEntry?.let { cwIdentity(it) == cwIdentity(entry) } == true
+                                            ) {
+                                                focusedHomeHero = continueWatchingHeroItem(entry, url)
+                                            }
                                         },
                                         onFocusChanged = { hasFocus ->
                                             updateTvHomeItemFocus(
@@ -1446,6 +1466,13 @@ fun MoviesScreen(
                                             if (hasFocus) {
                                                 focusedContinueIndex = index
                                                 focusedCwEntry = entry
+                                                if (isTv) {
+                                                    focusedHomeHero = continueWatchingHeroItem(
+                                                        entry,
+                                                        continueWatchingBackdropCache[backdropCacheKey]
+                                                            ?: entry.posterUrl.orEmpty(),
+                                                    )
+                                                }
                                             } else if (
                                                 focusedCwEntry?.let { cwIdentity(it) == cwIdentity(entry) } == true
                                             ) {
@@ -1701,6 +1728,9 @@ fun MoviesScreen(
                                         if (hasFocus) {
                                             focusedPosterIndex = index
                                             updateTvHomeItemFocus(rowKey, index, true)
+                                            if (isTv) {
+                                                focusedHomeHero = tmdbHeroBannerItem(m)
+                                            }
                                         }
                                     },
                                     modifier = Modifier
@@ -1822,6 +1852,9 @@ fun MoviesScreen(
                                         if (hasFocus) {
                                             focusedPosterIndex = index
                                             updateTvHomeItemFocus(rowKey, index, true)
+                                            if (isTv) {
+                                                focusedHomeHero = stremioHeroBannerItem(meta)
+                                            }
                                         }
                                     },
                                     modifier = Modifier
@@ -1975,6 +2008,11 @@ fun MoviesScreen(
                                 )
                                 val csTmdbMovie = state.csHomeTmdbMovies[tmdbKey]
                                 val csMediaType = if (csTmdbMovie?.title != null) "movie" else "tv"
+                                LaunchedEffect(isTv, focusedPosterIndex, index, csTmdbMovie) {
+                                    if (isTv && focusedPosterIndex == index && csTmdbMovie != null) {
+                                        tmdbHeroBannerItem(csTmdbMovie)?.let { focusedHomeHero = it }
+                                    }
+                                }
                                 val csCardLandscape = homeCardStyle == "landscape"
                                 val csCardWidth = if (csCardLandscape) 200.dp else 120.dp
                                 CsHomePosterCard(
@@ -1995,6 +2033,9 @@ fun MoviesScreen(
                                         if (hasFocus) {
                                             focusedPosterIndex = index
                                             updateTvHomeItemFocus(rowKey, index, true)
+                                            if (isTv && csTmdbMovie != null) {
+                                                focusedHomeHero = tmdbHeroBannerItem(csTmdbMovie)
+                                            }
                                         }
                                     },
                                     modifier = itemFocusRequester?.let {
@@ -2138,10 +2179,8 @@ fun MoviesScreen(
             )
         }
 
-        // TV uses a compact Home location marker instead of the StreamCloud wordmark.
-        if (isTv && query.isBlank()) {
-            TvHomeLocationIndicator()
-        } else if (!isTv) {
+        // TV location and navigation are supplied by the persistent top bar.
+        if (!isTv) {
             MoviesHeader(
                 onProfileClick = onProfileClick,
                 onOpenCollections = onOpenCollections,
@@ -2564,9 +2603,54 @@ private fun HomeGenresRow(
     }
 }
 
+private fun tmdbHeroBannerItem(movie: TmdbMovie): HeroBannerItem? {
+    val imageUrl = movie.backdropUrl?.takeIf(String::isNotBlank)
+        ?: movie.posterUrl?.takeIf(String::isNotBlank)
+        ?: return null
+    return HeroBannerItem(
+        imageUrl = imageUrl,
+        title = movie.displayTitle,
+        year = (movie.releaseDate ?: movie.firstAirDate)?.substringBefore('-').orEmpty(),
+        rating = if (movie.voteAverage > 0) {
+            String.format("%.1f ★", movie.voteAverage)
+        } else {
+            ""
+        },
+        overview = movie.overview.orEmpty(),
+        tmdbId = movie.id,
+        mediaType = if (movie.title == null && movie.name != null) "tv" else "movie",
+    )
+}
+
+private fun stremioHeroBannerItem(meta: StremioMetaPreview): HeroBannerItem? {
+    val imageUrl = meta.background?.takeIf(String::isNotBlank)
+        ?: meta.poster?.takeIf(String::isNotBlank)
+        ?: return null
+    return HeroBannerItem(
+        imageUrl = imageUrl,
+        title = meta.name,
+        year = meta.releaseInfo.orEmpty(),
+        rating = meta.imdbRating.orEmpty(),
+        overview = meta.description.orEmpty(),
+        mediaType = meta.type,
+        stremioMeta = meta,
+    )
+}
+
+private fun continueWatchingHeroItem(
+    entry: WatchProgressEntity,
+    imageUrl: String,
+) = HeroBannerItem(
+    imageUrl = imageUrl,
+    title = entry.title,
+    tmdbId = entry.tmdbId.takeIf { it > 0L },
+    mediaType = entry.mediaType,
+)
+
 @Composable
 private fun TvHeroBackdrop(
     items: List<HeroBannerItem>,
+    focusedItem: HeroBannerItem?,
     rowsViewportHeight: androidx.compose.ui.unit.Dp,
     detailsVisible: Boolean,
     initialFocusRequester: FocusRequester? = null,
@@ -2584,11 +2668,11 @@ private fun TvHeroBackdrop(
     var actionsFocused by remember { mutableStateOf(false) }
     val downFocusScope = rememberCoroutineScope()
     val downFocusTarget = downFocusRequester
-    LaunchedEffect(currentPage, items) {
-        items.getOrNull(currentPage)?.let(onCurrentItemChanged)
+    LaunchedEffect(currentPage, items, focusedItem) {
+        (focusedItem ?: items.getOrNull(currentPage))?.let(onCurrentItemChanged)
     }
-    LaunchedEffect(items.size, actionsFocused) {
-        if (items.size <= 1 || actionsFocused) return@LaunchedEffect
+    LaunchedEffect(items.size, actionsFocused, focusedItem) {
+        if (items.size <= 1 || actionsFocused || focusedItem != null) return@LaunchedEffect
         while (true) {
             kotlinx.coroutines.delay(15_000L)
             currentPage = (currentPage + 1) % items.size
@@ -2600,17 +2684,18 @@ private fun TvHeroBackdrop(
             .background(Color(0xFF07080D)),
     ) {
         Crossfade(
-            targetState = currentPage,
+            targetState = focusedItem ?: items.getOrNull(currentPage),
             modifier = Modifier.fillMaxSize(),
             label = "tvPinnedHeroBackdrop",
-        ) { page ->
-            val item = items.getOrNull(page) ?: return@Crossfade
-            AsyncImage(
-                model = tvHighResolutionTmdbArtworkUrl(item.imageUrl),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
+        ) { item ->
+            if (item != null) {
+                AsyncImage(
+                    model = tvHighResolutionTmdbArtworkUrl(item.imageUrl),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
         Box(
             Modifier
@@ -2642,15 +2727,22 @@ private fun TvHeroBackdrop(
                     ),
                 ),
         )
-        val hero = items.getOrNull(currentPage)
+        val hero = focusedItem ?: items.getOrNull(currentPage)
         if (hero != null) {
             val meta = listOfNotNull(
-                if (hero.mediaType.equals("tv", ignoreCase = true)) "Series" else "Movie",
+                if (
+                    hero.mediaType.equals("tv", ignoreCase = true) ||
+                    hero.mediaType.equals("series", ignoreCase = true)
+                ) {
+                    "Series"
+                } else {
+                    "Movie"
+                },
                 hero.year.takeIf(String::isNotBlank),
                 hero.rating.takeIf(String::isNotBlank),
             ).joinToString("  •  ")
             AnimatedVisibility(
-                visible = detailsVisible || actionsFocused,
+                visible = true,
                 modifier = Modifier.align(Alignment.BottomStart),
                 enter = fadeIn(tween(180)),
                 exit = fadeOut(tween(140)),
@@ -2690,108 +2782,6 @@ private fun TvHeroBackdrop(
                             maxLines = 3,
                             overflow = TextOverflow.Ellipsis,
                         )
-                    }
-                    Row(
-                        modifier = Modifier
-                            .tvFocusGroup(restoreFocusedChild = true)
-                            .onFocusChanged {
-                                actionsFocused = it.hasFocus
-                                onActionsFocusChanged(it.hasFocus)
-                            }
-                            .onPreviewKeyEvent { event ->
-                                val native = event.nativeKeyEvent
-                                if (
-                                    downFocusTarget == null ||
-                                    native.keyCode != AndroidKeyEvent.KEYCODE_DPAD_DOWN ||
-                                    native.action != AndroidKeyEvent.ACTION_DOWN
-                                ) {
-                                    false
-                                } else {
-                                    if (native.repeatCount == 0) {
-                                        downFocusScope.launch {
-                                            runCatching { prepareDownFocus() }
-                                            repeat(16) {
-                                                if (downFocusIsConfirmed()) return@launch
-                                                withFrameNanos { }
-                                                runCatching { downFocusTarget.requestFocus() }
-                                                withFrameNanos { }
-                                                if (downFocusIsConfirmed()) return@launch
-                                                kotlinx.coroutines.delay(80L)
-                                            }
-                                                    if (!downFocusIsConfirmed()) onDownFocusFailed()
-}
-                                    }
-                                    true
-                                }
-                            },
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .then(
-                                    if (initialFocusRequester != null) {
-                                        Modifier.focusRequester(initialFocusRequester)
-                                    } else {
-                                        Modifier
-                                    },
-                                )
-                                .then(
-                                    if (navFocusRequester != null) {
-                                        Modifier.focusRequester(navFocusRequester)
-                                    } else {
-                                        Modifier
-                                    },
-                                )
-                                .clip(RoundedCornerShape(50))
-                                .background(Color(0xFF079FC5))
-                                .tvFocusBorder(RoundedCornerShape(50))
-                                .tvOkPress({ onPlayNow(hero) }, onLongPress = {})
-                                .clickable { onPlayNow(hero) }
-                                .padding(horizontal = 21.dp, vertical = 11.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                Icons.Filled.PlayArrow,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp),
-                            )
-                            Text(
-                                "Play Now",
-                                color = Color.White,
-                                style = MaterialTheme.typography.titleSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                            )
-                        }
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(Color(0xFF141B22).copy(alpha = 0.88f))
-                                .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(50))
-                                .tvFocusBorder(RoundedCornerShape(50))
-                                .tvOkPress({ onMoreInfo(hero) }, onLongPress = {})
-                                .clickable { onMoreInfo(hero) }
-                                .padding(horizontal = 19.dp, vertical = 11.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                Icons.Filled.Info,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Text(
-                                "More Info",
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelLarge.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                ),
-                            )
-                        }
                     }
                 }
             }
@@ -3026,7 +3016,9 @@ private fun MoviesLoadingPlaceholder() {
             }
         }
     }
-}@Composable
+}
+
+@Composable
 private fun HeroBannerSlide(
     item: HeroBannerItem,
     modifier: Modifier = Modifier,

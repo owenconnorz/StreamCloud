@@ -1,3 +1,24 @@
+## TV update — Navigation and search
+
+### Android TV
+- **TV navigation stays available at the top of every screen** — the old side drawer is replaced by the persistent navigation bar.
+- **The top bar is now a black, icon-only strip** — the hero content begins directly beneath it.
+- **Home heroes show readable title details without action buttons** — title, type, year, rating, and synopsis stay visible over the artwork.
+- **Remote focus moves between navigation and page content** — Down enters the first home shelf, search keyboard, detail action, or screen content; Up returns to the top navigation.
+- **The search keyboard fits on screen** — the compact layout keeps the space, delete, clear, and search controls visible.
+- **Search results use a vertical three-column poster grid** — results scroll down instead of being split into wide horizontal rows.
+
+### Included APKs
+- Android TV universal, ARM64, and ARMv7 APKs.
+- Android mobile APK.
+
+## TV update — Home, search, and profiles
+
+### Android TV
+- **Home shelves use cinematic landscape cards** — the hero follows the focused movie or show, including Continue Watching when artwork is available.
+- **Search updates while typing** — the D-pad keyboard now shows suggestions and refreshes results without requiring a separate submit action.
+- **Navigation and profiles follow the updated TV layout** — the active section stays selected across related screens, and the profile action reflects the chosen profile.
+
 ## V2475 — Android TV interface update
 
 ### Android TV

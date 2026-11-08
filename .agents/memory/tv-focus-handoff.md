@@ -3,11 +3,11 @@ name: Fire TV focus handoff
 description: Android TV spatial focus behavior — pager trapping, drawer open trigger, and vertical scroll suppression
 ---
 
-Keep TV navigation hidden during normal browsing so the first focus remains on page content. Open the left drawer only when D-pad Left cannot move to another content target.
+Keep the persistent, icon-only TV navigation bar at the top of the screen. D-pad Down must hand off to the first attached focusable item on the active screen; D-pad Up from the first home shelf should return focus to the navigation bar.
 
-**Why:** A persistent top control trapped Fire TV users away from the content and took up screen space even when navigation was not needed.
+**Why:** The user requested the top navigation layout from their TV reference and reported that Down from navigation and Up/Down around page content could leave focus trapped or skip rows.
 
-**How to apply:** Keep TV startup focus on the first available Movies card. When opened, focus the first enabled tab rather than the profile header; Up can reach the profile action intentionally and Up at the header is trapped. Up/Down traverses drawer rows; Right, Back, or Menu closes it and restores the previously focused page child. Do not scroll Movies to the top just because the drawer opens.
+**How to apply:** Give each route a bounded, screen-owned Down handoff to a real visible target; never point native directional focus at a detached Lazy item. On Movies, scroll to the top and focus the first Continue Watching card or first genre card. Search should focus its first on-screen keyboard key, and details should focus the primary play/continue action. Keep Up at the top navigation bar trapped.
 
 Nested TV rails should rely on the focusable item's normal list reveal behavior rather than adding an unconditional `BringIntoViewRequester` to every focused card. Repeated D-pad events should also be consumed after throttled focus movement, including at a group edge.
 
