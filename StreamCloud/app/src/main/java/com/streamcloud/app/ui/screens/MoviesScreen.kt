@@ -30,6 +30,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
