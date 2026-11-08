@@ -2957,24 +2957,26 @@ private fun HeroPager(
                     },
                 )
             }
-        Row(
-            Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 32.dp, bottom = 14.dp),
-        ) {
-            items.forEachIndexed { i, _ ->
-                val active = i == currentPage
-                Box(
-                    Modifier
-                        .padding(horizontal = 4.dp)
-                        .height(6.dp)
-                        .width(if (active) 22.dp else 6.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(
-                            if (active) Color.White else Color.White.copy(alpha = 0.55f),
-                        ),
-                )
+            Row(
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 32.dp, bottom = 14.dp),
+            ) {
+                items.forEachIndexed { i, _ ->
+                    val active = i == currentPage
+                    Box(
+                        Modifier
+                            .padding(horizontal = 4.dp)
+                            .height(6.dp)
+                            .width(if (active) 22.dp else 6.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(
+                                if (active) Color.White else Color.White.copy(alpha = 0.55f),
+                            ),
+                    )
+                }
             }
+        }
         }
     } else {
         // Mobile / tablet: keep the swipeable horizontal pager.
@@ -3119,7 +3121,9 @@ private fun MoviesLoadingPlaceholder() {
             }
         }
     }
-}@Composable
+}
+
+@Composable
 private fun HeroBannerSlide(
     item: HeroBannerItem,
     modifier: Modifier = Modifier,
