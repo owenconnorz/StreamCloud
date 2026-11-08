@@ -3319,6 +3319,7 @@ private fun HeroBannerSlide(
                         )
                     }
                 }
+            }
         } else {
             // Mobile/tablet: vertical gradient + centred layout
             Box(
