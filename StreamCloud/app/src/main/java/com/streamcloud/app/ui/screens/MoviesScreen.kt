@@ -66,6 +66,8 @@ import androidx.compose.runtime.withFrameNanos
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import kotlinx.coroutines.launch
 import com.streamcloud.app.ui.theme.tvFocusGroup
+import com.streamcloud.app.ui.theme.TvVerticalRepeatGateMs
+import com.streamcloud.app.ui.theme.shouldMoveFocusForDpadRepeat
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -527,6 +529,7 @@ fun MoviesScreen(
     val tvHomeFirstContinueHasFocus = remember { mutableStateOf(false) }
     var tvHomeFastScrolling by remember { mutableStateOf(false) }
     var tvHomeFocusTransferInProgress by remember { mutableStateOf(false) }
+    var lastTvHomeVerticalRepeatAt by remember { mutableStateOf(0L) }
     val tvHomeFocusScope = rememberCoroutineScope()
     fun updateTvHomeRowFocus(rowKey: String, hasFocus: Boolean) {
         if (!isTv) return
@@ -1140,8 +1143,8 @@ fun MoviesScreen(
             return true
         }
 
-        // Compose gets the first chance to move focus one step. This is a
-        // bubble-phase recovery only when native traversal leaves the key unhandled.
+        // Handle vertical D-pad codes before native traversal so nested lazy
+        // rows cannot skip focusable shelves on the Movies home screen.
         fun handleTvHomeVerticalKeyEvent(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
             val native = event.nativeKeyEvent
             val direction = when (native.keyCode) {
@@ -1150,12 +1153,26 @@ fun MoviesScreen(
                 else -> 0
             }
             return when {
-                !isTv || native.action != AndroidKeyEvent.ACTION_DOWN || direction == 0 -> false
+                !isTv || query.isNotBlank() || native.action != AndroidKeyEvent.ACTION_DOWN || direction == 0 -> false
                 tvHomeFocusTransferInProgress -> true
-                // Native focus traversal runs before this bubble-phase fallback.
-                // Held repeats are handled by the shared TV repeat throttle.
-                native.repeatCount > 0 -> false
-                else -> handleTvHomeSingleVerticalPress(direction)
+                native.repeatCount > 0 -> {
+                    val now = SystemClock.uptimeMillis()
+                    if (
+                        shouldMoveFocusForDpadRepeat(
+                            repeatCount = native.repeatCount,
+                            elapsedSinceLastRepeatMs = now - lastTvHomeVerticalRepeatAt,
+                            gateMs = TvVerticalRepeatGateMs,
+                        )
+                    ) {
+                        lastTvHomeVerticalRepeatAt = now
+                        handleTvHomeSingleVerticalPress(direction)
+                    }
+                    true
+                }
+                else -> {
+                    lastTvHomeVerticalRepeatAt = SystemClock.uptimeMillis()
+                    handleTvHomeSingleVerticalPress(direction)
+                }
             }
         }
 
@@ -1214,7 +1231,7 @@ fun MoviesScreen(
         LazyColumn(
             moviesListModifier
                 .tvFocusGroup(restoreFocusedChild = true)
-                .onKeyEvent { event -> handleTvHomeVerticalKeyEvent(event) },
+                .onPreviewKeyEvent { event -> handleTvHomeVerticalKeyEvent(event) },
             state = moviesListState,
             contentPadding = PaddingValues(bottom = 16.dp),
         ) {

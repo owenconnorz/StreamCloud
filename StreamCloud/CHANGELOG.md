@@ -1,3 +1,10 @@
+## TV update — Search and top bar refinement
+
+### Android TV
+- **Search now sits with the centered navigation icons** — it is separated from the right-side Settings action.
+- **The top navigation is a compact, inset rounded black bar** — the tall edge-to-edge banner is removed while profile and Settings remain in place.
+- **Movies home Up/Down follows adjacent shelves** — remote key presses are handled before native lazy-list focus traversal can skip highlighted rows.
+
 ## TV update — Movie and series details
 
 ### Android TV

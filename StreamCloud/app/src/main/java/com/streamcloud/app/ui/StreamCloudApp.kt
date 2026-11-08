@@ -2591,16 +2591,6 @@ private fun TvNetflixTopNav(
         }
         pendingDownFocusHandoff = false
     }
-    val gradStartAlpha by animateFloatAsState(
-        targetValue = if (navHasFocus) 0.97f else 0.72f,
-        animationSpec = tween(250),
-        label = "tvNavGradStart",
-    )
-    val gradMidAlpha by animateFloatAsState(
-        targetValue = if (navHasFocus) 0.45f else 0f,
-        animationSpec = tween(250),
-        label = "tvNavGradMid",
-    )
     Box(
         modifier = modifier
             .tvFocusGroup()
@@ -2636,20 +2626,30 @@ private fun TvNetflixTopNav(
                 }
             },
     ) {
-        // Gradient scrim — readable at all times, heavier when nav has focus
+        // Compact inset banner matching the rounded black navigation strip
+        // shown in the TV detail reference.
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(102.dp)
-                .background(Color.Black)
+                .padding(horizontal = TvOverscanPadding, vertical = 6.dp)
+                .height(62.dp)
+                .background(
+                    color = Color(0xF50A0A0A),
+                    shape = RoundedCornerShape(20.dp),
+                )
+                .border(
+                    width = 1.dp,
+                    color = Color.White.copy(alpha = 0.06f),
+                    shape = RoundedCornerShape(20.dp),
+                )
         )
 
-        // Compact StreamCloud identity, centered browse capsule, and utility actions.
+        // Profile, destinations, Search, and Settings share one compact row.
         Box(
             Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = TvOverscanPadding, vertical = 10.dp),
+                .padding(horizontal = TvOverscanPadding + 10.dp, vertical = 14.dp),
         ) {
             Row(
                 modifier = Modifier.align(Alignment.CenterStart),
@@ -2754,8 +2754,8 @@ private fun TvNetflixTopNav(
                 }
             }
 
-            // Main destinations stay centred; Search and Settings sit with the
-            // local clock at the right edge, matching the TV home layout.
+            // Keep Search with the centered destinations; Settings remains
+            // at the far edge as in the supplied TV reference.
             Row(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -2767,20 +2767,22 @@ private fun TvNetflixTopNav(
                     it.route != Tab.Settings.route &&
                         (adultTabEnabled || it.route != Tab.Adult.route)
                 }
+                val searchAfterRoute =
+                    primaryTabs.firstOrNull { it.route == Tab.Movies.route }?.route
+                        ?: primaryTabs.firstOrNull()?.route
                 primaryTabs.forEachIndexed { index, tab ->
                             val route = currentRoute.orEmpty()
                             val selected = route == tab.route || when (tab.route) {
                                 Tab.Movies.route ->
-                                    route == "movie-search" ||
-                                        route.startsWith("movie/") ||
+                                    route.startsWith("movie/") ||
                                         route.startsWith("tv/") ||
                                         route.startsWith("catalog/") ||
                                         route.startsWith("cloudstream/") ||
                                         route.startsWith("cs-") ||
                                         route.startsWith("stremio-")
                                 Tab.Music.route ->
-                                    route.startsWith("music-") ||
-                                        route.startsWith("spotify-") ||
+                                    (route.startsWith("music-") && route != "music-search") ||
+                                        (route.startsWith("spotify-") && !route.contains("search", ignoreCase = true)) ||
                                         route.startsWith("artist/")
                                 Tab.Library.route ->
                                     route.startsWith("library-") ||
@@ -2822,6 +2824,38 @@ private fun TvNetflixTopNav(
                                     modifier = Modifier.size(21.dp),
                                 )
                             }
+                            if (tab.route == searchAfterRoute) {
+                                val searchSelected =
+                                    route.contains("search", ignoreCase = true)
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            when {
+                                                searchActionFocused -> selectedTabColor.copy(alpha = 0.85f)
+                                                searchSelected -> selectedTabColor.copy(alpha = 0.34f)
+                                                else -> Color.Transparent
+                                            },
+                                        )
+                                        .onFocusChanged { searchActionFocused = it.isFocused }
+                                        .tvFocusBorder(RoundedCornerShape(10.dp), showOutline = false)
+                                        .clickable(onClick = onSearchClick)
+                                        .border(
+                                            width = if (searchActionFocused) 2.dp else 0.dp,
+                                            color = if (searchActionFocused) remoteTabFocusColor else Color.Transparent,
+                                            shape = RoundedCornerShape(10.dp),
+                                        ),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = "Search",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(21.dp),
+                                    )
+                                }
+                            }
                 }
             }
 
@@ -2830,31 +2864,6 @@ private fun TvNetflixTopNav(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(
-                            when {
-                                currentRoute?.contains("search", ignoreCase = true) == true ->
-                                    Color.White.copy(alpha = 0.20f)
-                                searchActionFocused -> Color.White.copy(alpha = 0.16f)
-                                else -> Color.Transparent
-                            },
-                        )
-                        .onFocusChanged { searchActionFocused = it.isFocused }
-                        .tvFocusBorder(CircleShape, showOutline = false)
-                        .clickable(onClick = onSearchClick),
-                ) {
-                    Icon(
-                        Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = Color.White,
-                        modifier = Modifier.size(21.dp),
-                    )
-                }
-
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
