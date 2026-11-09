@@ -1,3 +1,10 @@
+## TV update — Prime-style home layout
+
+### Android TV
+- **Top navigation buttons are smaller** — compact text tabs and the white selection indicator match the supplied Prime Video reference more closely.
+- **Added a left shortcut rail** — Search, Browse, Library, and Live TV are reachable from the vertical icon navigation.
+- **Expanded the featured hero** — use title-logo artwork when available, show the synopsis, and provide Watch now plus More details with a D-pad path through both actions to the first shelf.
+
 ## TV update — Prime-style navigation and Movies home
 
 ### Android TV

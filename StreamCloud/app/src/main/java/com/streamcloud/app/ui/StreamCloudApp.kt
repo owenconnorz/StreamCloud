@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.GridView
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.material.icons.filled.Bookmarks
@@ -2281,7 +2282,7 @@ fun StreamCloudApp(
                             },
                         )
                     }
-                    TvNetflixTopNav(
+                    TvPrimeTopNav(
                         tabs = tabs,
                         currentRoute = currentRoute,
                         firstTabFocus = firstTvNavFocus,
@@ -2449,18 +2450,24 @@ fun StreamCloudApp(
     } // end outer Box
 }
 
-// ── Netflix-style transparent TV top navigation bar ──────────────────────────
+// ── Prime-style compact TV navigation ────────────────────────────────────────
 
 private data class TvTopNavigationDestination(
     val key: String,
     val label: String,
     val selected: Boolean,
     val route: String? = null,
-    val isSearch: Boolean = false,
+)
+
+private data class TvNavigationRailAction(
+    val key: String,
+    val label: String,
+    val icon: ImageVector,
+    val onClick: () -> Unit,
 )
 
 @Composable
-private fun TvNetflixTopNav(
+private fun TvPrimeTopNav(
     tabs: List<Tab>,
     currentRoute: String?,
     firstTabFocus: FocusRequester,
@@ -2569,51 +2576,39 @@ private fun TvNetflixTopNav(
     val visibleTabs = tabs.filter {
         adultTabEnabled || it.route != Tab.Adult.route
     }
-    val searchAfterRoute = visibleTabs.firstOrNull { it.route == Tab.Movies.route }?.route
-        ?: visibleTabs.firstOrNull()?.route
-    val destinations = buildList {
-        visibleTabs.forEach { tab ->
-            val selected = route == tab.route || when (tab.route) {
-                Tab.Movies.route ->
+    val destinations = visibleTabs.map { tab ->
+        val selected = route == tab.route || when (tab.route) {
+            Tab.Movies.route ->
+                route == "movie-search" ||
                     route.startsWith("movie/") ||
-                        route.startsWith("tv/") ||
-                        route.startsWith("catalog/") ||
-                        route.startsWith("cloudstream/") ||
-                        route.startsWith("cs-") ||
-                        route.startsWith("stremio-")
-                Tab.Music.route ->
-                    (route.startsWith("music-") && route != "music-search") ||
-                        (route.startsWith("spotify-") && !route.contains("search", ignoreCase = true)) ||
-                        route.startsWith("artist/")
-                Tab.Library.route ->
-                    route.startsWith("library-") ||
-                        route.startsWith("collection")
-                Tab.Adult.route -> route.startsWith("adult-")
-                else -> false
-            }
-            add(
-                TvTopNavigationDestination(
-                    key = tab.route,
-                    label = if (tab.route == Tab.Movies.route) "Home" else tab.label,
-                    selected = selected,
-                    route = tab.route,
-                ),
-            )
-            if (tab.route == searchAfterRoute) {
-                add(
-                    TvTopNavigationDestination(
-                        key = "search",
-                        label = "Search",
-                        selected = route.contains("search", ignoreCase = true),
-                        isSearch = true,
-                    ),
-                )
-            }
+                    route.startsWith("tv/") ||
+                    route.startsWith("catalog/") ||
+                    route.startsWith("cloudstream/") ||
+                    route.startsWith("cs-") ||
+                    route.startsWith("stremio-")
+            Tab.Music.route ->
+                route.startsWith("music-") ||
+                    route.startsWith("spotify-") ||
+                    route.startsWith("artist/")
+            Tab.Library.route ->
+                route.startsWith("library-") ||
+                    route.startsWith("collection")
+            Tab.Adult.route -> route.startsWith("adult-")
+            else -> false
         }
+        TvTopNavigationDestination(
+            key = tab.route,
+            label = if (tab.route == Tab.Movies.route) "Home" else tab.label,
+            selected = selected,
+            route = tab.route,
+        )
     }
     val selectedDestinationIndex = destinations.indexOfFirst { it.selected }
     val selectedDestinationKey = destinations.getOrNull(selectedDestinationIndex)?.key
     var focusedDestinationKey by remember { mutableStateOf<String?>(null) }
+    var focusedRailActionKey by remember { mutableStateOf<String?>(null) }
+    val railFocusRequester = remember { FocusRequester() }
+    val profileFocusRequester = remember { FocusRequester() }
     LaunchedEffect(currentRoute, navHasFocus, selectedDestinationKey) {
         if (!navHasFocus) focusedDestinationKey = selectedDestinationKey
     }
@@ -2626,12 +2621,34 @@ private fun TvNetflixTopNav(
 
     fun selectDestination(destination: TvTopNavigationDestination) {
         focusedDestinationKey = destination.key
-        if (destination.isSearch) {
-            onSearchClick()
-        } else {
-            destination.route?.let(onTabSelected)
-        }
+        destination.route?.let(onTabSelected)
     }
+    val railActions = listOf(
+        TvNavigationRailAction(
+            key = "search",
+            label = "Search",
+            icon = MaterialIcons.Filled.Search,
+            onClick = onSearchClick,
+        ),
+        TvNavigationRailAction(
+            key = "browse",
+            label = "Browse",
+            icon = MaterialIcons.Filled.GridView,
+            onClick = { onTabSelected(Tab.Movies.route) },
+        ),
+        TvNavigationRailAction(
+            key = "library",
+            label = "Library",
+            icon = MaterialIcons.Filled.Bookmarks,
+            onClick = { onTabSelected(Tab.Library.route) },
+        ),
+        TvNavigationRailAction(
+            key = "live_tv",
+            label = "Live TV",
+            icon = MaterialIcons.Filled.LiveTv,
+            onClick = { onTabSelected(Tab.LiveTv.route) },
+        ),
+    )
     Box(
         modifier = modifier
             .tvFocusGroup()
@@ -2648,6 +2665,24 @@ private fun TvNetflixTopNav(
                 if (event.key != Key.DirectionDown) {
                     pendingDownFocusHandoff = false
                 }
+                 if (focusedRailActionKey != null) {
+                     // Let Up/Down move through the vertical shortcut rail.
+                     // Left stays inside the rail; Right follows its explicit
+                     // focus target back to the active top destination.
+                     if (event.key == Key.DirectionLeft) return@onPreviewKeyEvent true
+                     if (
+                         event.key == Key.DirectionDown &&
+                         focusedRailActionKey == "live_tv"
+                     ) {
+                         if (!pendingDownFocusHandoff) {
+                             pendingDownFocusHandoff = true
+                             downFocusAttempt++
+                             onDownFocusHandoffRequested()
+                         }
+                         return@onPreviewKeyEvent true
+                     }
+                     return@onPreviewKeyEvent false
+                 }
 
                 when (event.key) {
                     Key.DirectionDown -> {
@@ -2667,12 +2702,12 @@ private fun TvNetflixTopNav(
                 }
             },
     ) {
-        // Profile, destinations, Search, and Settings share one compact row.
+        // Profile and compact text destinations share the top row; quick actions stay in the rail.
         Box(
             Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = TvOverscanPadding + 10.dp, vertical = 8.dp),
+                    .padding(horizontal = TvOverscanPadding + 10.dp, vertical = 4.dp),
         ) {
             Row(
                 modifier = Modifier.align(Alignment.CenterStart),
@@ -2697,23 +2732,23 @@ private fun TvNetflixTopNav(
                                         Modifier
                                     },
                                 )
-                                .padding(horizontal = 4.dp, vertical = 3.dp),
+                                .padding(horizontal = 3.dp, vertical = 2.dp),
                         ) {
                             Image(
                                 painter = painterResource(com.streamcloud.app.R.drawable.ic_streamcloud_brand),
                                 contentDescription = null,
                                 contentScale = ContentScale.Fit,
-                                modifier = Modifier.size(width = 40.dp, height = 32.dp),
+                                modifier = Modifier.size(width = 28.dp, height = 24.dp),
                             )
                             Text(
                                 text = "Stream",
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = Color.White,
                             )
                             Text(
                                 text = "Cloud",
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = Color(0xFF9B6BFF),
                             )
@@ -2740,7 +2775,12 @@ private fun TvNetflixTopNav(
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(42.dp)
+                            .size(32.dp)
+                            .focusRequester(profileFocusRequester)
+                            .focusProperties {
+                                left = railFocusRequester
+                                right = firstTabFocus
+                            }
                             .clip(CircleShape)
                             .background(
                                 if (profileActionFocused) Color.White.copy(alpha = 0.16f)
@@ -2767,7 +2807,7 @@ private fun TvNetflixTopNav(
                                 MaterialIcons.Filled.AccountCircle,
                                 contentDescription = "Choose profile",
                                 tint = Color.White,
-                                modifier = Modifier.size(26.dp),
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
@@ -2783,11 +2823,13 @@ private fun TvNetflixTopNav(
                         .align(Alignment.Center)
                         .fillMaxWidth()
                         .padding(horizontal = 112.dp)
-                        .height(52.dp),
+                        .height(40.dp),
                 ) {
-                    val slotWidth = maxWidth / destinations.size
+                    val slotWidth = (maxWidth / destinations.size).coerceAtMost(92.dp)
+                    val navRowWidth = slotWidth * destinations.size
+                    val navRowOffset = (maxWidth - navRowWidth) / 2
                     val activeTabOffset by animateDpAsState(
-                        targetValue = slotWidth * activeDestinationIndex,
+                        targetValue = navRowOffset + slotWidth * activeDestinationIndex,
                         animationSpec = tween(durationMillis = 240),
                         label = "tvTopNavigationSelection",
                     )
@@ -2796,15 +2838,16 @@ private fun TvNetflixTopNav(
                             .align(Alignment.CenterStart)
                             .offset(x = activeTabOffset)
                             .width(slotWidth)
-                            .height(38.dp)
+                            .height(29.dp)
                             .padding(horizontal = 4.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(Color.White),
                     )
                     Row(
                         Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
+                            .align(Alignment.Center)
+                            .width(navRowWidth)
+                            .height(38.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         destinations.forEachIndexed { index, destination ->
@@ -2821,6 +2864,19 @@ private fun TvNetflixTopNav(
                                             Modifier
                                         },
                                     )
+                                    .then(
+                                        if (index == 0) {
+                                            Modifier.focusProperties {
+                                                left = if (showBranding) {
+                                                    railFocusRequester
+                                                } else {
+                                                    profileFocusRequester
+                                                }
+                                            }
+                                        } else {
+                                            Modifier
+                                        },
+                                    )
                                     .onFocusChanged { focusState ->
                                         if (focusState.isFocused) {
                                             focusedDestinationKey = destination.key
@@ -2833,7 +2889,7 @@ private fun TvNetflixTopNav(
                             ) {
                                 Text(
                                     text = destination.label,
-                                    style = MaterialTheme.typography.titleSmall,
+                                    style = MaterialTheme.typography.labelMedium,
                                     fontWeight = if (active) {
                                         FontWeight.SemiBold
                                     } else {
@@ -2861,7 +2917,7 @@ private fun TvNetflixTopNav(
                 if (showBranding) Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(30.dp)
                         .clip(CircleShape)
                         .background(
                             if (profileActionFocused) Color.White.copy(alpha = 0.16f)
@@ -2890,18 +2946,75 @@ private fun TvNetflixTopNav(
                             MaterialIcons.Filled.AccountCircle,
                             contentDescription = "Profile",
                             tint = Color.White,
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
 
                 if (showBranding) Text(
                     text = clockText,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                     color = Color.White,
                     modifier = Modifier.padding(start = 4.dp),
                 )
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(start = TvOverscanPadding + 10.dp, top = 104.dp)
+                .width(42.dp)
+                .tvFocusGroup(),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            railActions.forEachIndexed { index, action ->
+                val focused = focusedRailActionKey == action.key
+                val selected = when (action.key) {
+                    "search" -> route.contains("search", ignoreCase = true)
+                    "library" -> route.startsWith("library-") || route.startsWith("collection")
+                    "live_tv" -> route == Tab.LiveTv.route
+                    else -> false
+                }
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .then(
+                            if (index == 0) Modifier.focusRequester(railFocusRequester)
+                            else Modifier,
+                        )
+                        .focusProperties {
+                            right = firstTabFocus
+                            if (index == 0) up = firstTabFocus
+                        }
+                        .onFocusChanged { focusState ->
+                            if (focusState.isFocused) {
+                                focusedRailActionKey = action.key
+                            } else if (focusedRailActionKey == action.key) {
+                                focusedRailActionKey = null
+                            }
+                        }
+                        .clip(CircleShape)
+                        .background(
+                            when {
+                                focused -> Color.White
+                                selected -> Color.White.copy(alpha = 0.22f)
+                                else -> Color.Transparent
+                            },
+                        )
+                        .tvFocusBorder(CircleShape, showOutline = false)
+                        .clickable(onClick = action.onClick),
+                ) {
+                    Icon(
+                        imageVector = action.icon,
+                        contentDescription = action.label,
+                        tint = if (focused) Color(0xFF111216) else Color.White.copy(alpha = 0.94f),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
         }
     }

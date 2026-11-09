@@ -1207,6 +1207,36 @@ fun MoviesScreen(
                 },
                 onCurrentItemChanged = { activeHeroBanner = it },
                 onPlayNow = playHeroNow,
+                titleLogoUrlFor = { item ->
+                    val resolvedId = item.tmdbId ?: item.stremioMeta?.let { meta ->
+                        state.stremioTmdbIds["stremio:${meta.type}:${meta.id}"]
+                    }
+                    val mediaType = if (
+                        item.mediaType.equals("tv", ignoreCase = true) ||
+                        item.stremioMeta?.type.equals("series", ignoreCase = true)
+                    ) "tv" else "movie"
+                    resolvedId?.let { state.tmdbTitleLogos["$mediaType:$it"] }
+                },
+                titleLogoRequestKeyFor = { item ->
+                    item.tmdbId?.toString() ?: item.stremioMeta?.let { meta ->
+                        state.stremioTmdbIds["stremio:${meta.type}:${meta.id}"]?.toString()
+                    }
+                },
+                onRequestTitleLogoFor = { item ->
+                    val resolvedId = item.tmdbId ?: item.stremioMeta?.let { meta ->
+                        state.stremioTmdbIds["stremio:${meta.type}:${meta.id}"]
+                    }
+                    if (resolvedId != null) {
+                        val mediaType = if (
+                            item.mediaType.equals("tv", ignoreCase = true) ||
+                            item.stremioMeta?.type.equals("series", ignoreCase = true)
+                        ) "tv" else "movie"
+                        vm.requestTitleLogo(resolvedId, mediaType)
+                    } else {
+                        item.stremioMeta?.let(vm::requestStremioTmdbId)
+                    }
+                },
+                onMoreDetails = openHeroDetails,
                 detailsVisible = tvHeroDetailsVisible,
                 onActionsFocusChanged = { focused ->
                     tvNavHeroHasFocus = focused
@@ -2665,12 +2695,24 @@ private fun TvHeroBackdrop(
     onDownFocusFailed: () -> Unit = {},
     onCurrentItemChanged: (HeroBannerItem) -> Unit,
     onPlayNow: (HeroBannerItem) -> Unit,
+    titleLogoUrlFor: (HeroBannerItem) -> String? = { null },
+    titleLogoRequestKeyFor: (HeroBannerItem) -> String? = { null },
+    onRequestTitleLogoFor: (HeroBannerItem) -> Unit = {},
+    onMoreDetails: (HeroBannerItem) -> Unit,
     onActionsFocusChanged: (Boolean) -> Unit = {},
 ) {
     var currentPage by remember(items.size) { mutableIntStateOf(0) }
     var actionsFocused by remember { mutableStateOf(false) }
+    var watchNowFocused by remember { mutableStateOf(false) }
+    var moreDetailsFocused by remember { mutableStateOf(false) }
+    val watchNowFocusRequester = remember { FocusRequester() }
+    val moreDetailsFocusRequester = remember { FocusRequester() }
     val downFocusScope = rememberCoroutineScope()
     val downFocusTarget = downFocusRequester
+    LaunchedEffect(watchNowFocused, moreDetailsFocused) {
+        actionsFocused = watchNowFocused || moreDetailsFocused
+        onActionsFocusChanged(actionsFocused)
+    }
     LaunchedEffect(currentPage, items, focusedItem) {
         (focusedItem ?: items.getOrNull(currentPage))?.let(onCurrentItemChanged)
     }
@@ -2679,6 +2721,66 @@ private fun TvHeroBackdrop(
         while (true) {
             kotlinx.coroutines.delay(15_000L)
             currentPage = (currentPage + 1) % items.size
+        }
+    }
+    fun requestFirstShelfFocus() {
+        val target = downFocusTarget ?: return
+        downFocusScope.launch {
+            prepareDownFocus()
+            repeat(16) {
+                withFrameNanos { }
+                runCatching { target.requestFocus() }
+                withFrameNanos { }
+                if (downFocusIsConfirmed()) return@launch
+                kotlinx.coroutines.delay(32L)
+            }
+            onDownFocusFailed()
+        }
+    }
+    fun handleHeroActionKey(
+        event: androidx.compose.ui.input.key.KeyEvent,
+        isPrimaryAction: Boolean,
+    ): Boolean {
+        val native = event.nativeKeyEvent
+        if (native.action != AndroidKeyEvent.ACTION_DOWN) return false
+        return when (native.keyCode) {
+            AndroidKeyEvent.KEYCODE_DPAD_UP -> {
+                val target = if (isPrimaryAction) {
+                    navReturnFocusRequester ?: return false
+                } else {
+                    watchNowFocusRequester
+                }
+                val confirmsFocus: () -> Boolean = if (isPrimaryAction) {
+                    { !watchNowFocused && !moreDetailsFocused }
+                } else {
+                    { watchNowFocused }
+                }
+                downFocusScope.launch {
+                    repeat(12) {
+                        withFrameNanos { }
+                        runCatching { target.requestFocus() }
+                        withFrameNanos { }
+                        if (confirmsFocus()) return@launch
+                    }
+                }
+                true
+            }
+            AndroidKeyEvent.KEYCODE_DPAD_DOWN -> {
+                if (isPrimaryAction) {
+                    downFocusScope.launch {
+                        repeat(12) {
+                            withFrameNanos { }
+                            runCatching { moreDetailsFocusRequester.requestFocus() }
+                            withFrameNanos { }
+                            if (moreDetailsFocused) return@launch
+                        }
+                    }
+                } else {
+                    requestFirstShelfFocus()
+                }
+                true
+            }
+            else -> false
         }
     }
     Box(
@@ -2732,6 +2834,12 @@ private fun TvHeroBackdrop(
         )
         val hero = focusedItem ?: items.getOrNull(currentPage)
         if (hero != null) {
+            val titleLogoUrl = titleLogoUrlFor(hero)
+            val titleLogoRequestKey = titleLogoRequestKeyFor(hero)
+            var titleLogoFailed by remember(hero.title, titleLogoUrl) { mutableStateOf(false) }
+            LaunchedEffect(titleLogoRequestKey, titleLogoUrl) {
+                if (titleLogoUrl.isNullOrBlank()) onRequestTitleLogoFor(hero)
+            }
             val meta = listOfNotNull(
                 if (
                     hero.mediaType.equals("tv", ignoreCase = true) ||
@@ -2755,7 +2863,7 @@ private fun TvHeroBackdrop(
                 Column(
                     modifier = Modifier
                         .padding(
-                            start = 48.dp,
+                            start = 82.dp,
                             end = LocalConfiguration.current.screenWidthDp.dp * 0.46f,
                             top = 104.dp,
                         )
@@ -2769,17 +2877,29 @@ private fun TvHeroBackdrop(
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 1.4.sp,
                     )
-                    Text(
-                        hero.title,
-                        color = Color.White,
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontSize = 42.sp,
-                            lineHeight = 46.sp,
-                        ),
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    if (!titleLogoUrl.isNullOrBlank() && !titleLogoFailed) {
+                        AsyncImage(
+                            model = tvHighResolutionTmdbArtworkUrl(titleLogoUrl),
+                            contentDescription = hero.title,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 94.dp),
+                            onError = { titleLogoFailed = true },
+                        )
+                    } else {
+                        Text(
+                            hero.title,
+                            color = Color.White,
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                fontSize = 42.sp,
+                                lineHeight = 46.sp,
+                            ),
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     Text(
                         meta,
                         color = Color.White.copy(alpha = 0.82f),
@@ -2802,6 +2922,7 @@ private fun TvHeroBackdrop(
                                 initialFocusRequester?.let { Modifier.focusRequester(it) }
                                     ?: Modifier,
                             )
+                            .focusRequester(watchNowFocusRequester)
                             .then(
                                 navFocusRequester?.let { Modifier.focusRequester(it) }
                                     ?: Modifier,
@@ -2812,64 +2933,54 @@ private fun TvHeroBackdrop(
                                 } ?: Modifier,
                             )
                             .onFocusChanged {
-                                actionsFocused = it.isFocused
-                                onActionsFocusChanged(it.isFocused)
+                                watchNowFocused = it.isFocused
                             }
-                            .onPreviewKeyEvent { event ->
-                                val native = event.nativeKeyEvent
-                                if (native.action != AndroidKeyEvent.ACTION_DOWN) {
-                                    return@onPreviewKeyEvent false
-                                }
-                                when (native.keyCode) {
-                                    AndroidKeyEvent.KEYCODE_DPAD_UP -> {
-                                        val navRequester = navReturnFocusRequester
-                                            ?: return@onPreviewKeyEvent false
-                                        downFocusScope.launch {
-                                            repeat(12) {
-                                                withFrameNanos { }
-                                                runCatching { navRequester.requestFocus() }
-                                                withFrameNanos { }
-                                                if (!actionsFocused) return@launch
-                                            }
-                                        }
-                                        true
-                                    }
-                                    AndroidKeyEvent.KEYCODE_DPAD_DOWN -> {
-                                        val target = downFocusTarget
-                                            ?: return@onPreviewKeyEvent false
-                                        downFocusScope.launch {
-                                            prepareDownFocus()
-                                            repeat(16) {
-                                                withFrameNanos { }
-                                                runCatching { target.requestFocus() }
-                                                withFrameNanos { }
-                                                if (downFocusIsConfirmed()) return@launch
-                                                kotlinx.coroutines.delay(32L)
-                                            }
-                                            onDownFocusFailed()
-                                        }
-                                        true
-                                    }
-                                    else -> false
-                                }
-                            },
+                            .onPreviewKeyEvent { event -> handleHeroActionKey(event, isPrimaryAction = true) },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Color.White,
                             contentColor = Color(0xFF111216),
                         ),
                         shape = RoundedCornerShape(7.dp),
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 11.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
                     ) {
                         Icon(
                             Icons.Default.PlayArrow,
                             contentDescription = null,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(16.dp),
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(6.dp))
                         Text(
                             "Watch now",
-                            style = MaterialTheme.typography.titleSmall,
+                            style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    Button(
+                        onClick = { onMoreDetails(hero) },
+                        modifier = Modifier
+                            .focusRequester(moreDetailsFocusRequester)
+                            .focusProperties { up = watchNowFocusRequester }
+                            .onFocusChanged { moreDetailsFocused = it.isFocused }
+                            .onPreviewKeyEvent { event ->
+                                handleHeroActionKey(event, isPrimaryAction = false)
+                            },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xB8202632),
+                            contentColor = Color.White,
+                        ),
+                        shape = RoundedCornerShape(7.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "More details",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
                         )
                     }
                 }
