@@ -2808,11 +2808,11 @@ private fun TvHeroBackdrop(
                 .background(
                     Brush.verticalGradient(
                         colorStops = arrayOf(
-                            0f to Color.Black.copy(alpha = 0.24f),
+                            0f to Color.Black.copy(alpha = 0.16f),
                             0.22f to Color.Transparent,
                             0.54f to Color.Transparent,
-                            0.78f to Color.Black.copy(alpha = 0.22f),
-                            1f to Color(0xFF07080D).copy(alpha = 0.78f),
+                            0.78f to Color.Black.copy(alpha = 0.16f),
+                            1f to Color(0xFF07080D).copy(alpha = 0.68f),
                         ),
                     ),
                 ),
@@ -2823,9 +2823,9 @@ private fun TvHeroBackdrop(
                 .background(
                     Brush.horizontalGradient(
                         colorStops = arrayOf(
-                            0f to Color(0xFF05070A).copy(alpha = 0.94f),
-                            0.27f to Color(0xFF05070A).copy(alpha = 0.78f),
-                            0.52f to Color(0xFF05070A).copy(alpha = 0.30f),
+                            0f to Color(0xFF05070A).copy(alpha = 0.84f),
+                            0.27f to Color(0xFF05070A).copy(alpha = 0.62f),
+                            0.52f to Color(0xFF05070A).copy(alpha = 0.22f),
                             0.74f to Color.Transparent,
                             1f to Color.Transparent,
                         ),
@@ -2863,12 +2863,12 @@ private fun TvHeroBackdrop(
                 Column(
                     modifier = Modifier
                         .padding(
-                            start = 82.dp,
-                            end = LocalConfiguration.current.screenWidthDp.dp * 0.46f,
-                            top = 104.dp,
+                            start = 48.dp,
+                            end = LocalConfiguration.current.screenWidthDp.dp * 0.52f,
+                            top = 82.dp,
                         )
-                        .widthIn(max = 680.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                        .widthIn(max = 640.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp),
                 ) {
                     Text(
                         "FEATURED",
@@ -2884,7 +2884,7 @@ private fun TvHeroBackdrop(
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 94.dp),
+                                .heightIn(max = 82.dp),
                             onError = { titleLogoFailed = true },
                         )
                     } else {
@@ -2910,78 +2910,86 @@ private fun TvHeroBackdrop(
                         Text(
                             overview,
                             color = Color.White.copy(alpha = 0.88f),
-                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 16.sp, lineHeight = 23.sp),
-                            maxLines = 3,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    Button(
-                        onClick = { onPlayNow(hero) },
-                        modifier = Modifier
-                            .then(
-                                initialFocusRequester?.let { Modifier.focusRequester(it) }
-                                    ?: Modifier,
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(
+                            onClick = { onPlayNow(hero) },
+                            modifier = Modifier
+                                .then(
+                                    initialFocusRequester?.let { Modifier.focusRequester(it) }
+                                        ?: Modifier,
+                                )
+                                .focusRequester(watchNowFocusRequester)
+                                .then(
+                                    navFocusRequester?.let { Modifier.focusRequester(it) }
+                                        ?: Modifier,
+                                )
+                                .then(
+                                    navReturnFocusRequester?.let { requester ->
+                                        Modifier.focusProperties { up = requester }
+                                    } ?: Modifier,
+                                )
+                                .focusProperties { right = moreDetailsFocusRequester }
+                                .onFocusChanged {
+                                    watchNowFocused = it.isFocused
+                                }
+                                .onPreviewKeyEvent { event ->
+                                    handleHeroActionKey(event, isPrimaryAction = true)
+                                },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.White,
+                                contentColor = Color(0xFF111216),
+                            ),
+                            shape = RoundedCornerShape(7.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
                             )
-                            .focusRequester(watchNowFocusRequester)
-                            .then(
-                                navFocusRequester?.let { Modifier.focusRequester(it) }
-                                    ?: Modifier,
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "Watch now",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
                             )
-                            .then(
-                                navReturnFocusRequester?.let { requester ->
-                                    Modifier.focusProperties { up = requester }
-                                } ?: Modifier,
+                        }
+                        Button(
+                            onClick = { onMoreDetails(hero) },
+                            modifier = Modifier
+                                .focusRequester(moreDetailsFocusRequester)
+                                .focusProperties {
+                                    up = watchNowFocusRequester
+                                    left = watchNowFocusRequester
+                                }
+                                .onFocusChanged { moreDetailsFocused = it.isFocused }
+                                .onPreviewKeyEvent { event ->
+                                    handleHeroActionKey(event, isPrimaryAction = false)
+                                },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xE6FFFFFF),
+                                contentColor = Color(0xFF111216),
+                            ),
+                            shape = RoundedCornerShape(7.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Info,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
                             )
-                            .onFocusChanged {
-                                watchNowFocused = it.isFocused
-                            }
-                            .onPreviewKeyEvent { event -> handleHeroActionKey(event, isPrimaryAction = true) },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.White,
-                            contentColor = Color(0xFF111216),
-                        ),
-                        shape = RoundedCornerShape(7.dp),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "Watch now",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                    Button(
-                        onClick = { onMoreDetails(hero) },
-                        modifier = Modifier
-                            .focusRequester(moreDetailsFocusRequester)
-                            .focusProperties { up = watchNowFocusRequester }
-                            .onFocusChanged { moreDetailsFocused = it.isFocused }
-                            .onPreviewKeyEvent { event ->
-                                handleHeroActionKey(event, isPrimaryAction = false)
-                            },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xB8202632),
-                            contentColor = Color.White,
-                        ),
-                        shape = RoundedCornerShape(7.dp),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.Info,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "More details",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "More details",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
                 }
             }

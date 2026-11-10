@@ -2459,13 +2459,6 @@ private data class TvTopNavigationDestination(
     val route: String? = null,
 )
 
-private data class TvNavigationRailAction(
-    val key: String,
-    val label: String,
-    val icon: ImageVector,
-    val onClick: () -> Unit,
-)
-
 @Composable
 private fun TvPrimeTopNav(
     tabs: List<Tab>,
@@ -2492,6 +2485,7 @@ private fun TvPrimeTopNav(
     var downFocusAttempt by remember { mutableIntStateOf(0) }
     var overflowExpanded by remember { mutableStateOf(false) }
     var profileActionFocused by remember { mutableStateOf(false) }
+    var searchActionFocused by remember { mutableStateOf(false) }
     val clockFormatter = remember {
         java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
     }
@@ -2606,9 +2600,9 @@ private fun TvPrimeTopNav(
     val selectedDestinationIndex = destinations.indexOfFirst { it.selected }
     val selectedDestinationKey = destinations.getOrNull(selectedDestinationIndex)?.key
     var focusedDestinationKey by remember { mutableStateOf<String?>(null) }
-    var focusedRailActionKey by remember { mutableStateOf<String?>(null) }
-    val railFocusRequester = remember { FocusRequester() }
     val profileFocusRequester = remember { FocusRequester() }
+    val searchFocusRequester = remember { FocusRequester() }
+    val lastDestinationFocusRequester = remember { FocusRequester() }
     LaunchedEffect(currentRoute, navHasFocus, selectedDestinationKey) {
         if (!navHasFocus) focusedDestinationKey = selectedDestinationKey
     }
@@ -2623,32 +2617,6 @@ private fun TvPrimeTopNav(
         focusedDestinationKey = destination.key
         destination.route?.let(onTabSelected)
     }
-    val railActions = listOf(
-        TvNavigationRailAction(
-            key = "search",
-            label = "Search",
-            icon = MaterialIcons.Filled.Search,
-            onClick = onSearchClick,
-        ),
-        TvNavigationRailAction(
-            key = "browse",
-            label = "Browse",
-            icon = MaterialIcons.Filled.GridView,
-            onClick = { onTabSelected(Tab.Movies.route) },
-        ),
-        TvNavigationRailAction(
-            key = "library",
-            label = "Library",
-            icon = MaterialIcons.Filled.Bookmarks,
-            onClick = { onTabSelected(Tab.Library.route) },
-        ),
-        TvNavigationRailAction(
-            key = "live_tv",
-            label = "Live TV",
-            icon = MaterialIcons.Filled.LiveTv,
-            onClick = { onTabSelected(Tab.LiveTv.route) },
-        ),
-    )
     Box(
         modifier = modifier
             .tvFocusGroup()
@@ -2665,25 +2633,6 @@ private fun TvPrimeTopNav(
                 if (event.key != Key.DirectionDown) {
                     pendingDownFocusHandoff = false
                 }
-                 if (focusedRailActionKey != null) {
-                     // Let Up/Down move through the vertical shortcut rail.
-                     // Left stays inside the rail; Right follows its explicit
-                     // focus target back to the active top destination.
-                     if (event.key == Key.DirectionLeft) return@onPreviewKeyEvent true
-                     if (
-                         event.key == Key.DirectionDown &&
-                         focusedRailActionKey == "live_tv"
-                     ) {
-                         if (!pendingDownFocusHandoff) {
-                             pendingDownFocusHandoff = true
-                             downFocusAttempt++
-                             onDownFocusHandoffRequested()
-                         }
-                         return@onPreviewKeyEvent true
-                     }
-                     return@onPreviewKeyEvent false
-                 }
-
                 when (event.key) {
                     Key.DirectionDown -> {
                         if (!pendingDownFocusHandoff) {
@@ -2702,7 +2651,7 @@ private fun TvPrimeTopNav(
                 }
             },
     ) {
-        // Profile and compact text destinations share the top row; quick actions stay in the rail.
+        // Keep profile, compact destinations, and Search together in the top row.
         Box(
             Modifier
                 .fillMaxWidth()
@@ -2778,7 +2727,6 @@ private fun TvPrimeTopNav(
                             .size(32.dp)
                             .focusRequester(profileFocusRequester)
                             .focusProperties {
-                                left = railFocusRequester
                                 right = firstTabFocus
                             }
                             .clip(CircleShape)
@@ -2865,14 +2813,22 @@ private fun TvPrimeTopNav(
                                         },
                                     )
                                     .then(
-                                        if (index == 0) {
+                                        if (index == 0 || index == destinations.lastIndex) {
                                             Modifier.focusProperties {
-                                                left = if (showBranding) {
-                                                    railFocusRequester
-                                                } else {
-                                                    profileFocusRequester
+                                                if (index == 0 && !showBranding) {
+                                                    left = profileFocusRequester
+                                                }
+                                                if (index == destinations.lastIndex) {
+                                                    right = searchFocusRequester
                                                 }
                                             }
+                                        } else {
+                                            Modifier
+                                        },
+                                    )
+                                    .then(
+                                        if (index == destinations.lastIndex) {
+                                            Modifier.focusRequester(lastDestinationFocusRequester)
                                         } else {
                                             Modifier
                                         },
@@ -2914,6 +2870,32 @@ private fun TvPrimeTopNav(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .focusRequester(searchFocusRequester)
+                        .focusProperties { left = lastDestinationFocusRequester }
+                        .onFocusChanged { searchActionFocused = it.isFocused }
+                        .clip(CircleShape)
+                        .background(
+                            if (searchActionFocused) Color.White
+                            else Color.Transparent,
+                        )
+                        .tvFocusBorder(CircleShape, showOutline = false)
+                        .clickable(onClick = onSearchClick),
+                ) {
+                    Icon(
+                        imageVector = MaterialIcons.Filled.Search,
+                        contentDescription = "Search",
+                        tint = if (searchActionFocused) {
+                            Color(0xFF111216)
+                        } else {
+                            Color.White.copy(alpha = 0.94f)
+                        },
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
                 if (showBranding) Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
@@ -2961,62 +2943,6 @@ private fun TvPrimeTopNav(
             }
         }
 
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .statusBarsPadding()
-                .padding(start = TvOverscanPadding + 10.dp, top = 104.dp)
-                .width(42.dp)
-                .tvFocusGroup(),
-            verticalArrangement = Arrangement.spacedBy(9.dp),
-        ) {
-            railActions.forEachIndexed { index, action ->
-                val focused = focusedRailActionKey == action.key
-                val selected = when (action.key) {
-                    "search" -> route.contains("search", ignoreCase = true)
-                    "library" -> route.startsWith("library-") || route.startsWith("collection")
-                    "live_tv" -> route == Tab.LiveTv.route
-                    else -> false
-                }
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(38.dp)
-                        .then(
-                            if (index == 0) Modifier.focusRequester(railFocusRequester)
-                            else Modifier,
-                        )
-                        .focusProperties {
-                            right = firstTabFocus
-                            if (index == 0) up = firstTabFocus
-                        }
-                        .onFocusChanged { focusState ->
-                            if (focusState.isFocused) {
-                                focusedRailActionKey = action.key
-                            } else if (focusedRailActionKey == action.key) {
-                                focusedRailActionKey = null
-                            }
-                        }
-                        .clip(CircleShape)
-                        .background(
-                            when {
-                                focused -> Color.White
-                                selected -> Color.White.copy(alpha = 0.22f)
-                                else -> Color.Transparent
-                            },
-                        )
-                        .tvFocusBorder(CircleShape, showOutline = false)
-                        .clickable(onClick = action.onClick),
-                ) {
-                    Icon(
-                        imageVector = action.icon,
-                        contentDescription = action.label,
-                        tint = if (focused) Color(0xFF111216) else Color.White.copy(alpha = 0.94f),
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-        }
     }
 }
 
