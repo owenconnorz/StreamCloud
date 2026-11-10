@@ -1253,7 +1253,7 @@ fun MoviesScreen(
             ) ?: return false
             if ((tvHomeFocusedItemIndices[rowKey] ?: 0) != 0) return false
             val searchRequester = tvNavSearchFocusRequester ?: return false
-            return runCatching { searchRequester.requestFocus() }.getOrDefault(false)
+            return runCatching { searchRequester.requestFocus() }.isSuccess
         }
 
         if (hasTvHero) {
