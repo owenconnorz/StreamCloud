@@ -213,9 +213,6 @@ fun MoviesScreen(
     tvNavHeroFocus: FocusRequester? = null,
     tvNavSafeFocusRequester: FocusRequester? = null,
     tvNavSafeFocusReceived: Boolean = false,
-    // Incremented when the TV nav gains focus; immediately reveals the hero
-    // before a later Down handoff requests its Play button.
-    navScrollToTopVersion: Int = 0,
     // Scroll Movies to the banner before retrying a TV-nav focus request.
     tvNavDownFocusHandoffVersion: Int = 0,
     onTvTopBarVisibilityChanged: (Boolean) -> Unit = {},
@@ -524,8 +521,10 @@ fun MoviesScreen(
     val tvHomeFocusedRowHasFocus = remember { mutableStateOf(false) }
     val tvHomeFirstGenreFocusRequester = remember { FocusRequester() }
     val tvHomeFirstContinueFocusRequester = remember { FocusRequester() }
+    val tvHomeFirstTopTenFocusRequester = remember { FocusRequester() }
     val tvHomeFirstGenreHasFocus = remember { mutableStateOf(false) }
     val tvHomeFirstContinueHasFocus = remember { mutableStateOf(false) }
+    val tvHomeFirstTopTenHasFocus = remember { mutableStateOf(false) }
     var tvHomeFastScrolling by remember { mutableStateOf(false) }
     var tvHomeFocusTransferInProgress by remember { mutableStateOf(false) }
     var lastTvHomeVerticalRepeatAt by remember { mutableStateOf(0L) }
@@ -571,15 +570,6 @@ fun MoviesScreen(
             if (isTv) topBarVisibilityChanged(true)
         }
         var tvNavHeroHasFocus by remember { mutableStateOf(false) }
-        // When the TV nav bar regains focus, scroll back to the top so the hero is fully visible.
-    // When TV focus returns to the nav bar, jump to the top immediately. An
-    // animated scroll can still be running when the next Down handoff starts.
-    LaunchedEffect(navScrollToTopVersion) {
-        if (navScrollToTopVersion > 0) {
-            focusedHomeHero = null
-            moviesListState.scrollToItem(0)
-        }
-    }
     val firstCollectionRowId = state.collections
         .firstOrNull { it.items.isNotEmpty() }
         ?.id
@@ -588,11 +578,14 @@ fun MoviesScreen(
         ?.rowKey
     val homeCollectionRows = remember(isTv, state.collections) {
         if (isTv) {
-            state.collections.sortedBy { if (it.id == "popular") 0 else 1 }
+            state.collections
+                .filterNot { it.id == "trending" }
+                .sortedBy { if (it.id == "popular") 0 else 1 }
         } else {
             state.collections
         }
     }
+    val tvTopTenItems = if (isTv) state.trending.take(10) else emptyList()
     val tvGenreArtworkPool = remember(
         state.collections,
         state.trending,
@@ -684,20 +677,27 @@ fun MoviesScreen(
         state.heroBanner.isNotEmpty()
     val tvHomeRowsViewportHeight = run {
         val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+        val screenHeight = LocalConfiguration.current.screenHeightDp.dp
         val continueCardWidth = (screenWidth * 0.21f).coerceIn(176.dp, 272.dp)
         val genreCardWidth = calculateTvGenreCardWidth(screenWidth, homeGenres.size)
         val continueRowHeight = 30.dp + continueCardWidth * 0.54f + 8.dp
         val genreRowHeight = 30.dp + genreCardWidth * 9f / 16f + 8.dp
         val followingShelfHeight = 120.dp
-        (
+        val traditionalViewport = (
             if (visibleContinueWatching.isNotEmpty()) {
                 continueRowHeight + genreRowHeight
             } else {
                 genreRowHeight + followingShelfHeight
             }
         ).coerceIn(220.dp, 380.dp)
+        if (tvTopTenItems.isNotEmpty()) {
+            (screenHeight * 0.40f).coerceIn(220.dp, 300.dp)
+        } else {
+            traditionalViewport
+        }
     }
     val hasBrowseContent = state.continueWatching.isNotEmpty() ||
+        tvTopTenItems.isNotEmpty() ||
         firstCollectionRowId != null ||
         firstStremioRowKey != null ||
         (state.showHeroSection && state.heroBanner.isNotEmpty()) ||
@@ -705,6 +705,7 @@ fun MoviesScreen(
         state.csPluginRows.any { it.items.isNotEmpty() }
     val startupFocusTarget = when {
         state.error != null || !hasBrowseContent -> "recovery"
+        isTv && tvTopTenItems.isNotEmpty() -> "top_ten"
         isTv && visibleContinueWatching.isEmpty() -> "genre"
         state.continueWatching.isNotEmpty() -> "continue"
         isTv -> "genre"
@@ -1087,10 +1088,11 @@ fun MoviesScreen(
             }
         }
 
-        val tvHeroFirstFocusRowKey = selectFirstTvHomeFocusRowKey(
-            hasContinueWatching = visibleContinueWatching.isNotEmpty(),
-            hasGenres = homeGenres.isNotEmpty(),
-        )
+    val tvHeroFirstFocusRowKey = selectFirstTvHomeFocusRowKey(
+        hasContinueWatching = visibleContinueWatching.isNotEmpty(),
+        hasGenres = homeGenres.isNotEmpty(),
+        hasTopTen = tvTopTenItems.isNotEmpty(),
+    )
         LaunchedEffect(isTv, tvNavDownFocusHandoffVersion, tvHeroFirstFocusRowKey, query) {
             if (!isTv || tvNavDownFocusHandoffVersion <= 0 || query.isNotBlank()) {
                 return@LaunchedEffect
@@ -1188,12 +1190,14 @@ fun MoviesScreen(
                 navFocusRequester = tvNavHeroFocus,
                 navReturnFocusRequester = tvNavSafeFocusRequester,
                 downFocusRequester = when (tvHeroFirstFocusRowKey) {
+                     "top_ten" -> tvHomeFirstTopTenFocusRequester
                     "continue_watching" -> tvHomeFirstContinueFocusRequester
                     "home_genres" -> tvHomeFirstGenreFocusRequester
                     else -> null
                 },
                 downFocusIsConfirmed = {
                     when (tvHeroFirstFocusRowKey) {
+                         "top_ten" -> tvHomeFirstTopTenHasFocus.value
                         "continue_watching" ->
                             tvHomeFirstContinueHasFocus.value
                         "home_genres" -> tvHomeFirstGenreHasFocus.value
@@ -1383,6 +1387,133 @@ fun MoviesScreen(
                     }
                     item(key = "movies_loading_placeholder") {
                         MoviesLoadingPlaceholder()
+                    }
+                }
+                if (tvTopTenItems.isNotEmpty()) {
+                    item(key = "top_ten") {
+                        val rowKey = "top_ten"
+                        val rowFocusRequester = rememberTvHomeRowFocusRequester(
+                            tvHomeRowFocusRequesters,
+                            rowKey,
+                        )
+                        val topTenRowState = rememberLazyListState()
+                        tvHomeRowListStates[rowKey] = topTenRowState
+                        var focusedTopTenIndex by remember { mutableIntStateOf(-1) }
+                        KeepTvFocusedItemAtStart(
+                            listState = topTenRowState,
+                            focusedIndex = focusedTopTenIndex,
+                            isTv = true,
+                        )
+                        Column {
+                            TvHomeSectionTitle("Top 10 in StreamCloud")
+                            LazyRow(
+                                state = topTenRowState,
+                                modifier = Modifier
+                                    .onFocusChanged {
+                                        updateTvHomeRowFocus(rowKey, it.hasFocus)
+                                    }
+                                    .tvFocusGroup(
+                                        restoreFocusedChild = true,
+                                        focusRequester = rowFocusRequester,
+                                    ),
+                                contentPadding = PaddingValues(end = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                itemsIndexed(
+                                    tvTopTenItems,
+                                    key = { index, movie -> "top_ten_${movie.id}_$index" },
+                                ) { index, movie ->
+                                    val itemFocusRequester = rememberTvHomeItemFocusRequester(
+                                        tvHomeItemFocusRequesters,
+                                        rowKey,
+                                        index,
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .width(270.dp)
+                                            .height(142.dp),
+                                    ) {
+                                        Text(
+                                            text = (index + 1).toString(),
+                                            color = Color.White.copy(alpha = 0.25f),
+                                            fontSize = 132.sp,
+                                            lineHeight = 132.sp,
+                                            fontWeight = FontWeight.Black,
+                                            letterSpacing = (-8).sp,
+                                            modifier = Modifier
+                                                .align(Alignment.CenterStart)
+                                                .padding(start = 2.dp),
+                                        )
+                                        val mediaType =
+                                            if (movie.title != null) "movie" else "tv"
+                                        MidPoster(
+                                            m = movie,
+                                            posterStyle = "landscape",
+                                            landscapeCardWidth = 194.dp,
+                                            isWatched = movie.id in watchedTmdbIds,
+                                            isTv = true,
+                                            titleLogoUrl = state.tmdbTitleLogos[
+                                                "$mediaType:${movie.id}"
+                                            ],
+                                            onRequestTitleLogo = {
+                                                vm.requestTitleLogo(movie.id, mediaType)
+                                            },
+                                            onFocusChanged = { hasFocus ->
+                                                if (hasFocus) {
+                                                    focusedTopTenIndex = index
+                                                    updateTvHomeItemFocus(rowKey, index, true)
+                                                    focusedHomeHero = tmdbHeroBannerItem(movie)
+                                                }
+                                                if (index == 0) {
+                                                    tvHomeFirstTopTenHasFocus.value = hasFocus
+                                                    onFirstMovieFocusedChanged(hasFocus)
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .align(Alignment.CenterEnd)
+                                                .padding(start = 58.dp)
+                                                .focusRequester(itemFocusRequester)
+                                                .then(
+                                                    if (
+                                                        index == 0 &&
+                                                        startupFocusTarget == "top_ten" &&
+                                                        initialFocusRequester != null
+                                                    ) {
+                                                        Modifier.focusRequester(initialFocusRequester)
+                                                    } else {
+                                                        Modifier
+                                                    },
+                                                )
+                                                .then(
+                                                    if (index == 0) {
+                                                        Modifier.focusRequester(
+                                                            tvHomeFirstTopTenFocusRequester,
+                                                        )
+                                                    } else {
+                                                        Modifier
+                                                    },
+                                                ),
+                                            onClick = {
+                                                if (movie.title != null) {
+                                                    onMovieClick(movie.id)
+                                                } else {
+                                                    onTvClick(movie.id)
+                                                }
+                                            },
+                                            onLongPress = {
+                                                posterSheet = PosterSheetItem(
+                                                    movie.id,
+                                                    movie.displayTitle,
+                                                    movie.posterUrl,
+                                                    movie.watchedMediaType(),
+                                                )
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(6.dp))
+                        }
                     }
                 }
                 if (visibleContinueWatching.isNotEmpty()) {
@@ -2413,7 +2544,9 @@ internal fun selectAdjacentTvHomeFocusRow(
 internal fun selectFirstTvHomeFocusRowKey(
     hasContinueWatching: Boolean,
     hasGenres: Boolean,
+    hasTopTen: Boolean = false,
 ): String? = when {
+    hasTopTen -> "top_ten"
     hasContinueWatching -> "continue_watching"
     hasGenres -> "home_genres"
     else -> null
@@ -2786,55 +2919,62 @@ private fun TvHeroBackdrop(
             else -> false
         }
     }
-    Box(
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .background(Color(0xFF07080D)),
+            .background(Color.Black),
     ) {
-        Crossfade(
-            targetState = focusedItem ?: items.getOrNull(currentPage),
-            modifier = Modifier.fillMaxSize(),
-            label = "tvPinnedHeroBackdrop",
-        ) { item ->
-            if (item != null) {
-                AsyncImage(
-                    model = tvHighResolutionTmdbArtworkUrl(item.imageUrl),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
+        val heroBackdropHeight = (maxHeight - rowsViewportHeight).coerceAtLeast(0.dp)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(heroBackdropHeight),
+        ) {
+            Crossfade(
+                targetState = focusedItem ?: items.getOrNull(currentPage),
+                modifier = Modifier.fillMaxSize(),
+                label = "tvPinnedHeroBackdrop",
+            ) { item ->
+                if (item != null) {
+                    AsyncImage(
+                        model = tvHighResolutionTmdbArtworkUrl(item.imageUrl),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0f to Color.Black.copy(alpha = 0.16f),
+                                0.22f to Color.Transparent,
+                                0.54f to Color.Transparent,
+                                0.78f to Color.Black.copy(alpha = 0.16f),
+                                1f to Color.Black.copy(alpha = 0.68f),
+                            ),
+                        ),
+                    ),
+            )
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            colorStops = arrayOf(
+                                0f to Color(0xFF05070A).copy(alpha = 0.84f),
+                                0.27f to Color(0xFF05070A).copy(alpha = 0.62f),
+                                0.52f to Color(0xFF05070A).copy(alpha = 0.22f),
+                                0.74f to Color.Transparent,
+                                1f to Color.Transparent,
+                            ),
+                        ),
+                    ),
+            )
         }
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0f to Color.Black.copy(alpha = 0.16f),
-                            0.22f to Color.Transparent,
-                            0.54f to Color.Transparent,
-                            0.78f to Color.Black.copy(alpha = 0.16f),
-                            1f to Color(0xFF07080D).copy(alpha = 0.68f),
-                        ),
-                    ),
-                ),
-        )
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.horizontalGradient(
-                        colorStops = arrayOf(
-                            0f to Color(0xFF05070A).copy(alpha = 0.84f),
-                            0.27f to Color(0xFF05070A).copy(alpha = 0.62f),
-                            0.52f to Color(0xFF05070A).copy(alpha = 0.22f),
-                            0.74f to Color.Transparent,
-                            1f to Color.Transparent,
-                        ),
-                    ),
-                ),
-        )
         val hero = focusedItem ?: items.getOrNull(currentPage)
         if (hero != null) {
             val titleLogoUrl = titleLogoUrlFor(hero)
@@ -2866,9 +3006,9 @@ private fun TvHeroBackdrop(
                 Column(
                     modifier = Modifier
                         .padding(
-                            start = 48.dp,
+                            start = 12.dp,
                             end = LocalConfiguration.current.screenWidthDp.dp * 0.52f,
-                            top = 82.dp,
+                            top = 34.dp,
                         )
                         .widthIn(max = 640.dp),
                     verticalArrangement = Arrangement.spacedBy(7.dp),
@@ -2914,7 +3054,7 @@ private fun TvHeroBackdrop(
                             overview,
                             color = Color.White.copy(alpha = 0.88f),
                             style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
-                            maxLines = 2,
+                            maxLines = 3,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }

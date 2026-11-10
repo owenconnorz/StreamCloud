@@ -6,6 +6,18 @@ import org.junit.Test
 
 class MoviesScreenTvLandingPolicyTest {
     @Test
+    fun topTenIsTheFirstFocusableShelfWhenAvailable() {
+        assertEquals(
+            "top_ten",
+            selectFirstTvHomeFocusRowKey(
+                hasContinueWatching = true,
+                hasGenres = true,
+                hasTopTen = true,
+            ),
+        )
+    }
+
+    @Test
     fun landingChoosesFirstFocusableShelfAtOrAfterVisibleItem() {
         val rows = listOf(
             "home_genres" to 4,

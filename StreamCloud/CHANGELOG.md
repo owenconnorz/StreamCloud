@@ -1,3 +1,14 @@
+## Android TV — Prime-style home refresh
+
+### Android TV
+- **Navigation uses a compact left icon rail** — Search, profile, and the app’s destinations stay reachable across TV screens.
+- **The featured hero ends above a solid-black shelf area** — the artwork no longer continues behind the lower home shelves.
+- **Top 10 uses ranked landscape cards** — the highlighted title updates the hero artwork and details, and D-pad focus enters the shelf from the hero.
+
+### Included APKs
+- Android TV universal, ARM64, and ARMv7 APKs.
+- Android mobile APK.
+
 ## TV update — Prime-style home layout
 
 ### Android TV
