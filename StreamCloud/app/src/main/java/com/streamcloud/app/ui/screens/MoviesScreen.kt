@@ -886,6 +886,7 @@ fun MoviesScreen(
         suspend fun requestTvHomeRowFocus(
             rowKey: String,
             focusFirstItem: Boolean = false,
+            preferredItemIndex: Int? = null,
         ): Boolean {
             if (!ensureTvHomeRowVisible(rowKey)) return false
             if (focusFirstItem) {
@@ -898,7 +899,9 @@ fun MoviesScreen(
                 val rowListState = tvHomeRowListStates[rowKey]
                 val itemIndex = resolveTvHomeFocusItemIndex(
                     focusFirstItem = focusFirstItem,
-                    rememberedItemIndex = tvHomeFocusedItemIndices[rowKey] ?: 0,
+                    rememberedItemIndex = preferredItemIndex
+                        ?: tvHomeFocusedItemIndices[rowKey]
+                        ?: 0,
                     itemCount = rowListState?.layoutInfo?.totalItemsCount ?: 0,
                 )
                 if (itemIndex == null) {
@@ -915,9 +918,9 @@ fun MoviesScreen(
                         visibleItemIndices = rowListState.layoutInfo.visibleItemsInfo.map { it.index },
                     )
                 ) {
-                    // The remembered child may have been recycled horizontally even
+                    // The requested child may have been recycled horizontally even
                     // though its parent shelf is visible. Reveal it before requesting
-                    // focus so Up restores a real, visibly highlighted card.
+                    // focus so the handoff lands on a real, visibly highlighted card.
                     runCatching { rowListState.scrollToItem(itemIndex) }
                     withFrameNanos { }
                     withFrameNanos { }
@@ -966,6 +969,7 @@ fun MoviesScreen(
                 ?.index
                 ?: tvHomeRowParentListIndices[sourceRowKey]
                 ?: return false
+            val sourceItemIndex = tvHomeFocusedItemIndices[sourceRowKey] ?: 0
 
             val initiallyVisibleTarget = selectPreviousTvHomeFocusRowBefore(
                 visibleFocusRows = visibleTvHomeRows(),
@@ -974,12 +978,15 @@ fun MoviesScreen(
             if (initiallyVisibleTarget != null) {
                 // A failed focus request must not skip this nearest shelf and
                 // continue to an older one. The caller restores the source card.
-                return requestTvHomeRowFocus(initiallyVisibleTarget.first)
+                return requestTvHomeRowFocus(
+                    initiallyVisibleTarget.first,
+                    preferredItemIndex = sourceItemIndex,
+                )
             }
 
             // The previous shelf may have been recycled just outside the small
             // TV viewport. Reveal earlier LazyColumn items until the closest
-            // real focusable shelf is composed, then restore its remembered card.
+            // real focusable shelf is composed, then focus the corresponding column.
             for (listIndex in sourceListIndex - 1 downTo 0) {
                 moviesListState.scrollToItem(listIndex)
                 withFrameNanos { }
@@ -990,7 +997,10 @@ fun MoviesScreen(
                 ) ?: continue
                 // Stop at the first focusable shelf, even if its card has not
                 // attached yet. Falling through would make one Up press skip rows.
-                return requestTvHomeRowFocus(target.first)
+                return requestTvHomeRowFocus(
+                    target.first,
+                    preferredItemIndex = sourceItemIndex,
+                )
             }
 
             if (hasTvHero) {
@@ -1013,6 +1023,7 @@ fun MoviesScreen(
                 ?.index
                 ?: tvHomeRowParentListIndices[sourceRowKey]
                 ?: return false
+            val sourceItemIndex = tvHomeFocusedItemIndices[sourceRowKey] ?: 0
 
             val initiallyVisibleTarget = selectNextTvHomeFocusRowAfter(
                 visibleFocusRows = visibleTvHomeRows(),
@@ -1021,7 +1032,7 @@ fun MoviesScreen(
             if (initiallyVisibleTarget != null) {
                 return requestTvHomeRowFocus(
                     initiallyVisibleTarget.first,
-                    focusFirstItem = true,
+                    preferredItemIndex = sourceItemIndex,
                 )
             }
 
@@ -1036,7 +1047,10 @@ fun MoviesScreen(
                     visibleFocusRows = visibleTvHomeRows(),
                     sourceListIndex = sourceListIndex,
                 ) ?: continue
-                return requestTvHomeRowFocus(target.first, focusFirstItem = true)
+                return requestTvHomeRowFocus(
+                    target.first,
+                    preferredItemIndex = sourceItemIndex,
+                )
             }
             return false
         }
@@ -1116,12 +1130,10 @@ fun MoviesScreen(
                         // shelves or land on a non-card element.
                         moviesListState.scrollToItem(sourceListIndex)
                         withFrameNanos { }
-                        val sourceRestored = requestTvHomeRowFocus(sourceRowKey) ||
-                            requestTvHomeRowFocus(sourceRowKey, focusFirstItem = true)
-                        if (!sourceRestored) {
-                            // At a boundary or during lazy composition, keep focus on a real card.
-                            requestTvHomeRowFocus(sourceRowKey, focusFirstItem = true)
-                        }
+                        requestTvHomeRowFocus(
+                            sourceRowKey,
+                            preferredItemIndex = tvHomeFocusedItemIndices[sourceRowKey] ?: 0,
+                        )
                     }
                 } finally {
                     tvHomeFocusTransferInProgress = false
@@ -1431,14 +1443,9 @@ fun MoviesScreen(
                                             },
                                         )
                                         .then(
-                                            if (isTv && (homeGenres.isNotEmpty() || heroUpFocusRequester != null)) {
+                                            if (isTv && heroUpFocusRequester != null) {
                                                 Modifier.focusProperties {
-                                                    if (heroUpFocusRequester != null) {
-                                                        up = heroUpFocusRequester
-                                                    }
-                                                    if (homeGenres.isNotEmpty()) {
-                                                        down = tvHomeFirstGenreFocusRequester
-                                                    }
+                                                    up = heroUpFocusRequester
                                                 }
                                             } else {
                                                 Modifier
@@ -1541,8 +1548,6 @@ fun MoviesScreen(
                             },
                             itemFocusRequesters = tvHomeItemFocusRequesters.takeIf { isTv },
                             firstItemFocusRequester = tvHomeFirstGenreFocusRequester,
-                            upFocusRequester = tvHomeFirstContinueFocusRequester
-                                .takeIf { isTv && visibleContinueWatching.isNotEmpty() },
                             onItemFocusChanged = { index, focused ->
                                 updateTvHomeItemFocus("home_genres", index, focused)
                             },
@@ -2431,9 +2436,15 @@ internal fun resolveTvHomeFocusItemIndex(
     focusFirstItem: Boolean,
     rememberedItemIndex: Int,
     itemCount: Int,
+    preferredItemIndex: Int? = null,
 ): Int? {
     if (itemCount <= 0) return null
-    return (if (focusFirstItem) 0 else rememberedItemIndex)
+    val targetIndex = when {
+        focusFirstItem -> 0
+        preferredItemIndex != null -> preferredItemIndex
+        else -> rememberedItemIndex
+    }
+    return targetIndex
         .coerceIn(0, itemCount - 1)
 }
 
@@ -2491,7 +2502,6 @@ private fun HomeGenresRow(
     onRowFocusChanged: (Boolean) -> Unit = {},
     itemFocusRequesters: MutableMap<String, MutableMap<Int, FocusRequester>>? = null,
     firstItemFocusRequester: FocusRequester? = null,
-    upFocusRequester: FocusRequester? = null,
     initialFocusRequester: FocusRequester? = null,
     navFocusRequester: FocusRequester? = null,
     onItemFocusChanged: (Int, Boolean) -> Unit = { _, _ -> },
@@ -2538,13 +2548,6 @@ private fun HomeGenresRow(
                     .then(
                         if (itemFocusRequester != null) {
                             Modifier.focusRequester(itemFocusRequester)
-                        } else {
-                            Modifier
-                        },
-                    )
-                    .then(
-                        if (upFocusRequester != null) {
-                            Modifier.focusProperties { up = upFocusRequester }
                         } else {
                             Modifier
                         },

@@ -97,10 +97,37 @@ class TvGenreLayoutTest {
     }
 
     @Test
-    fun upRestoresTheRememberedCardAndRevealsItIfItWasRecycled() {
+    fun verticalShelfHandoffsPreserveTheFocusedColumnAndClampShortRows() {
         assertEquals(4, resolveTvHomeFocusItemIndex(false, rememberedItemIndex = 4, itemCount = 8))
         assertEquals(0, resolveTvHomeFocusItemIndex(true, rememberedItemIndex = 4, itemCount = 8))
         assertEquals(3, resolveTvHomeFocusItemIndex(false, rememberedItemIndex = 7, itemCount = 4))
+        assertEquals(
+            4,
+            resolveTvHomeFocusItemIndex(
+                focusFirstItem = false,
+                rememberedItemIndex = 1,
+                itemCount = 8,
+                preferredItemIndex = 4,
+            ),
+        )
+        assertEquals(
+            2,
+            resolveTvHomeFocusItemIndex(
+                focusFirstItem = false,
+                rememberedItemIndex = 0,
+                itemCount = 3,
+                preferredItemIndex = 4,
+            ),
+        )
+        assertEquals(
+            0,
+            resolveTvHomeFocusItemIndex(
+                focusFirstItem = true,
+                rememberedItemIndex = 3,
+                itemCount = 8,
+                preferredItemIndex = 4,
+            ),
+        )
         assertNull(resolveTvHomeFocusItemIndex(false, rememberedItemIndex = 0, itemCount = 0))
 
         assertTrue(shouldRevealTvHomeFocusItem(itemIndex = 4, visibleItemIndices = listOf(5, 6)))

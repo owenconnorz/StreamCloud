@@ -67,7 +67,7 @@ For vertical movement within the TV Movies home, handle Android D-pad Up/Down on
 
 **Why:** The user reports Up/Down on Movies home skipping or losing the highlighted row, while Settings navigation remains predictable.
 
-**How to apply:** Keep this behavior scoped to Movies home (not its search results); preserve the route's explicit nav-to-hero, hero-to-shelf, and shelf-to-shelf handoffs. Throttle held-key repeats and consume repeated events while a handoff is in progress.
+**How to apply:** Keep this behavior scoped to Movies home (not its search results); preserve the route's explicit nav-to-hero, hero-to-shelf, and shelf-to-shelf handoffs. When moving between shelves, carry the focused card index to the adjacent shelf and clamp it to that shelf's item count instead of always selecting card zero. Throttle held-key repeats and consume repeated events while a handoff is in progress. Avoid per-card Up/Down overrides that send every card to the first item in the adjacent row.
 
 ## Hero-to-first-card handoff
 
