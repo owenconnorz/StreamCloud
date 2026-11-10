@@ -1,7 +1,9 @@
 package com.streamcloud.app.ui.screens
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MoviesScreenTvLandingPolicyTest {
@@ -13,6 +15,45 @@ class MoviesScreenTvLandingPolicyTest {
                 hasContinueWatching = true,
                 hasGenres = true,
                 hasTopTen = true,
+            ),
+        )
+    }
+
+    @Test
+    fun heroActionsHideOnceTheHomeShelfListScrolls() {
+        assertTrue(
+            shouldShowTvHeroActions(
+                queryIsBlank = true,
+                firstVisibleItemIndex = 0,
+                firstVisibleItemScrollOffset = 0,
+            ),
+        )
+        assertTrue(
+            shouldShowTvHeroActions(
+                queryIsBlank = true,
+                firstVisibleItemIndex = 0,
+                firstVisibleItemScrollOffset = 16,
+            ),
+        )
+        assertFalse(
+            shouldShowTvHeroActions(
+                queryIsBlank = true,
+                firstVisibleItemIndex = 1,
+                firstVisibleItemScrollOffset = 0,
+            ),
+        )
+        assertFalse(
+            shouldShowTvHeroActions(
+                queryIsBlank = true,
+                firstVisibleItemIndex = 0,
+                firstVisibleItemScrollOffset = 17,
+            ),
+        )
+        assertFalse(
+            shouldShowTvHeroActions(
+                queryIsBlank = false,
+                firstVisibleItemIndex = 0,
+                firstVisibleItemScrollOffset = 0,
             ),
         )
     }

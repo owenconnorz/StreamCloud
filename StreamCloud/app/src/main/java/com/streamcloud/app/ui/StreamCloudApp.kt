@@ -534,6 +534,7 @@ fun StreamCloudApp(
         }
         val firstRailFocus = remember { FocusRequester() }
         val firstTvNavFocus = remember { FocusRequester() }
+        val tvNavSearchFocus = remember { FocusRequester() }
         val firstMovieCardFocus = remember { FocusRequester() }
         // Shared requester for the active tab's exact Down target from the
         // persistent TV nav (for example, the movie hero or selected settings row).
@@ -563,7 +564,7 @@ fun StreamCloudApp(
             }
         }
         fun focusTvNavigation() {
-            runCatching { firstTvNavFocus.requestFocus() }
+            runCatching { tvNavSearchFocus.requestFocus() }
         }
         Row(
             Modifier
@@ -725,6 +726,7 @@ fun StreamCloudApp(
                         allowTvIdleScreen = !showMiniPlayer,
                         tvNavHeroFocus = tvNavHeroFocus,
                         tvNavSafeFocusRequester = firstTvNavFocus,
+                        tvNavSearchFocusRequester = tvNavSearchFocus,
                         tvNavSafeFocusReceived = tvNavHasFocus,
                         tvNavDownFocusHandoffVersion = tvNavDownFocusHandoffVersion,
                         adultContentEnabled = nsfwEnabled,
@@ -2288,6 +2290,7 @@ fun StreamCloudApp(
                         tabs = tabs,
                         currentRoute = currentRoute,
                         firstTabFocus = firstTvNavFocus,
+                        searchFocusRequester = tvNavSearchFocus,
                         contentFocusRequester = tvNavHeroFocus,
                         contentFocusReceived = !tvNavHasFocus,
                         adultTabEnabled = nsfwEnabled,
@@ -2456,6 +2459,7 @@ private fun TvPrimeSideNav(
     tabs: List<Tab>,
     currentRoute: String?,
     firstTabFocus: FocusRequester,
+    searchFocusRequester: FocusRequester,
     contentFocusRequester: FocusRequester,
     contentFocusReceived: Boolean,
     onNavFocusChanged: (Boolean) -> Unit = {},
@@ -2547,9 +2551,9 @@ private fun TvPrimeSideNav(
         pendingContentHandoff = false
     }
 
-    val searchFocusRequester = remember { FocusRequester() }
     Box(
         modifier = modifier
+            .background(Color.Black.copy(alpha = 0.58f))
             .tvFocusGroup()
             .onFocusChanged {
                 val gainedFocus = it.hasFocus && !railHasFocus
@@ -2632,6 +2636,7 @@ private fun TvPrimeSideNav(
             RailAction(
                 icon = MaterialIcons.Filled.Search,
                 label = "Search",
+                selected = false,
                 focused = searchFocused,
                 focusRequester = searchFocusRequester,
                 onFocusChanged = { searchFocused = it },
@@ -2643,7 +2648,8 @@ private fun TvPrimeSideNav(
                 RailAction(
                     icon = if (selected) tab.icon else tab.outlinedIcon,
                     label = tab.label,
-                    focused = selected || focusedDestinationKey == tab.route,
+                    selected = selected,
+                    focused = focusedDestinationKey == tab.route,
                     focusRequester = firstTabFocus.takeIf { selected },
                     onFocusChanged = { focused ->
                         if (focused) {
@@ -2664,6 +2670,7 @@ private fun TvPrimeSideNav(
 private fun RailAction(
     icon: ImageVector,
     label: String,
+    selected: Boolean,
     focused: Boolean,
     focusRequester: FocusRequester? = null,
     onFocusChanged: (Boolean) -> Unit,
@@ -2671,8 +2678,12 @@ private fun RailAction(
 ) {
     val shape = RoundedCornerShape(12.dp)
     val backgroundColor by animateColorAsState(
-        targetValue = if (focused) Color.White else Color.Transparent,
-        animationSpec = tween(180),
+        targetValue = when {
+            focused -> Color.White
+            selected -> Color.White.copy(alpha = 0.16f)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(120),
         label = "tvRailSelection",
     )
     Box(
@@ -2682,14 +2693,13 @@ private fun RailAction(
             .clip(shape)
             .background(backgroundColor)
             .onFocusChanged { onFocusChanged(it.isFocused) }
-            .tvFocusBorder(shape, showOutline = false)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = label,
-            tint = if (focused) Color(0xFF111216) else Color.White.copy(alpha = 0.86f),
+            tint = if (focused) Color(0xFF111216) else Color.White.copy(alpha = 0.88f),
             modifier = Modifier.size(19.dp),
         )
     }
