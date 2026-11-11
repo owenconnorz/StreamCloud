@@ -671,17 +671,20 @@ fun MoviesScreen(
         query.isBlank() &&
         state.showHeroSection &&
         state.heroBanner.isNotEmpty()
+    val tvHomeContinueRowHeight = run {
+        val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+        val continueCardWidth = (screenWidth * 0.21f).coerceIn(176.dp, 272.dp)
+        30.dp + continueCardWidth * 0.54f + 8.dp
+    }
     val tvHomeRowsViewportHeight = run {
         val screenWidth = LocalConfiguration.current.screenWidthDp.dp
         val screenHeight = LocalConfiguration.current.screenHeightDp.dp
-        val continueCardWidth = (screenWidth * 0.21f).coerceIn(176.dp, 272.dp)
         val genreCardWidth = calculateTvGenreCardWidth(screenWidth, homeGenres.size)
-        val continueRowHeight = 30.dp + continueCardWidth * 0.54f + 8.dp
         val genreRowHeight = 30.dp + genreCardWidth * 9f / 16f + 8.dp
         val followingShelfHeight = 120.dp
         val traditionalViewport = (
             if (visibleContinueWatching.isNotEmpty()) {
-                continueRowHeight + genreRowHeight
+                tvHomeContinueRowHeight + genreRowHeight
             } else {
                 genreRowHeight + followingShelfHeight
             }
@@ -691,6 +694,13 @@ fun MoviesScreen(
         } else {
             traditionalViewport
         }
+    }
+    val tvHeroBackdropRowsViewportHeight = if (
+        visibleContinueWatching.isNotEmpty() && tvTopTenItems.isEmpty()
+    ) {
+        (tvHomeRowsViewportHeight - tvHomeContinueRowHeight).coerceAtLeast(0.dp)
+    } else {
+        tvHomeRowsViewportHeight
     }
     val hasBrowseContent = state.continueWatching.isNotEmpty() ||
         tvTopTenItems.isNotEmpty() ||
@@ -1260,7 +1270,7 @@ fun MoviesScreen(
             TvHeroBackdrop(
                 items = state.heroBanner,
                 focusedItem = focusedHomeHero,
-                rowsViewportHeight = tvHomeRowsViewportHeight,
+                rowsViewportHeight = tvHeroBackdropRowsViewportHeight,
                 initialFocusRequester = if (startupFocusTarget == "hero") {
                     initialFocusRequester
                 } else {
