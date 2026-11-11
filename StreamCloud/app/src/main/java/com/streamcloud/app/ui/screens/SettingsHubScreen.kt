@@ -833,9 +833,10 @@ fun SettingsHubScreen(
                             moviesTheme = paletteId
                             scope.launch { sl.settings.setMoviesTheme(paletteId) }
                         },
+                        showMonochrome = false,
                     )
                     Text(
-                        "The app-wide Color Palette also updates this accent. This controls movie-screen accents and the TV focus pill.",
+                        "Controls movie-screen accents and the TV focus pill.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -1076,7 +1077,7 @@ fun SettingsHubScreen(
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            "Applies across Movies, Library and Settings.",
+                            "Applies to Movies, Library and Settings. Music and Adult stay unchanged.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 4.dp),
@@ -1087,14 +1088,12 @@ fun SettingsHubScreen(
                             onSelect = { id ->
                                 val paletteId = normalizeAppColorPaletteId(id)
                                 colorPalette = paletteId
-                                moviesTheme = paletteId
-                                if (dynamicColor) {
+                                if (paletteId != "monochrome" && dynamicColor) {
                                     dynamicColor = false
                                     scope.launch { sl.settings.setDynamicColor(false) }
                                 }
                                 scope.launch {
                                     sl.settings.setColorPalette(paletteId)
-                                    sl.settings.setMoviesTheme(paletteId)
                                 }
                             },
                         )

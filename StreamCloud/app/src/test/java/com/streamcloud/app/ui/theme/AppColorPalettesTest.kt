@@ -30,6 +30,10 @@ class AppColorPalettesTest {
                 Color(0xFFE9EDF2), Color(0xFFD6E4F5), Color(0xFF93C5FD),
                 Color(0xFF3B82F6), Color(0xFF1E293B), Color(0xFF64748B),
             ),
+            "monochrome" to listOf(
+                Color(0xFF08090B), Color(0xFF101113), Color(0xFF292B2F),
+                Color(0xFF77797D), Color(0xFFCACBCD), Color(0xFFF2F2F2),
+            ),
         )
 
         assertEquals(expected.keys, AllAppColorPalettes.map { it.id }.toSet())
@@ -46,8 +50,8 @@ class AppColorPalettesTest {
             assertEquals(palette.surface, scheme.surface)
             assertEquals(palette.surfaceVariant, scheme.surfaceVariant)
             assertEquals(palette.primary, scheme.primary)
-            assertEquals(palette.primary, scheme.secondary)
-            assertEquals(palette.surfaceVariant, scheme.primaryContainer)
+            assertEquals(palette.secondary, scheme.secondary)
+            assertEquals(palette.primaryContainer, scheme.primaryContainer)
             assertEquals(palette.onSurface, scheme.onSurface)
             assertEquals(palette.onSurfaceVariant, scheme.onSurfaceVariant)
         }
@@ -72,6 +76,7 @@ class AppColorPalettesTest {
         assertEquals("purple_aurora", normalizeAppColorPaletteId("violet"))
         assertEquals("sunset_orange", normalizeAppColorPaletteId("sunset"))
         assertEquals("forest_green", normalizeAppColorPaletteId("emerald"))
+        assertEquals("monochrome", normalizeAppColorPaletteId("black-and-white"))
     }
 
     @Test
@@ -82,5 +87,15 @@ class AppColorPalettesTest {
         assertEquals(Color(0xFFE9EDF2), scheme.background)
         assertEquals(Color(0xFFD6E4F5), scheme.surface)
         assertEquals(Color(0xFF3B82F6), scheme.primary)
+    }
+
+    @Test
+    fun monochromeKeepsNeutralContrastInLightMode() {
+        val scheme = appColorScheme("monochrome", light = true)
+
+        assertEquals(Color(0xFFF6F6F6), scheme.background)
+        assertEquals(Color(0xFFE4E4E4), scheme.surfaceVariant)
+        assertEquals(Color(0xFF151515), scheme.primary)
+        assertEquals(Color.White, scheme.onPrimary)
     }
 }

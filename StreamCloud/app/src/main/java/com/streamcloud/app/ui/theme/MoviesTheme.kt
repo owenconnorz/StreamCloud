@@ -95,8 +95,14 @@ fun LegacyMoviesThemeWrapper(themeName: String, content: @Composable () -> Unit)
 fun MoviesThemePicker(
     selected: String,
     onSelect: (String) -> Unit,
+    showMonochrome: Boolean = true,
 ) {
     val selectedId = normalizeAppColorPaletteId(selected)
+    val visiblePalettes = if (showMonochrome) {
+        AllAppColorPalettes
+    } else {
+        AllAppColorPalettes.filter { it.id != "monochrome" }
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -104,7 +110,7 @@ fun MoviesThemePicker(
             .tvFocusGroup(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        AllAppColorPalettes.forEach { palette ->
+        visiblePalettes.forEach { palette ->
             val isSelected = selectedId == palette.id
             val shape = RoundedCornerShape(14.dp)
             Column(

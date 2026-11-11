@@ -386,8 +386,18 @@ fun StreamCloudApp(
     val showNavLabels by sl.settings.navLabels.collectAsState(initial = true)
     val moviesThemeNameForPill by sl.settings.moviesTheme.collectAsState(initial = "modern_blue")
     val appearancePalette by sl.settings.colorPalette.collectAsState(initial = "modern_blue")
-    val navAccentColor = remember(appearancePalette) {
-        palettes[normalizeAppColorPaletteId(appearancePalette)]!!.primary
+    val navAccentColor = remember(
+        appearancePalette,
+        moviesThemeNameForPill,
+        useSelectedAppPalette,
+    ) {
+        val selectedPaletteId = normalizeAppColorPaletteId(appearancePalette)
+        val navPaletteId = if (selectedPaletteId == "monochrome" && !useSelectedAppPalette) {
+            normalizeAppColorPaletteId(moviesThemeNameForPill)
+        } else {
+            selectedPaletteId
+        }
+        palettes[navPaletteId]!!.primary
     }
     val navPillColor = if (isSpotifyScreen) {
         com.streamcloud.app.ui.screens.SpotifyBlack

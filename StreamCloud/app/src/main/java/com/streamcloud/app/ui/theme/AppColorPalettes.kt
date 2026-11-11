@@ -139,6 +139,29 @@ internal val AllAppColorPalettes = listOf(
             Color(0xFF64748B),
         ),
     ),
+    AppColorPalette(
+        id = "monochrome",
+        label = "Black & White",
+        background = Color(0xFF08090B),
+        surface = Color(0xFF101113),
+        surfaceVariant = Color(0xFF292B2F),
+        primary = Color(0xFFF2F2F2),
+        primaryContainer = Color(0xFFE4E4E4),
+        secondary = Color(0xFFC5C6C8),
+        onBackground = Color(0xFFF1F1F1),
+        onSurface = Color(0xFFE8E8E9),
+        onSurfaceVariant = Color(0xFFB8B9BC),
+        onPrimary = Color(0xFF111214),
+        onPrimaryContainer = Color(0xFF111214),
+        swatches = listOf(
+            Color(0xFF08090B),
+            Color(0xFF101113),
+            Color(0xFF292B2F),
+            Color(0xFF77797D),
+            Color(0xFFCACBCD),
+            Color(0xFFF2F2F2),
+        ),
+    ),
 )
 
 internal val palettes: Map<String, AppColorPalette> =
@@ -150,6 +173,7 @@ internal fun normalizeAppColorPaletteId(id: String): String = when (id.lowercase
     "sunset_orange", "sunset-orange", "sunset", "warm", "coral", "amber", "blossom", "crimson" -> "sunset_orange"
     "forest_green", "forest-green", "emerald", "lagoon", "white" -> "forest_green"
     "light_clean", "light-clean", "light" -> "light_clean"
+    "monochrome", "black_white", "black-and-white", "grayscale", "greyscale" -> "monochrome"
     else -> "modern_blue"
 }
 
@@ -197,8 +221,13 @@ internal fun legacyAppColorScheme(paletteId: String, light: Boolean): ColorSchem
 }
 
 private fun buildAppColorScheme(palette: AppColorPalette, light: Boolean): ColorScheme {
+    val isMonochrome = palette.id == "monochrome"
     val background = if (light) {
-        if (palette.id == "light_clean") palette.background else Color(0xFFF4F6FA)
+        when {
+            palette.id == "light_clean" -> palette.background
+            isMonochrome -> Color(0xFFF6F6F6)
+            else -> Color(0xFFF4F6FA)
+        }
     } else {
         palette.background
     }
@@ -208,18 +237,36 @@ private fun buildAppColorScheme(palette: AppColorPalette, light: Boolean): Color
         palette.surface
     }
     val surfaceVariant = if (light) {
-        if (palette.id == "light_clean") palette.surfaceVariant else Color(0xFFE5EBF3)
+        when {
+            palette.id == "light_clean" -> palette.surfaceVariant
+            isMonochrome -> Color(0xFFE4E4E4)
+            else -> Color(0xFFE5EBF3)
+        }
     } else {
         palette.surfaceVariant
     }
-    val onBackground = if (light) Color(0xFF1E293B) else palette.onBackground
-    val onSurface = if (light) Color(0xFF1E293B) else palette.onSurface
-    val onSurfaceVariant = if (light && palette.id != "light_clean") {
+    val primary = if (light && isMonochrome) Color(0xFF151515) else palette.primary
+    val onPrimary = if (light && isMonochrome) Color.White else palette.onPrimary
+    val onBackground = if (light) {
+        if (isMonochrome) Color(0xFF171717) else Color(0xFF1E293B)
+    } else {
+        palette.onBackground
+    }
+    val onSurface = if (light) {
+        if (isMonochrome) Color(0xFF171717) else Color(0xFF1E293B)
+    } else {
+        palette.onSurface
+    }
+    val onSurfaceVariant = if (light && isMonochrome) {
+        Color(0xFF595A5D)
+    } else if (light && palette.id != "light_clean") {
         Color(0xFF475569)
     } else {
         palette.onSurfaceVariant
     }
-    val onPrimary = palette.onPrimary
+    val onPrimaryContainer = if (light && isMonochrome) Color(0xFF171717)
+    else if (light) Color(0xFF1E293B)
+    else palette.onPrimaryContainer
     val onSecondary = if (palette.secondary.luminance() > 0.45f) {
         Color(0xFF1E293B)
     } else {
@@ -236,11 +283,11 @@ private fun buildAppColorScheme(palette: AppColorPalette, light: Boolean): Color
         onPrimary = onPrimary,
         primaryContainer = if (light && palette.id != "light_clean") surfaceVariant
         else palette.primaryContainer,
-        onPrimaryContainer = if (light) Color(0xFF1E293B) else palette.onPrimaryContainer,
+        onPrimaryContainer = onPrimaryContainer,
     )
     return if (light) {
         lightColorScheme(
-            primary = palette.primary,
+            primary = primary,
             onPrimary = arguments.onPrimary,
             primaryContainer = arguments.primaryContainer,
             onPrimaryContainer = arguments.onPrimaryContainer,
@@ -264,7 +311,7 @@ private fun buildAppColorScheme(palette: AppColorPalette, light: Boolean): Color
         )
     } else {
         darkColorScheme(
-            primary = palette.primary,
+            primary = primary,
             onPrimary = arguments.onPrimary,
             primaryContainer = arguments.primaryContainer,
             onPrimaryContainer = arguments.onPrimaryContainer,

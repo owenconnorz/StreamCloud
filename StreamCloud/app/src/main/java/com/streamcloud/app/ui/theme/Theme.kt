@@ -150,6 +150,13 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
     val colorPaletteId  by sl.settings.colorPalette.collectAsState(initial = "modern_blue")
     val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "modern_blue")
     val appPaletteId = normalizeAppColorPaletteId(colorPaletteId)
+    // Black & White is a scoped app palette. Routes that do not opt into the
+    // palette keep their existing base theme and artwork-derived colors.
+    val inheritedPaletteId = if (appPaletteId == "monochrome") {
+        normalizeAppColorPaletteId(moviesThemeName)
+    } else {
+        appPaletteId
+    }
     val isSystemDark = isSystemInDarkTheme()
 
     // Always auto-detect — no manual override allowed.
@@ -222,10 +229,10 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
             else         dynamicLightColorScheme(context)
         }
 
-        !useDark -> legacyAppColorScheme(appPaletteId, light = true)
+        !useDark -> legacyAppColorScheme(inheritedPaletteId, light = true)
         else -> {
-            val paletteLight = appPaletteId == "light_clean" && themeMode != "black"
-            val scheme = legacyAppColorScheme(appPaletteId, light = paletteLight)
+            val paletteLight = inheritedPaletteId == "light_clean" && themeMode != "black"
+            val scheme = legacyAppColorScheme(inheritedPaletteId, light = paletteLight)
             if (themeMode == "black") scheme.copy(
                 background           = Color.Black,
                 surface              = Color(0xFF0D0D0D),
