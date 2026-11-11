@@ -1540,7 +1540,7 @@ fun StreamCloudApp(
                                       .orEmpty()
                                   val t = URLEncoder.encode(itemName, "UTF-8")
                                   when (provider.lowercase()) {
-                                       "porn4days", "pornhd3x" -> {
+                                       "porn4days", "pornhd3x", "pornslash" -> {
                                            val u = URLEncoder.encode(itemUrl, "UTF-8")
                                            nav.navigate("player/adult-web/${provider.lowercase()}/$u/$t")
                                        }
@@ -1681,7 +1681,8 @@ fun StreamCloudApp(
                             val t = URLEncoder.encode(title, "UTF-8")
                             if (
                                 videoId.startsWith("porn4days://") ||
-                                videoId.startsWith("pornhd3x://")
+                                videoId.startsWith("pornhd3x://") ||
+                                videoId.startsWith("pornslash://")
                             ) {
                                 val source = videoId.substringBefore("://")
                                 val u = URLEncoder.encode(embed, "UTF-8")
@@ -1751,7 +1752,8 @@ fun StreamCloudApp(
                             val t = URLEncoder.encode(title, "UTF-8")
                             if (
                                 videoId.startsWith("porn4days://") ||
-                                videoId.startsWith("pornhd3x://")
+                                videoId.startsWith("pornhd3x://") ||
+                                videoId.startsWith("pornslash://")
                             ) {
                                 val source = videoId.substringBefore("://")
                                 val u = URLEncoder.encode(embed, "UTF-8")

@@ -274,7 +274,7 @@ class AdultViewModel(
                         fetchXnxxPage(query = "", page = 1, replace = true)
                     }
                 }
-                AdultSource.Porn4Days, AdultSource.PornHd3x -> {
+                AdultSource.Porn4Days, AdultSource.PornHd3x, AdultSource.PornSlash -> {
                     currentQuery = ""
                     if (ageGateConfirmed) {
                         fetchAdultWebsitePage(query = "", page = 1, replace = true)
@@ -367,7 +367,7 @@ class AdultViewModel(
                     fetchXnxxPage(query = "", page = 1, replace = true)
                 }
             }
-            AdultSource.Porn4Days, AdultSource.PornHd3x -> {
+            AdultSource.Porn4Days, AdultSource.PornHd3x, AdultSource.PornSlash -> {
                 currentQuery = ""
                 viewModelScope.launch {
                     fetchAdultWebsitePage(query = "", page = 1, replace = true)
@@ -637,7 +637,7 @@ class AdultViewModel(
                     fetchXnxxPage(query = currentQuery, page = 1, replace = true)
                 }
             }
-            AdultSource.Porn4Days, AdultSource.PornHd3x -> {
+            AdultSource.Porn4Days, AdultSource.PornHd3x, AdultSource.PornSlash -> {
                 searchJob?.cancel()
                 loadMoreJob?.cancel()
                 loadMoreJob = null

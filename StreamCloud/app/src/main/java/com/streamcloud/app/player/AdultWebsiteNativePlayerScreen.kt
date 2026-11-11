@@ -51,6 +51,7 @@ fun AdultWebsitePlayerScreen(
         when (sourceKey.lowercase()) {
             "porn4days" -> AdultSource.Porn4Days
             "pornhd3x" -> AdultSource.PornHd3x
+            "pornslash" -> AdultSource.PornSlash
             else -> null
         }
     }
@@ -92,6 +93,7 @@ fun AdultWebsitePlayerScreen(
             headers = resolvedPlayback.headers,
             onBack = onBack,
             forceDirectPlay = true,
+            forceHls = resolvedPlayback.isHls,
             onRefresh = { attempt++ },
         )
         return
@@ -131,9 +133,11 @@ fun AdultWebsitePlayerScreen(
                         Icon(Icons.Default.Refresh, contentDescription = null)
                         Text("Retry", modifier = Modifier.padding(start = 8.dp))
                     }
-                    Button(onClick = onOpenOfficialPage) {
-                        Icon(Icons.Default.OpenInNew, contentDescription = null)
-                        Text("Use provider player", modifier = Modifier.padding(start = 8.dp))
+                    if (source != AdultSource.PornSlash) {
+                        Button(onClick = onOpenOfficialPage) {
+                            Icon(Icons.Default.OpenInNew, contentDescription = null)
+                            Text("Use provider player", modifier = Modifier.padding(start = 8.dp))
+                        }
                     }
                 }
             }

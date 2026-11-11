@@ -95,6 +95,7 @@ private val cinematicAdultSources = setOf(
     AdultSource.XHamster,
     AdultSource.Beeg,
     AdultSource.PornMz,
+    AdultSource.PornSlash,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -153,7 +154,7 @@ fun AdultScreen(
                 AdultSource.XHamster, AdultSource.Reddit, AdultSource.RedGifs,
                 AdultSource.XFree, AdultSource.PornMz, AdultSource.Beeg,
                 AdultSource.Xnxx, AdultSource.Porn4Days,
-                AdultSource.PornHd3x -> false
+                AdultSource.PornHd3x, AdultSource.PornSlash -> false
             }
 
     LaunchedEffect(showAdultHomeNavigation) {
@@ -242,6 +243,7 @@ fun AdultScreen(
                     state.source == AdultSource.Xnxx ||
                     state.source == AdultSource.Porn4Days ||
                     state.source == AdultSource.PornHd3x ||
+                    state.source == AdultSource.PornSlash ||
                     (state.source == AdultSource.Pornhub && !state.pornhubHome))
             ) {
                 vm.loadMore()
@@ -373,6 +375,7 @@ fun AdultScreen(
                     AdultSource.Xnxx,
                     AdultSource.Porn4Days,
                     AdultSource.PornHd3x,
+                    AdultSource.PornSlash,
                 )
             ) {
                 IconButton(
@@ -446,6 +449,7 @@ fun AdultScreen(
                     AdultSource.Xnxx,
                     AdultSource.Porn4Days,
                     AdultSource.PornHd3x,
+                    AdultSource.PornSlash,
                 )
             ) {
                 Spacer(Modifier.width(8.dp))
@@ -855,6 +859,8 @@ fun AdultScreen(
                 onPlay("porn4days://${item.id}", item.embedUrl.orEmpty(), item.title)
             } else if (item.source == AdultSource.PornHd3x) {
                 onPlay("pornhd3x://${item.id}", item.embedUrl.orEmpty(), item.title)
+            } else if (item.source == AdultSource.PornSlash) {
+                onPlay("pornslash://${item.id}", item.embedUrl.orEmpty(), item.title)
             } else {
                 onPlay(item.epornerId ?: item.id, item.embedUrl.orEmpty(), item.title)
             }
@@ -870,6 +876,7 @@ fun AdultScreen(
                 AdultSource.Xnxx,
                 AdultSource.Porn4Days,
                 AdultSource.PornHd3x,
+                AdultSource.PornSlash,
             )
         ) {
             AdultVideoDetailPage(
@@ -883,7 +890,8 @@ fun AdultScreen(
                     item.source == AdultSource.Beeg ||
                     item.source == AdultSource.Xnxx ||
                     item.source == AdultSource.Porn4Days ||
-                    item.source == AdultSource.PornHd3x
+                    item.source == AdultSource.PornHd3x ||
+                    item.source == AdultSource.PornSlash
                 ) {
                     null
                 } else {
@@ -922,6 +930,7 @@ private fun AdultProviderPicker(
         AdultSource.Beeg,
         AdultSource.Porn4Days,
         AdultSource.PornHd3x,
+        AdultSource.PornSlash,
         AdultSource.Xnxx,
         AdultSource.PornMz,
         AdultSource.Pornhub,
@@ -1055,6 +1064,12 @@ private fun ProviderBadge(provider: AdultSource) {
             fallbackForeground = Color(0xFFFF7043),
             fallbackLabel = "HD",
         )
+        AdultSource.PornSlash -> ProviderBrand(
+            logoUrl = "https://www.pornslash.com/assets/favicon-32x32.png",
+            background = Color(0xFF202020),
+            fallbackForeground = Color(0xFFFF7043),
+            fallbackLabel = "PS",
+        )
         AdultSource.Beeg -> ProviderBrand(
             logoUrl = "https://beeg.com/assets/favicon.svg",
             background = Color(0xFF111111),
@@ -1186,6 +1201,7 @@ fun AdultSearchScreen(
                     AdultSource.Xnxx,
                     AdultSource.Porn4Days,
                     AdultSource.PornHd3x,
+                    AdultSource.PornSlash,
                 )
             ) {
                 vm.loadMore()
@@ -1320,6 +1336,7 @@ fun AdultSearchScreen(
                         AdultSource.Xnxx -> "xnxx://${item.id}"
                         AdultSource.Porn4Days -> "porn4days://${item.id}"
                         AdultSource.PornHd3x -> "pornhd3x://${item.id}"
+                        AdultSource.PornSlash -> "pornslash://${item.id}"
                         else -> item.epornerId ?: item.id
                     }
                     onPlay(videoId, item.embedUrl.orEmpty(), item.title)

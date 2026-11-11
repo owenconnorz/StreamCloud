@@ -8,7 +8,7 @@ import org.junit.Test
 
 class AdultWebsiteRepositoryTest {
     @Test
-    fun buildsPagedAndSearchUrlsForBothSites() {
+    fun buildsPagedAndSearchUrlsForSupportedSites() {
         assertEquals(
             "https://porn4days.pw/newest/page2",
             AdultWebsiteRepository.buildPageUrl(AdultSource.Porn4Days, query = "", page = 2),
@@ -24,6 +24,14 @@ class AdultWebsiteRepositoryTest {
         assertEquals(
             "https://www.pornhd3x.tv/search/red-fox/page-2",
             AdultWebsiteRepository.buildPageUrl(AdultSource.PornHd3x, query = "red fox", page = 2),
+        )
+        assertEquals(
+            "https://www.pornslash.com/?p=2",
+            AdultWebsiteRepository.buildPageUrl(AdultSource.PornSlash, query = "", page = 2),
+        )
+        assertEquals(
+            "https://www.pornslash.com/search/red+fox?p=2",
+            AdultWebsiteRepository.buildPageUrl(AdultSource.PornSlash, query = "red fox", page = 2),
         )
     }
 
@@ -97,6 +105,68 @@ class AdultWebsiteRepositoryTest {
         assertTrue(page.hasMore)
     }
 
+    @Test
+    fun parsesPornSlashCatalogWithoutTreatingHoverPreviewsAsStreams() {
+        val page = AdultWebsiteRepository.parseListingHtml(
+            source = AdultSource.PornSlash,
+            pageUrl = "https://www.pornslash.com/",
+            page = 1,
+            html = """
+                <div class="video-item">
+                  <a href="/watch/Abc123456">
+                    <div class="thumbnail"
+                         data-p="https://wolfcipher56-1343.pages.dev/13426/p/PreviewOnly.mp4">
+                      <img src="https://wolfcipher56-1343.pages.dev/13426/t/PreviewOnly.jpeg"
+                           alt="Sample PornSlash video">
+                      <div class="duration">38:30</div>
+                    </div>
+                  </a>
+                  <div class="video-info" data-id="Abc123456"
+                       data-title="Sample PornSlash video" data-quality="1080"></div>
+                </div>
+                <div class="pager">
+                  <a href="/?p=1"><span>1</span></a>
+                  <a href="/?p=2"><span>2</span></a>
+                </div>
+            """.trimIndent(),
+        )
+
+        val item = page.items.single()
+        assertEquals(AdultSource.PornSlash, item.source)
+        assertEquals("Abc123456", item.id)
+        assertEquals("Sample PornSlash video", item.title)
+        assertEquals("38:30", item.durationLabel)
+        assertNull(item.streamUrl)
+        assertEquals("https://www.pornslash.com/watch/Abc123456", item.embedUrl)
+        assertTrue(page.hasMore)
+    }
+
+    @Test
+    fun parsesOnlyThePornSlashOfficialPlayerHlsSource() {
+        val stream = AdultWebsiteRepository.parsePornSlashStreamUrl(
+            """
+                <script>
+                  fetch("https://other.example/master/not-player");
+                  n.loadSource("https://deeper-bond-lexington-coalition.trycloudflare.com/master/HxkQQekoxeuQzwketotM");
+                </script>
+            """.trimIndent(),
+        )
+
+        assertEquals(
+            "https://deeper-bond-lexington-coalition.trycloudflare.com/master/HxkQQekoxeuQzwketotM",
+            stream,
+        )
+        assertNull(
+            AdultWebsiteRepository.parsePornSlashStreamUrl(
+                """<div data-preview="https://wolfcipher56-1343.pages.dev/13426/p/Preview.mp4"></div>""",
+            ),
+        )
+        assertNull(
+            AdultWebsiteRepository.normalizePornSlashStreamUrl(
+                "http://deeper-bond-lexington-coalition.trycloudflare.com/master/HxkQQ",
+            ),
+        )
+    }
     @Test
     fun providerPageNavigationRejectsUntrustedHostsAndInsecureSchemes() {
         assertTrue(

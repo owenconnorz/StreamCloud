@@ -25,15 +25,18 @@ data class AdultWebsitePage(
 data class AdultWebsitePlayback(
     val url: String,
     val headers: Map<String, String>,
+    val isHls: Boolean = false,
 )
 
 /**
  * Reads public catalog pages and provider-published native streams from
- * Porn4Days and PornHD3x. It does not derive stream URLs or bypass verification.
+ * Porn4Days, PornHD3x, and PornSlash. It does not derive stream URLs or bypass
+ * verification.
  */
 object AdultWebsiteRepository {
     private const val PORN4DAYS_BASE_URL = "https://porn4days.pw/"
     private const val PORNHD3X_BASE_URL = "https://www.pornhd3x.tv/"
+    private const val PORNSLASH_BASE_URL = "https://www.pornslash.com/"
     private const val PORN4DAYS_PAGE_SIZE = 24
     private const val PORNHD3X_PAGE_SIZE = 40
 
@@ -57,7 +60,9 @@ object AdultWebsiteRepository {
     }
 
     fun supports(source: AdultSource): Boolean =
-        source == AdultSource.Porn4Days || source == AdultSource.PornHd3x
+        source == AdultSource.Porn4Days ||
+            source == AdultSource.PornHd3x ||
+            source == AdultSource.PornSlash
 
     internal fun buildPageUrl(source: AdultSource, query: String, page: Int): String {
         require(page > 0) { "Page must be positive." }
@@ -86,6 +91,14 @@ object AdultWebsiteRepository {
                 }
             }
 
+            AdultSource.PornSlash -> {
+                if (cleanQuery.isNotBlank()) {
+                    builder.addPathSegment("search")
+                    builder.addPathSegment(cleanQuery.replace(Regex("\\s+"), "+"))
+                }
+                if (page > 1) builder.addQueryParameter("p", page.toString())
+            }
+
             else -> error("Unsupported adult website source: $source")
         }
         return builder.build().toString()
@@ -108,12 +121,15 @@ object AdultWebsiteRepository {
         val streamUrl = when (source) {
             AdultSource.Porn4Days -> parsePorn4DaysStreamUrl(html)
             AdultSource.PornHd3x -> parsePornHd3xStreamUrl(html)
+            AdultSource.PornSlash -> parsePornSlashStreamUrl(html)
             else -> null
         } ?: throw IOException(
             when (source) {
                 AdultSource.PornHd3x ->
                     "PornHD3x did not publish a supported direct stream on its video page. " +
                         "Use its official page player instead."
+                AdultSource.PornSlash ->
+                    "PornSlash did not publish a supported native stream on its video page."
                 else ->
                     "${source.label} did not publish a supported native stream. " +
                         "Open the official page to check whether verification is required."
@@ -123,6 +139,7 @@ object AdultWebsiteRepository {
         AdultWebsitePlayback(
             url = streamUrl,
             headers = buildPlaybackHeaders(source, safePageUrl, userAgent),
+            isHls = source == AdultSource.PornSlash,
         )
     }
 
@@ -156,6 +173,32 @@ object AdultWebsiteRepository {
                     .replace("\\u0026", "&", ignoreCase = true)
                     .replace("&amp;", "&", ignoreCase = true),
             )
+        }
+    }
+
+    internal fun parsePornSlashStreamUrl(html: String): String? =
+        Regex(
+            """(?is)\.loadSource\(\s*["'](https://[a-z0-9-]+\.trycloudflare\.com/master/[A-Za-z0-9_-]+)["']\s*\)""",
+            RegexOption.IGNORE_CASE,
+        ).findAll(html)
+            .map { it.groupValues[1] }
+            .firstNotNullOfOrNull(::normalizePornSlashStreamUrl)
+
+    internal fun normalizePornSlashStreamUrl(rawUrl: String): String? {
+        val cleaned = rawUrl.trim()
+        val uri = runCatching { URI(cleaned) }.getOrNull() ?: return null
+        val host = uri.host?.lowercase() ?: return null
+        val allowedHost = Regex("""[a-z0-9-]+\.trycloudflare\.com""").matches(host)
+        val allowedPath = Regex("""/master/[A-Za-z0-9_-]+""")
+            .matches(uri.path.orEmpty())
+        return cleaned.takeIf {
+            uri.scheme.equals("https", ignoreCase = true) &&
+                uri.userInfo == null &&
+                (uri.port == -1 || uri.port == 443) &&
+                uri.query == null &&
+                uri.fragment == null &&
+                allowedHost &&
+                allowedPath
         }
     }
 
@@ -328,6 +371,7 @@ object AdultWebsiteRepository {
         val items = when (source) {
             AdultSource.Porn4Days -> parsePorn4DaysItems(document)
             AdultSource.PornHd3x -> parsePornHd3xItems(document)
+            AdultSource.PornSlash -> parsePornSlashItems(document)
             else -> emptyList()
         }.distinctBy(AdultItem::id)
         val nextPage = when (source) {
@@ -339,16 +383,25 @@ object AdultWebsiteRepository {
                 .mapNotNull { pageNumberFromPornHd3xUrl(it.absUrl("href")) }
                 .any { it > page }
 
+            AdultSource.PornSlash -> document.select(".pager a[href]")
+                .mapNotNull { pageNumberFromPornSlashUrl(it.absUrl("href")) }
+                .any { it > page }
+
             else -> false
         }
         val pageSize = when (source) {
             AdultSource.Porn4Days -> PORN4DAYS_PAGE_SIZE
             AdultSource.PornHd3x -> PORNHD3X_PAGE_SIZE
+            AdultSource.PornSlash -> 0
             else -> 0
         }
         return AdultWebsitePage(
             items = items,
-            hasMore = items.isNotEmpty() && (nextPage || items.size >= pageSize),
+            hasMore = if (source == AdultSource.PornSlash) {
+                items.isNotEmpty() && nextPage
+            } else {
+                items.isNotEmpty() && (nextPage || items.size >= pageSize)
+            },
         )
     }
 
@@ -410,6 +463,40 @@ object AdultWebsiteRepository {
                 .ifBlank { image?.attr("alt").orEmpty().trim() }
                 .ifBlank { titleFromUrl(pageUrl) }
             item(AdultSource.PornHd3x, pageUrl, title, image)
+        }
+
+    private fun parsePornSlashItems(document: Document): List<AdultItem> =
+        document.select(".video-item").mapNotNull { card ->
+            val info = card.selectFirst(".video-info") ?: return@mapNotNull null
+            val pageUrl = normalizePageUrl(
+                AdultSource.PornSlash,
+                card.selectFirst("a[href*=\"/watch/\"]")?.absUrl("href").orEmpty(),
+            ) ?: return@mapNotNull null
+            val id = info.attr("data-id").trim()
+                .ifBlank {
+                    runCatching { URI(pageUrl).path.orEmpty().substringAfterLast('/') }
+                        .getOrDefault("")
+                }
+                .takeIf { it.matches(Regex("[A-Za-z0-9_-]{4,80}")) }
+                ?: return@mapNotNull null
+            val thumbnailElement = card.selectFirst(".thumbnail")
+            val image = thumbnailElement?.selectFirst("img")
+            val title = info.attr("data-title").trim()
+                .ifBlank { image?.attr("alt").orEmpty().trim() }
+                .ifBlank { card.selectFirst(".video-title")?.text()?.trim().orEmpty() }
+            if (title.isBlank()) return@mapNotNull null
+
+            AdultItem(
+                id = id,
+                title = title,
+                thumbnail = image?.let { img -> secureImageUrl(img.absUrl("src")) },
+                previewImage = image?.let { img -> secureImageUrl(img.absUrl("src")) },
+                durationLabel = thumbnailElement?.selectFirst(".duration")?.text()?.trim(),
+                streamUrl = null,
+                source = AdultSource.PornSlash,
+                embedUrl = pageUrl,
+                rating = info.attr("data-quality").takeIf(String::isNotBlank),
+            )
         }
 
     private fun item(
@@ -476,6 +563,16 @@ object AdultWebsiteRepository {
         return Regex("/page-(\\d+)/?$").find(path)?.groupValues?.getOrNull(1)?.toIntOrNull()
     }
 
+    private fun pageNumberFromPornSlashUrl(rawUrl: String): Int? {
+        val uri = runCatching { URI(rawUrl) }.getOrNull() ?: return null
+        if (normalizePageUrl(AdultSource.PornSlash, rawUrl) == null) return null
+        return uri.rawQuery
+            ?.split('&')
+            ?.firstOrNull { it.substringBefore('=') == "p" }
+            ?.substringAfter('=')
+            ?.toIntOrNull()
+    }
+
     private fun searchSlug(query: String): String =
         query.trim()
             .lowercase()
@@ -486,12 +583,14 @@ object AdultWebsiteRepository {
     private fun baseUrl(source: AdultSource): String = when (source) {
         AdultSource.Porn4Days -> PORN4DAYS_BASE_URL
         AdultSource.PornHd3x -> PORNHD3X_BASE_URL
+        AdultSource.PornSlash -> PORNSLASH_BASE_URL
         else -> error("Unsupported adult website source: $source")
     }
 
     private fun allowedHosts(source: AdultSource): Set<String> = when (source) {
         AdultSource.Porn4Days -> setOf("porn4days.pw", "www.porn4days.pw")
         AdultSource.PornHd3x -> setOf("pornhd3x.tv", "www.pornhd3x.tv")
+        AdultSource.PornSlash -> setOf("pornslash.com", "www.pornslash.com")
         else -> emptySet()
     }
 

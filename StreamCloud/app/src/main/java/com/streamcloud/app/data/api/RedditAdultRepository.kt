@@ -49,6 +49,7 @@ enum class AdultSource(val label: String) {
     XFree("XFree"),
     Porn4Days("Porn4Days"),
     PornHd3x("PornHD3x"),
+    PornSlash("PornSlash"),
 }
 
 object RedditAdultRepository {

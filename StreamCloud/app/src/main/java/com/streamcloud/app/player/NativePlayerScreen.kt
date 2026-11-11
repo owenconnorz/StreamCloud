@@ -139,6 +139,7 @@ fun NativePlayerScreen(
 
     restartKey: Any? = null,
     forceDirectPlay: Boolean = false,
+    forceHls: Boolean = false,
 
     // ── Series / binge ────────────────────────────────────────────────────
     seasonNumber: Int? = null,
@@ -221,8 +222,8 @@ fun NativePlayerScreen(
         if (anyDeviceCasting) p.pause() else if (!p.isPlaying) p.play()
     }
 
-    val needsWebView = remember(resolvedUrl, forceDirectPlay) {
-        if (forceDirectPlay) false
+    val needsWebView = remember(resolvedUrl, forceDirectPlay, forceHls) {
+        if (forceDirectPlay || forceHls) false
         else {
             val u = resolvedUrl?.lowercase().orEmpty()
             u.isNotEmpty() && !u.startsWith("http://127.0.0.1") &&
@@ -278,6 +279,7 @@ fun NativePlayerScreen(
     LaunchedEffect(
         resolvedUrl,
         needsWebView,
+        forceHls,
         restartKey,
         playbackAttempt,
         hwDecodingEnabled,
@@ -308,7 +310,8 @@ fun NativePlayerScreen(
         val dsFactory: DataSource.Factory = DefaultDataSource.Factory(context, resolvingHttpFactory)
         val mediaItem = MediaItem.fromUri(url)
         val source: MediaSource = when {
-            url.contains(".m3u8", true) -> HlsMediaSource.Factory(dsFactory).createMediaSource(mediaItem)
+            forceHls || url.contains(".m3u8", true) ->
+                HlsMediaSource.Factory(dsFactory).createMediaSource(mediaItem)
             url.contains(".mpd", true)  -> DashMediaSource.Factory(dsFactory).createMediaSource(mediaItem)
             else -> ProgressiveMediaSource.Factory(dsFactory).createMediaSource(mediaItem)
         }
