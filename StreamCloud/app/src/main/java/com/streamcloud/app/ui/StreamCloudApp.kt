@@ -2325,7 +2325,8 @@ fun StreamCloudApp(
                         modifier = Modifier
                             .align(Alignment.CenterStart)
                             .fillMaxHeight()
-                            .width(72.dp),
+                            // Expand over the page while keeping the content inset fixed.
+                            .width(220.dp),
                     )
                 }
 
@@ -2505,6 +2506,11 @@ private fun TvPrimeSideNav(
     var pendingContentHandoff by remember { mutableStateOf(false) }
     var contentHandoffAttempt by remember { mutableIntStateOf(0) }
     val focusManager = LocalFocusManager.current
+    val railWidth by animateDpAsState(
+        targetValue = if (railHasFocus) 208.dp else 72.dp,
+        animationSpec = tween(durationMillis = 180),
+        label = "tvSideRailWidth",
+    )
 
     LaunchedEffect(
         contentHandoffAttempt,
@@ -2555,7 +2561,6 @@ private fun TvPrimeSideNav(
 
     Box(
         modifier = modifier
-            .background(Color.Black.copy(alpha = 0.28f))
             .tvFocusGroup()
             .onFocusChanged {
                 val gainedFocus = it.hasFocus && !railHasFocus
@@ -2600,8 +2605,9 @@ private fun TvPrimeSideNav(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .fillMaxHeight()
-                .width(72.dp)
-                .padding(start = 18.dp, top = 22.dp, bottom = 20.dp),
+                .width(railWidth)
+                .background(Color.Black.copy(alpha = if (railHasFocus) 0.74f else 0.28f))
+                .padding(start = 18.dp, top = 22.dp, end = 10.dp, bottom = 20.dp),
             horizontalAlignment = Alignment.Start,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -2650,6 +2656,7 @@ private fun TvPrimeSideNav(
                 label = "Search",
                 selected = false,
                 focused = searchFocused,
+                expanded = railHasFocus,
                 focusRequester = searchFocusRequester,
                 onFocusChanged = { searchFocused = it },
                 onClick = onSearchClick,
@@ -2662,6 +2669,7 @@ private fun TvPrimeSideNav(
                     label = tab.label,
                     selected = selected,
                     focused = focusedDestinationKey == tab.route,
+                    expanded = railHasFocus,
                     focusRequester = firstTabFocus.takeIf { selected },
                     onFocusChanged = { focused ->
                         if (focused) {
@@ -2683,6 +2691,7 @@ private fun RailAction(
     label: String,
     selected: Boolean,
     focused: Boolean,
+    expanded: Boolean,
     focusRequester: FocusRequester? = null,
     onFocusChanged: (Boolean) -> Unit,
     onClick: () -> Unit,
@@ -2699,20 +2708,41 @@ private fun RailAction(
     )
     Box(
         modifier = Modifier
-            .size(width = 42.dp, height = 38.dp)
+            .fillMaxWidth()
+            .height(38.dp)
             .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
             .clip(shape)
             .background(backgroundColor)
             .onFocusChanged { onFocusChanged(it.isFocused) }
             .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+        contentAlignment = if (expanded) Alignment.CenterStart else Alignment.Center,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = if (focused) Color(0xFF111216) else Color.White.copy(alpha = 0.88f),
-            modifier = Modifier.size(19.dp),
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = if (expanded) 12.dp else 0.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (focused) Color(0xFF111216) else Color.White.copy(alpha = 0.88f),
+                modifier = Modifier.size(19.dp),
+            )
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn(tween(100)),
+                exit = fadeOut(tween(80)),
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (focused || selected) FontWeight.SemiBold else FontWeight.Medium,
+                    color = if (focused) Color(0xFF111216) else Color.White.copy(alpha = 0.94f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 
