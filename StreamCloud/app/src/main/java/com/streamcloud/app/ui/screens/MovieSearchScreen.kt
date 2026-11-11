@@ -50,7 +50,6 @@ import com.streamcloud.app.ui.components.MovieArtwork
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.ui.components.WatchedPosterBadge
-import com.streamcloud.app.ui.theme.LegacyMoviesThemeWrapper
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.tvFocusBorder
@@ -71,7 +70,6 @@ fun MovieSearchScreen(
 ) {
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
-    val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "modern_blue")
     val activeProfile by sl.profiles.activeProfile.collectAsState(initial = null)
     val nuvioUserId by sl.settings.nuvioUserId.collectAsState(initial = "")
     val storageScopeKey = "$nuvioUserId:${activeProfile?.id ?: "default"}"
@@ -242,7 +240,7 @@ fun MovieSearchScreen(
                 }
                 .tvFocusBorder(
                     RoundedCornerShape(28.dp),
-                    color = if (isTv) Color(0xFF13BCEB) else Color.White,
+                    color = if (isTv) MaterialTheme.colorScheme.primary else Color.White,
                 ),
             placeholder = {
                 Text(
@@ -273,19 +271,18 @@ fun MovieSearchScreen(
             ),
             shape = RoundedCornerShape(28.dp),
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = if (isTv) Color(0xFF17232D) else MaterialTheme.colorScheme.surfaceContainerHigh,
-                unfocusedContainerColor = if (isTv) Color(0xFF111922) else MaterialTheme.colorScheme.surfaceContainerHigh,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
                 focusedIndicatorColor = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,
                 disabledIndicatorColor = Color.Transparent,
-                cursorColor = if (isTv) Color(0xFF13BCEB) else MaterialTheme.colorScheme.primary,
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
+                cursorColor = MaterialTheme.colorScheme.primary,
+                focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
             ),
         )
     }
 
-    LegacyMoviesThemeWrapper(moviesThemeName) {
     Scaffold(
         topBar = {
             if (!isTv) {
@@ -305,7 +302,7 @@ fun MovieSearchScreen(
                 )
             }
         },
-        containerColor = if (isTv) Color(0xFF174997) else MaterialTheme.colorScheme.background,
+        containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
         val displayedQuery = query.trim()
         if (isTv) {
@@ -399,7 +396,6 @@ fun MovieSearchScreen(
             }
         }
     }
-    } // MoviesThemeWrapper
 }
 
 @Composable
@@ -534,7 +530,10 @@ private fun TvSearchSuggestionChip(
         text = text,
         modifier = Modifier
             .clip(shape)
-            .background(if (selected) Color(0xFF365C9D) else Color.Transparent)
+            .background(
+                if (selected) MaterialTheme.colorScheme.primary
+                else Color.Transparent,
+            )
             .tvFocusBorder(
                 shape,
                 borderWidth = 2.dp,
@@ -543,7 +542,11 @@ private fun TvSearchSuggestionChip(
             )
             .clickable(onClick = onClick)
             .padding(horizontal = 9.dp, vertical = 6.dp),
-        color = Color.White,
+        color = if (selected) {
+            MaterialTheme.colorScheme.onPrimary
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        },
         style = MaterialTheme.typography.labelSmall,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
@@ -565,7 +568,10 @@ private fun TvSearchKey(
             .height(height)
             .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
             .clip(shape)
-            .background(if (focused) Color.White else Color.Transparent)
+            .background(
+                if (focused) MaterialTheme.colorScheme.primary
+                else Color.Transparent,
+            )
             .onFocusChanged { focused = it.isFocused }
             .tvFocusBorder(
                 shape,
@@ -579,7 +585,11 @@ private fun TvSearchKey(
     ) {
         Text(
             label,
-            color = if (focused) Color(0xFF153B78) else Color.White,
+            color = if (focused) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
             style = MaterialTheme.typography.labelMedium.copy(
                 fontWeight = if (focused) FontWeight.Bold else FontWeight.Medium,
             ),
@@ -623,7 +633,7 @@ private fun RecentSearches(
                     Text(
                         "Search movies, series, CloudStream, and Stremio add-ons.",
                         style = MaterialTheme.typography.bodyLarge,
-                        color = Color(0xFF9EABB8),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                     )
                 }
@@ -787,7 +797,7 @@ private fun TvCombinedResultsGrid(
             ) {
                 Text(
                     "Showing results for \"$correctedQuery\"",
-                    color = Color(0xFFB8C2CF),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.padding(bottom = 4.dp),
                 )
@@ -981,7 +991,7 @@ private fun TvResultsGridHeader(title: String, loading: Boolean) {
             CircularProgressIndicator(
                 modifier = Modifier.size(16.dp),
                 strokeWidth = 2.dp,
-                color = Color(0xFF13BCEB),
+                color = MaterialTheme.colorScheme.primary,
             )
         }
     }
@@ -998,10 +1008,10 @@ private fun TvGridPaginationCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(2f / 3f)
+                .aspectRatio(16f / 10f)
                 .clip(shape)
-                .background(Color(0xFF111D2A))
-                .tvFocusBorder(shape, borderWidth = 3.dp, color = Color(0xFF13BCEB))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .tvFocusBorder(shape, borderWidth = 3.dp, color = MaterialTheme.colorScheme.primary)
                 .clickable(enabled = !loading, onClick = onClick),
             contentAlignment = Alignment.Center,
         ) {
@@ -1009,7 +1019,7 @@ private fun TvGridPaginationCard(
                 CircularProgressIndicator(
                     modifier = Modifier.size(22.dp),
                     strokeWidth = 2.dp,
-                    color = Color(0xFF13BCEB),
+                    color = MaterialTheme.colorScheme.primary,
                 )
             } else {
                 Text(
@@ -1091,7 +1101,7 @@ private fun CombinedResultsList(
                     "Showing results for \"$correctedQuery\"",
                     modifier = Modifier.padding(horizontal = if (isTv) 40.dp else 16.dp),
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -1301,7 +1311,7 @@ private fun NuvioCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(2f / 3f)
+                .aspectRatio(if (isTv && fillAvailableWidth) 16f / 10f else 2f / 3f)
                 .clip(RoundedCornerShape(10.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
@@ -1321,7 +1331,7 @@ private fun NuvioCard(
                 .tvFocusBorder(
                     RoundedCornerShape(10.dp),
                     borderWidth = if (isTv) 5.dp else 3.dp,
-                    color = if (isTv) Color(0xFF13BCEB) else Color.White,
+                    color = if (isTv) MaterialTheme.colorScheme.primary else Color.White,
                 )
                 .clickable(onClick = onClick),
         ) {

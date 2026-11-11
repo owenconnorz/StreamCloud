@@ -212,6 +212,7 @@ fun StreamCloudApp(
         mutableStateOf(isTvFormFactor)
     }
     val useSelectedAppPalette = currentRoute == Tab.Movies.route ||
+        currentRoute == "movie-search" ||
         (currentRoute == Tab.Library.route && libraryMoviePaletteActive) ||
         currentRoute == Tab.Settings.route
     var adultHomeNavigationVisible by remember { mutableStateOf(false) }

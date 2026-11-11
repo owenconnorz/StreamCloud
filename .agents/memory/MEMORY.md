@@ -28,7 +28,7 @@
 - [Adult tab navigation visibility](adult-tab-navigation-visibility.md) — Show app navigation only on Pornhub and Eporner home screens, not Pornhub Shorts, Reddit, or RedGifs.
 - [Adult library routing](adult-library-routing.md) — Route saved adult videos by provider; their synthetic IDs are not TMDB IDs.
 - [Fire TV idle recommendations](fire-tv-idle-recommendations.md) — Use an in-app idle screen; StreamCloud cannot overlay Amazon Gallery after Fire OS takes control.
-- [App palette scope](app-palette-scope.md) — Apply reference palettes to Movies home, Library, and Settings; keep Music and detail-page theming unchanged.
+- [App palette scope](app-palette-scope.md) — Apply reference palettes to Movies home, Search, Library, and Settings; keep Music, Adult, and detail-page theming unchanged.
 - [Plugin management UI references](plugin-management-ui.md) — Keep CloudStream, Nuvio, and Stremio management screens aligned with the supplied mobile/TV reference pages.
 - [Spotify private library actions](spotify-private-library-actions.md) — Spotube-style regular playlist creation; collaborative creation stays on Spotify REST, with separate cooldowns and verified mutations.
 - [XNXX login sessions](xnxx-login-session.md) — Keep provider verification intact and scope persistent sign-in cookies to on-device XNXX page requests.
