@@ -53,6 +53,27 @@ class AdultWebsiteRepositoryTest {
     }
 
     @Test
+    fun ignoresPathlessPorn4DaysLinksWithoutCrashing() {
+        val page = AdultWebsiteRepository.parseListingHtml(
+            source = AdultSource.Porn4Days,
+            pageUrl = "https://porn4days.pw/newest",
+            page = 1,
+            html = """
+                <div class="video-card">
+                  <a class="video-thumb" href="https://porn4days.pw">
+                    <img src="/img3/sample.jpg" alt="Missing video path">
+                  </a>
+                  <a class="theme-link" href="https://porn4days.pw">Missing video path</a>
+                </div>
+                <a class="page-link" href="https://porn4days.pw">Next</a>
+            """.trimIndent(),
+        )
+
+        assertTrue(page.items.isEmpty())
+        assertFalse(page.hasMore)
+    }
+
+    @Test
     fun parsesPornHd3xCardsAndPagination() {
         val page = AdultWebsiteRepository.parseListingHtml(
             source = AdultSource.PornHd3x,

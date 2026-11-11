@@ -169,7 +169,7 @@ object AdultWebsiteRepository {
                 host in setOf("www.pornhd3x.tv", "pornhd3x.tv", "prog-public-ec.project1content.com")
             else -> false
         }
-        val extension = uri.path.substringAfterLast('.', "").lowercase()
+        val extension = uri.path.orEmpty().substringAfterLast('.', "").lowercase()
         val allowedExtension = when (source) {
             AdultSource.Porn4Days -> extension == "m3u8"
             AdultSource.PornHd3x -> extension in setOf("mp4", "m3u8")
@@ -418,7 +418,7 @@ object AdultWebsiteRepository {
         title: String,
         image: Element?,
     ): AdultItem? {
-        val id = runCatching { URI(pageUrl).path.trimEnd('/').substringAfterLast('/') }
+        val id = runCatching { URI(pageUrl).path.orEmpty().trimEnd('/').substringAfterLast('/') }
             .getOrNull()
             ?.takeIf(String::isNotBlank)
             ?: return null
@@ -454,7 +454,7 @@ object AdultWebsiteRepository {
     }
 
     private fun titleFromUrl(pageUrl: String): String =
-        runCatching { URI(pageUrl).path.trimEnd('/').substringAfterLast('/') }
+        runCatching { URI(pageUrl).path.orEmpty().trimEnd('/').substringAfterLast('/') }
             .getOrDefault("")
             .replace('-', ' ')
             .replace('_', ' ')
@@ -462,7 +462,7 @@ object AdultWebsiteRepository {
 
     private fun pageNumberFromPorn4DaysUrl(rawUrl: String): Int? {
         val uri = runCatching { URI(rawUrl) }.getOrNull() ?: return null
-        return Regex("/page(\\d+)/?$").find(uri.path)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        return Regex("/page(\\d+)/?$").find(uri.path.orEmpty())?.groupValues?.getOrNull(1)?.toIntOrNull()
             ?: uri.rawQuery
                 ?.split('&')
                 ?.firstOrNull { it.substringBefore('=') == "page" }
