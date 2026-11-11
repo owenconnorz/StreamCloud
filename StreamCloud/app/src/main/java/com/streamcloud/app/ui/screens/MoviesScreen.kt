@@ -304,7 +304,7 @@ fun MoviesScreen(
             }
             onOpenCatalog(
                 "stremio-multi:$encodedRows",
-                "18+ · Adult Stremio catalogs",
+                "18+ Â· Adult Stremio catalogs",
                 "${adultStremioRows.map { it.addonName }.distinct().size} enabled add-ons",
             )
         }
@@ -674,7 +674,7 @@ fun MoviesScreen(
     val tvHomeContinueRowHeight = run {
         val screenWidth = LocalConfiguration.current.screenWidthDp.dp
         val continueCardWidth = (screenWidth * 0.21f).coerceIn(176.dp, 272.dp)
-        30.dp + continueCardWidth * 0.54f + 8.dp
+        30.dp + continueCardWidth * 0.54f
     }
     val tvHomeRowsViewportHeight = run {
         val screenWidth = LocalConfiguration.current.screenWidthDp.dp
@@ -1433,7 +1433,7 @@ fun MoviesScreen(
                         )
                     }
                 } else if (!isTv) {
-                    // On TV the transparent top nav bar overlays the content — give enough
+                    // On TV the transparent top nav bar overlays the content â give enough
                     // clearance so the first row isn't hidden behind it.
                     item { Spacer(Modifier.statusBarsPadding().height(56.dp)) }
                 }
@@ -1464,7 +1464,7 @@ fun MoviesScreen(
                 if (state.loading && state.collections.isEmpty() && state.error == null) {
                     item {
                         MoviesRecoveryCard(
-                            title = "Loading movies…",
+                            title = "Loading moviesâ¦",
                             detail = "Fetching your movie collections. You can retry if this takes too long.",
                             action = "Reload",
                             onAction = vm::loadDiscover,
@@ -1749,7 +1749,6 @@ fun MoviesScreen(
                                     )
                                 }
                             }
-                            if (isTv) Spacer(Modifier.height(8.dp))
                         }
                     }
                 }
@@ -1896,7 +1895,7 @@ fun MoviesScreen(
                                                         val catId = folder.linkedCategoryId.trim()
                                                         if (catId.isNotBlank()) {
                                                             if (catId.contains(":")) {
-                                                                // Custom TMDB source — load in folder detail screen
+                                                                // Custom TMDB source â load in folder detail screen
                                                                 onOpenCollectionFolder(folder.id)
                                                             } else {
                                                                 val cat = HomeCollections.byId(catId)
@@ -2883,7 +2882,7 @@ private fun tmdbHeroBannerItem(movie: TmdbMovie): HeroBannerItem? {
         title = movie.displayTitle,
         year = (movie.releaseDate ?: movie.firstAirDate)?.substringBefore('-').orEmpty(),
         rating = if (movie.voteAverage > 0) {
-            String.format("%.1f ★", movie.voteAverage)
+            String.format("%.1f â", movie.voteAverage)
         } else {
             ""
         },
@@ -3097,7 +3096,7 @@ private fun TvHeroBackdrop(
                 },
                 hero.year.takeIf(String::isNotBlank),
                 hero.rating.takeIf(String::isNotBlank),
-            ).joinToString("  •  ")
+            ).joinToString("  â¢  ")
             AnimatedVisibility(
                 visible = detailsVisible,
                 modifier = Modifier
@@ -3109,12 +3108,12 @@ private fun TvHeroBackdrop(
                 Column(
                     modifier = Modifier
                         .padding(
-                            start = 12.dp,
+                            // Keep hero text and actions clear of the overlaid TV shortcut rail.
+                            start = 92.dp,
                             end = LocalConfiguration.current.screenWidthDp.dp * 0.52f,
-                            top = 34.dp,
+                            top = 24.dp,
                         )
                         .widthIn(max = 640.dp),
-                    verticalArrangement = Arrangement.spacedBy(7.dp),
                 ) {
                     Text(
                         "FEATURED",
@@ -3130,7 +3129,7 @@ private fun TvHeroBackdrop(
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 82.dp),
+                                .heightIn(max = 72.dp),
                             onError = { titleLogoFailed = true },
                         )
                     } else {
@@ -3138,8 +3137,8 @@ private fun TvHeroBackdrop(
                             hero.title,
                             color = Color.White,
                             style = MaterialTheme.typography.headlineMedium.copy(
-                                fontSize = 42.sp,
-                                lineHeight = 46.sp,
+                                fontSize = 38.sp,
+                                lineHeight = 42.sp,
                             ),
                             fontWeight = FontWeight.Bold,
                             maxLines = 2,
@@ -3149,15 +3148,15 @@ private fun TvHeroBackdrop(
                     Text(
                         meta,
                         color = Color.White.copy(alpha = 0.82f),
-                        style = MaterialTheme.typography.labelLarge.copy(fontSize = 15.sp),
+                        style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp),
                         maxLines = 1,
                     )
                     hero.overview.trim().takeIf(String::isNotBlank)?.let { overview ->
                         Text(
                             overview,
                             color = Color.White.copy(alpha = 0.88f),
-                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
-                            maxLines = 3,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 18.sp),
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
@@ -3196,7 +3195,7 @@ private fun TvHeroBackdrop(
                                 contentColor = Color(0xFF111216),
                             ),
                             shape = RoundedCornerShape(7.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                         ) {
                             Icon(
                                 Icons.Default.PlayArrow,
@@ -3227,7 +3226,7 @@ private fun TvHeroBackdrop(
                                 contentColor = Color(0xFF111216),
                             ),
                             shape = RoundedCornerShape(7.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                         ) {
                             Icon(
                                 Icons.Default.Info,
@@ -3295,7 +3294,7 @@ private fun HeroPager(
 
     if (isTv) {
         // HorizontalPager intercepts every D-pad left/right at the input level and permanently
-        // traps the remote. On TV, auto-cycle with a crossfade instead — only the
+        // traps the remote. On TV, auto-cycle with a crossfade instead â only the
         // "View Details" button is focusable, so left/right/up/down all move freely.
         var currentPage by remember { mutableStateOf(0) }
         var buttonHasFocus by remember { mutableStateOf(false) }
@@ -3571,7 +3570,7 @@ private fun HeroBannerSlide(
             if (item.mediaType == "tv") "Series" else "Movie",
             item.year.takeIf { it.isNotBlank() },
             item.rating.takeIf { it.isNotBlank() },
-        ).joinToString("  •  ")
+        ).joinToString("  â¢  ")
 
         if (isTv) {
             // TV: full-bleed editorial hero with details and actions on the left.
@@ -3648,7 +3647,7 @@ private fun HeroBannerSlide(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Play — white filled, ▶ icon, primary action
+                    // Play â white filled, â¶ icon, primary action
                     Row(
                         (if (buttonFocusRequester != null)
                             Modifier.focusRequester(buttonFocusRequester)
@@ -3675,7 +3674,7 @@ private fun HeroBannerSlide(
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         )
                     }
-                    // More Info — semi-transparent, secondary action
+                    // More Info â semi-transparent, secondary action
                     Row(
                         Modifier
                             .tvFocusBorder(RoundedCornerShape(50))
@@ -3940,7 +3939,7 @@ private fun SectionTitleWithViewAll(title: String, onViewAll: () -> Unit) {
             modifier = Modifier.weight(1f),
         )
         Text(
-            "View all →",
+            "View all â",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier
@@ -3986,7 +3985,7 @@ private fun AddonSectionTitleWithViewAll(
             )
         }
         Text(
-            "View all →",
+            "View all â",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier
@@ -4208,7 +4207,7 @@ private fun continueWatchingLandscapeSubtitle(entry: WatchProgressEntity): Strin
             "${remainingMinutes / 60L}h ${remainingMinutes % 60L}m left"
         else -> "${remainingMinutes}m left"
     }
-    return listOfNotNull(episodeLabel, remainingLabel).joinToString(" · ")
+    return listOfNotNull(episodeLabel, remainingLabel).joinToString(" Â· ")
 }
 
 @Composable
@@ -4479,13 +4478,13 @@ private fun MidPoster(
                         listOfNotNull(
                             releaseInfo?.takeIf { it.isNotBlank() },
                             if (m.title != null) "Movie" else "Series",
-                        ).joinToString("  •  "),
+                        ).joinToString("  â¢  "),
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.White.copy(alpha = 0.72f),
                     )
                     if (m.voteAverage > 0.0) {
                         Text(
-                            "★ ${"%.1f".format(m.voteAverage)}",
+                            "â ${"%.1f".format(m.voteAverage)}",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color(0xFFFFD166),
                         )
@@ -4733,7 +4732,7 @@ private fun PosterGrid(
 private fun watchProgressDisplayLabel(entry: WatchProgressEntity): String {
     if (entry.mediaType != "tv") return "Movie"
     return if (entry.seasonNumber > 0 && entry.episodeNumber > 0) {
-        "Series · S${entry.seasonNumber.toString().padStart(2, '0')} E${entry.episodeNumber.toString().padStart(2, '0')}"
+        "Series Â· S${entry.seasonNumber.toString().padStart(2, '0')} E${entry.episodeNumber.toString().padStart(2, '0')}"
     } else {
         "Series"
     }

@@ -415,7 +415,7 @@ fun StreamCloudApp(
         navAccentColor
     }
 
-    // Scroll-driven nav expand/collapse — expands when scrolling up, collapses on scroll down
+    // Scroll-driven nav expand/collapse â expands when scrolling up, collapses on scroll down
     var navExpanded by remember { mutableStateOf(true) }
     val navScrollConnection = remember {
         object : NestedScrollConnection {
@@ -437,7 +437,7 @@ fun StreamCloudApp(
     // Swipeable tabs (all tabs except Settings)
     val swipeableTabs = remember(tabs) { tabs.filter { it.route != Tab.Settings.route } }
 
-    // Animated pill size — shrinks when user scrolls down
+    // Animated pill size â shrinks when user scrolls down
     val navPillVPad by animateDpAsState(
         targetValue = if (navExpanded) 6.dp else 2.dp,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
@@ -632,7 +632,7 @@ fun StreamCloudApp(
                             !(currentRoute == Tab.Settings.route && settingsHasSubPage)
 
                         awaitEachGesture {
-                            // Wait for first finger down — don't require it to be unconsumed
+                            // Wait for first finger down â don't require it to be unconsumed
                             val down = awaitFirstDown(requireUnconsumed = false)
                             val startX = down.position.x
                             val startY = down.position.y
@@ -2075,7 +2075,7 @@ fun StreamCloudApp(
                     val active = sources.firstOrNull { it.id == currentId }
                     val sourceSubtitles = (addonSubtitles + active?.subtitleTracks.orEmpty())
                         .distinctBy { it.url }
-                    val subtitle = active?.let { "${it.addonName}${it.qualityTag?.let { q -> " · $q" } ?: ""}" }
+                    val subtitle = active?.let { "${it.addonName}${it.qualityTag?.let { q -> " Â· $q" } ?: ""}" }
                     val refreshScope = rememberCoroutineScope()
 
 
@@ -2104,7 +2104,7 @@ fun StreamCloudApp(
                         },
                         progressKey = com.streamcloud.app.player.MoviePlayerSession.progressKey,
                         onBack = { nav.popBackStack() },
-                        // ── Series / binge ────────────────────────────────────
+                        // ââ Series / binge ââââââââââââââââââââââââââââââââââââ
                         seasonNumber      = com.streamcloud.app.player.MoviePlayerSession.seasonNumber,
                         episodeNumber     = com.streamcloud.app.player.MoviePlayerSession.episodeNumber,
                         episodeTitle      = com.streamcloud.app.player.MoviePlayerSession.episodeTitle,
@@ -2121,9 +2121,9 @@ fun StreamCloudApp(
                                 }
                             }
                         },
-                        // ── Addon subtitles ───────────────────────────────────
+                        // ââ Addon subtitles âââââââââââââââââââââââââââââââââââ
                         addonSubtitles = sourceSubtitles,
-                        // ── Per-provider errors ───────────────────────────────
+                        // ââ Per-provider errors âââââââââââââââââââââââââââââââ
                         sourceErrors   = sourceErrors,
                         onRefresh = {
                             refreshScope.launch {
@@ -2437,7 +2437,7 @@ fun StreamCloudApp(
         )
     }
 
-    // Profile picker overlay — floats above everything
+    // Profile picker overlay â floats above everything
     if (showProfilePicker) {
         Box(
             Modifier
@@ -2454,7 +2454,7 @@ fun StreamCloudApp(
     } // end outer Box
 }
 
-// ── Prime-style TV navigation rail ───────────────────────────────────────────
+// ââ Prime-style TV navigation rail âââââââââââââââââââââââââââââââââââââââââââ
 
 @Composable
 private fun TvPrimeSideNav(
@@ -2555,7 +2555,7 @@ private fun TvPrimeSideNav(
 
     Box(
         modifier = modifier
-            .background(Color.Black.copy(alpha = 0.58f))
+            .background(Color.Black.copy(alpha = 0.28f))
             .tvFocusGroup()
             .onFocusChanged {
                 val gainedFocus = it.hasFocus && !railHasFocus
@@ -2716,7 +2716,7 @@ private fun RailAction(
     }
 }
 
-// ── Prime-style compact TV navigation ────────────────────────────────────────
+// ââ Prime-style compact TV navigation ââââââââââââââââââââââââââââââââââââââââ
 
 private data class TvTopNavigationDestination(
     val key: String,
@@ -2911,7 +2911,7 @@ private fun TvPrimeTopNav(
                         // attached yet (for example, while the Movies hero loads).
                         true
                     }
-                    // Nothing focusable above the nav bar — consume Up.
+                    // Nothing focusable above the nav bar â consume Up.
                     Key.DirectionUp -> true
                     else -> false
                 }
@@ -3611,7 +3611,7 @@ private fun ProfileNavItem(
             if (ytCookie.isNotBlank()) {
                 // Persist so subsequent launches show the photo instantly
                 sl.settings.setYtMusicUserAvatar(photoUrl)
-                // ytAvatar will update via DataStore flow — no need to set deviceAvatar
+                // ytAvatar will update via DataStore flow â no need to set deviceAvatar
             } else {
                 deviceAvatar = photoUrl
                 sl.settings.setGoogleDeviceAvatar(photoUrl)
