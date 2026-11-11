@@ -366,7 +366,7 @@ fun MovieSearchScreen(
                                     onOpenCsItem = onOpenCsItem,
                                     onOpenStremio = onOpenStremio,
                                 )
-                            )
+                            }
                         }
                     }
                 }
