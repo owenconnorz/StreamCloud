@@ -2568,6 +2568,16 @@ private fun TvPrimeSideNav(
                     Key.DirectionRight -> {
                         if (!pendingContentHandoff) {
                             pendingContentHandoff = true
+                            // Browsing the rail only changes its focus highlight.
+                            // Commit a different page when Right enters the content.
+                            val focusedDestination =
+                                destinations.firstOrNull { it.route == focusedDestinationKey }
+                            if (
+                                focusedDestination != null &&
+                                !tabIsSelected(focusedDestination)
+                            ) {
+                                onTabSelected(focusedDestination.route)
+                            }
                             contentHandoffAttempt++
                             onDownFocusHandoffRequested()
                         }
@@ -2654,7 +2664,6 @@ private fun TvPrimeSideNav(
                     onFocusChanged = { focused ->
                         if (focused) {
                             focusedDestinationKey = tab.route
-                            if (!selected) onTabSelected(tab.route)
                         } else if (focusedDestinationKey == tab.route) {
                             focusedDestinationKey = null
                         }
