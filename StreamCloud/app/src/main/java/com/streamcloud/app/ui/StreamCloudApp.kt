@@ -133,6 +133,8 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.material.icons.filled.Menu
@@ -2519,8 +2521,38 @@ private fun TvPrimeSideNav(
     val focusManager = LocalFocusManager.current
     val railWidth by animateDpAsState(
         targetValue = if (railHasFocus) 208.dp else 72.dp,
-        animationSpec = tween(durationMillis = 180),
+        animationSpec = tween(durationMillis = 240),
         label = "tvSideRailWidth",
+    )
+    val railScrimAlpha by animateFloatAsState(
+        targetValue = if (railHasFocus) 0.74f else 0.28f,
+        animationSpec = tween(durationMillis = 240),
+        label = "tvSideRailScrim",
+    )
+    val focusedDestinationIndex = destinations.indexOfFirst {
+        it.route == focusedDestinationKey
+    }.takeIf { it >= 0 }
+    val focusIndicatorTop = when {
+        searchFocused -> 72.dp
+        focusedDestinationIndex != null -> 120.dp + 48.dp * focusedDestinationIndex
+        else -> null
+    }
+    val animatedFocusIndicatorTop by animateDpAsState(
+        targetValue = focusIndicatorTop ?: 72.dp,
+        animationSpec = spring(
+            dampingRatio = 0.82f,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
+        label = "tvSideRailFocusPosition",
+    )
+    val focusIndicatorColor by animateColorAsState(
+        targetValue = if (railHasFocus && focusIndicatorTop != null) {
+            Color.White
+        } else {
+            Color.Transparent
+        },
+        animationSpec = tween(durationMillis = 120),
+        label = "tvSideRailFocusIndicator",
     )
 
     LaunchedEffect(
@@ -2612,85 +2644,104 @@ private fun TvPrimeSideNav(
                 }
             },
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .fillMaxHeight()
                 .width(railWidth)
-                .background(Color.Black.copy(alpha = if (railHasFocus) 0.74f else 0.28f))
-                .padding(start = 18.dp, top = 22.dp, end = 10.dp, bottom = 20.dp),
-            horizontalAlignment = Alignment.Start,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .background(Color.Black.copy(alpha = railScrimAlpha)),
         ) {
-            val profileShape = CircleShape
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(profileShape)
-                    .background(if (profileFocused) Color.White else Color.Transparent)
-                    .border(
-                        width = if (profileFocused && profileAvatarUrl.isNotBlank()) 2.dp else 0.dp,
-                        color = Color.White,
-                        shape = profileShape,
-                    )
-                    .onFocusChanged { profileFocused = it.isFocused }
-                    .tvFocusBorder(profileShape, showOutline = false)
-                    .focusProperties { down = searchFocusRequester }
-                    .clickable(onClick = onProfileClick),
-                contentAlignment = Alignment.Center,
-            ) {
-                when {
-                    profileAvatarUrl.isNotBlank() -> AsyncImage(
-                        model = profileAvatarUrl,
-                        contentDescription = "Choose profile",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    profileAvatarSeed.isNotBlank() -> Image(
-                        painter = painterResource(profileAvatarDrawable(profileAvatarSeed)),
-                        contentDescription = "Choose profile",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    else -> Icon(
-                        MaterialIcons.Filled.AccountCircle,
-                        contentDescription = "Choose profile",
-                        tint = if (profileFocused) Color(0xFF111216) else Color.White,
-                        modifier = Modifier.size(22.dp),
-                    )
-                }
+            if (focusIndicatorColor != Color.Transparent) {
+                Box(
+                    modifier = Modifier
+                        .padding(
+                            start = 18.dp,
+                            top = 22.dp + animatedFocusIndicatorTop,
+                        )
+                        .width(railWidth - 28.dp)
+                        .height(38.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(focusIndicatorColor),
+                )
             }
 
-            Spacer(Modifier.height(14.dp))
-            RailAction(
-                icon = MaterialIcons.Filled.Search,
-                label = "Search",
-                selected = false,
-                focused = searchFocused,
-                expanded = railHasFocus,
-                focusRequester = searchFocusRequester,
-                onFocusChanged = { searchFocused = it },
-                onClick = onSearchClick,
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = 18.dp, top = 22.dp, end = 10.dp, bottom = 20.dp),
+                horizontalAlignment = Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                val profileShape = CircleShape
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(profileShape)
+                        .background(if (profileFocused) Color.White else Color.Transparent)
+                        .border(
+                            width = if (profileFocused && profileAvatarUrl.isNotBlank()) 2.dp else 0.dp,
+                            color = Color.White,
+                            shape = profileShape,
+                        )
+                        .onFocusChanged { profileFocused = it.isFocused }
+                        .tvFocusBorder(profileShape, showOutline = false)
+                        .focusProperties { down = searchFocusRequester }
+                        .clickable(onClick = onProfileClick),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    when {
+                        profileAvatarUrl.isNotBlank() -> AsyncImage(
+                            model = profileAvatarUrl,
+                            contentDescription = "Choose profile",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        profileAvatarSeed.isNotBlank() -> Image(
+                            painter = painterResource(profileAvatarDrawable(profileAvatarSeed)),
+                            contentDescription = "Choose profile",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        else -> Icon(
+                            MaterialIcons.Filled.AccountCircle,
+                            contentDescription = "Choose profile",
+                            tint = if (profileFocused) Color(0xFF111216) else Color.White,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
 
-            destinations.forEachIndexed { index, tab ->
-                val selected = tabIsSelected(tab)
+                Spacer(Modifier.height(14.dp))
                 RailAction(
-                    icon = if (selected) tab.icon else tab.outlinedIcon,
-                    label = tab.label,
-                    selected = selected,
-                    focused = focusedDestinationKey == tab.route,
+                    icon = MaterialIcons.Filled.Search,
+                    label = "Search",
+                    selected = false,
+                    focused = searchFocused,
                     expanded = railHasFocus,
-                    focusRequester = firstTabFocus.takeIf { selected },
-                    onFocusChanged = { focused ->
-                        if (focused) {
-                            focusedDestinationKey = tab.route
-                        } else if (focusedDestinationKey == tab.route) {
-                            focusedDestinationKey = null
-                        }
-                    },
-                    onClick = { onTabSelected(tab.route) },
+                    focusRequester = searchFocusRequester,
+                    onFocusChanged = { searchFocused = it },
+                    onClick = onSearchClick,
                 )
+
+                destinations.forEach { tab ->
+                    val selected = tabIsSelected(tab)
+                    RailAction(
+                        icon = if (selected) tab.icon else tab.outlinedIcon,
+                        label = tab.label,
+                        selected = selected,
+                        focused = focusedDestinationKey == tab.route,
+                        expanded = railHasFocus,
+                        focusRequester = firstTabFocus.takeIf { selected },
+                        onFocusChanged = { focused ->
+                            if (focused) {
+                                focusedDestinationKey = tab.route
+                            } else if (focusedDestinationKey == tab.route) {
+                                focusedDestinationKey = null
+                            }
+                        },
+                        onClick = { onTabSelected(tab.route) },
+                    )
+                }
             }
         }
     }
@@ -2710,11 +2761,10 @@ private fun RailAction(
     val shape = RoundedCornerShape(12.dp)
     val backgroundColor by animateColorAsState(
         targetValue = when {
-            focused -> Color.White
-            selected -> Color.White.copy(alpha = 0.16f)
+            selected && !focused -> Color.White.copy(alpha = 0.16f)
             else -> Color.Transparent
         },
-        animationSpec = tween(120),
+        animationSpec = tween(150),
         label = "tvRailSelection",
     )
     Box(
@@ -2731,7 +2781,7 @@ private fun RailAction(
         Row(
             modifier = Modifier.padding(horizontal = if (expanded) 12.dp else 0.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (expanded) 12.dp else 0.dp),
         ) {
             Icon(
                 imageVector = icon,
@@ -2741,8 +2791,24 @@ private fun RailAction(
             )
             AnimatedVisibility(
                 visible = expanded,
-                enter = fadeIn(tween(100)),
-                exit = fadeOut(tween(80)),
+                enter = expandHorizontally(
+                    expandFrom = Alignment.Start,
+                    animationSpec = tween(190),
+                ) +
+                    slideInHorizontally(
+                        initialOffsetX = { -it / 6 },
+                        animationSpec = tween(190),
+                    ) +
+                    fadeIn(tween(150)),
+                exit = shrinkHorizontally(
+                    shrinkTowards = Alignment.Start,
+                    animationSpec = tween(140),
+                ) +
+                    slideOutHorizontally(
+                        targetOffsetX = { -it / 8 },
+                        animationSpec = tween(140),
+                    ) +
+                    fadeOut(tween(110)),
             ) {
                 Text(
                     text = label,
