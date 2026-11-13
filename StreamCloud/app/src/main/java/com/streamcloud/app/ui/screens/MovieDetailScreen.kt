@@ -106,6 +106,7 @@ import com.streamcloud.app.player.sourceSelectionRoute
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.LegacyMoviesThemeWrapper
 import com.streamcloud.app.ui.theme.UiFormFactor
+import com.streamcloud.app.ui.theme.normalizeAppColorPaletteId
 import com.streamcloud.app.ui.theme.rememberBannerPalette
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
@@ -148,6 +149,8 @@ fun MovieDetailScreen(
     val sl = remember { ServiceLocator.get(context) }
     val scope = rememberCoroutineScope()
     val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "modern_blue")
+    val appColorPalette by sl.settings.colorPalette.collectAsState(initial = "modern_blue")
+    val useMonochromePalette = normalizeAppColorPaletteId(appColorPalette) == "monochrome"
     val autoplayBestStream by sl.settings.autoplayBestStream.collectAsState(initial = false)
 
     var movie by remember { mutableStateOf<TmdbMovie?>(null) }
@@ -603,7 +606,9 @@ fun MovieDetailScreen(
         }
     }
 
-    LegacyMoviesThemeWrapper(moviesThemeName) {
+    LegacyMoviesThemeWrapper(
+        if (useMonochromePalette) "monochrome" else moviesThemeName,
+    ) {
     val bannerPalette = rememberBannerPalette(
         imageUrl = movie?.backdropUrl?.takeIf { it.isNotBlank() }
             ?: movie?.posterUrl?.takeIf { it.isNotBlank() },
@@ -612,17 +617,30 @@ fun MovieDetailScreen(
         fallbackBackground = MaterialTheme.colorScheme.background,
         fallbackSurface = MaterialTheme.colorScheme.surface,
     )
+    val detailBaseColors = MaterialTheme.colorScheme
+    val detailArtworkTint = if (useMonochromePalette) Color.Black else bannerPalette.artworkColor
+    val detailBackdropShade =
+        if (useMonochromePalette) Color.Black else Color(0xFF07080D)
+    val detailBackdropEdgeShade =
+        if (useMonochromePalette) Color.Black else Color(0xFF05070A)
     MaterialTheme(
-        colorScheme = MaterialTheme.colorScheme.copy(
-            primary = if (isTv) Color(0xFF079FC5) else bannerPalette.accent,
-            onPrimary = if (isTv) Color.White else bannerPalette.onAccent,
-            secondary = if (isTv) Color(0xFF079FC5) else bannerPalette.accent,
-            onSecondary = if (isTv) Color.White else bannerPalette.onAccent,
-            primaryContainer = if (isTv) Color(0xFF123B4A) else bannerPalette.accentContainer,
-            onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer,
-            background = if (isTv) Color(0xFF07080D) else Color.Black,
-            surface = if (isTv) Color(0xFF111820) else bannerPalette.surfaceTint,
-            surfaceVariant = if (isTv) Color(0xFF111820) else bannerPalette.surfaceTint,
+        colorScheme = detailBaseColors.copy(
+            primary = if (useMonochromePalette) detailBaseColors.primary
+            else if (isTv) Color(0xFF079FC5) else bannerPalette.accent,
+            onPrimary = if (useMonochromePalette) detailBaseColors.onPrimary
+            else if (isTv) Color.White else bannerPalette.onAccent,
+            secondary = if (useMonochromePalette) detailBaseColors.secondary
+            else if (isTv) Color(0xFF079FC5) else bannerPalette.accent,
+            onSecondary = if (useMonochromePalette) detailBaseColors.onSecondary
+            else if (isTv) Color.White else bannerPalette.onAccent,
+            primaryContainer = if (useMonochromePalette) detailBaseColors.primaryContainer
+            else if (isTv) Color(0xFF123B4A) else bannerPalette.accentContainer,
+            onPrimaryContainer = detailBaseColors.onPrimaryContainer,
+            background = if (isTv) detailBackdropShade else Color.Black,
+            surface = if (useMonochromePalette) detailBaseColors.surface
+            else if (isTv) Color(0xFF111820) else bannerPalette.surfaceTint,
+            surfaceVariant = if (useMonochromePalette) detailBaseColors.surfaceVariant
+            else if (isTv) Color(0xFF111820) else bannerPalette.surfaceTint,
         ),
     ) {
     val scrollState = rememberScrollState()
@@ -727,9 +745,10 @@ fun MovieDetailScreen(
         val addonCount = installedAddons.size + installedNuvio.size + installedCsPlugins.size
         val playEnabled = imdbId != null && addonCount > 0 && !resolving
         if (isTv) {
-            Column(
-                modifier = Modifier.widthIn(max = 260.dp),
-                verticalArrangement = Arrangement.spacedBy(9.dp),
+            Row(
+                modifier = Modifier.widthIn(max = 680.dp).fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (mediaType == "tv") {
                     Button(
@@ -746,7 +765,7 @@ fun MovieDetailScreen(
                         },
                         enabled = playEnabled && episodePlaybackTarget != null,
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .weight(if (hasRestartPoint) 1.45f else 1.7f)
                             .height(44.dp)
                             .tvFocusBorder(RoundedCornerShape(50))
                             .focusRequester(playBtnFocus)
@@ -784,26 +803,29 @@ fun MovieDetailScreen(
                         Text(
                             episodePlaybackTarget?.buttonLabel ?: "Loading…",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            maxLines = 2,
+                            maxLines = 1,
+                            softWrap = false,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
                 } else {
-                    PlayMovieCta(
-                        enabled = playEnabled,
-                        loading = resolving,
-                        downloadProgress = downloadProgress,
-                        onClick = { playMovie() },
-                        isTv = true,
-                        buttonLabel = if (hasRestartPoint) "Resume" else "Play Movie",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .focusRequester(playBtnFocus),
-                    )
+                    Box(Modifier.weight(if (hasRestartPoint) 1.45f else 1.7f)) {
+                        PlayMovieCta(
+                            enabled = playEnabled,
+                            loading = resolving,
+                            downloadProgress = downloadProgress,
+                            onClick = { playMovie() },
+                            isTv = true,
+                            buttonLabel = if (hasRestartPoint) "Resume" else "Play Movie",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(playBtnFocus),
+                        )
+                    }
                 }
                 if (hasRestartPoint) {
                     RestartPlaybackButton(
-                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        modifier = Modifier.weight(0.92f).height(44.dp),
                         description = if (mediaType == "tv") {
                             "Restart episode from the beginning"
                         } else {
@@ -835,16 +857,14 @@ fun MovieDetailScreen(
                 TrailerBannerToggle(
                     enabled = movie != null,
                     isTv = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.weight(0.92f),
                     onClick = { showTrailerFullscreen = true },
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MovieActionCircle(
-                        icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
-                        active = isWatched,
-                        description = if (isWatched) "Mark as unwatched" else "Mark as watched",
-                    ) { toggleWatched() }
-                }
+                MovieActionCircle(
+                    icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.Check,
+                    active = isWatched,
+                    description = if (isWatched) "Mark as unwatched" else "Mark as watched",
+                ) { toggleWatched() }
             }
         } else if (mediaType == "tv") {
             Row(
@@ -1041,7 +1061,7 @@ fun MovieDetailScreen(
         }
     }
     BoxWithConstraints(
-        Modifier.fillMaxSize().background(if (isTv) Color(0xFF07080D) else Color.Black)
+        Modifier.fillMaxSize().background(if (isTv) detailBackdropShade else Color.Black)
             .focusRequester(focusRequester)
             .then(
                 if (!isTv) {
@@ -1061,11 +1081,9 @@ fun MovieDetailScreen(
     ) {
         val viewportHeight = maxHeight
         val viewportWidth = maxWidth
-        // Reserve only the navigation-safe strip above the hero. The previous
-        // large clearance shrank the scroll viewport and clipped the title when
-        // Play received initial focus on short TV windows.
-        val artworkHeroTopClearance =
-            if (isTv) minOf(80.dp, viewportHeight * 0.20f) else 32.dp
+        // Details no longer show the TV navigation rail, so start the hero at
+        // the top edge instead of leaving an empty navigation-safe strip.
+        val artworkHeroTopClearance = if (isTv) 0.dp else 32.dp
         val availableHeroHeight =
             (viewportHeight - artworkHeroTopClearance).coerceAtLeast(1.dp)
         val artworkHeroHeight = if (isTv) {
@@ -1094,17 +1112,17 @@ fun MovieDetailScreen(
                     Brush.verticalGradient(
                         colorStops = if (isTv) {
                             arrayOf(
-                                0f to Color(0xFF07080D).copy(alpha = 0.46f),
-                                0.28f to Color(0xFF07080D).copy(alpha = 0.10f),
+                                0f to detailBackdropShade.copy(alpha = 0.46f),
+                                0.28f to detailBackdropShade.copy(alpha = 0.10f),
                                 0.56f to Color.Transparent,
-                                0.82f to Color(0xFF07080D).copy(alpha = 0.76f),
-                                1f to Color(0xFF07080D),
+                                0.82f to detailBackdropShade.copy(alpha = 0.76f),
+                                1f to detailBackdropShade,
                             )
                         } else {
                             arrayOf(
-                                0f to bannerPalette.artworkColor.copy(alpha = 0.30f),
-                                0.34f to bannerPalette.artworkColor.copy(alpha = 0.20f),
-                                0.62f to bannerPalette.artworkColor.copy(alpha = 0.08f),
+                                0f to detailArtworkTint.copy(alpha = 0.30f),
+                                0.34f to detailArtworkTint.copy(alpha = 0.20f),
+                                0.62f to detailArtworkTint.copy(alpha = 0.08f),
                                 0.88f to Color.Black.copy(alpha = 0.72f),
                                 1f to Color.Black,
                             )
@@ -1119,20 +1137,20 @@ fun MovieDetailScreen(
                     Brush.horizontalGradient(
                         colorStops = if (isTv) {
                             arrayOf(
-                                0f to Color(0xFF05070A).copy(alpha = 0.94f),
-                                0.22f to Color(0xFF05070A).copy(alpha = 0.76f),
-                                0.48f to Color(0xFF05070A).copy(alpha = 0.30f),
+                                0f to detailBackdropEdgeShade.copy(alpha = 0.94f),
+                                0.22f to detailBackdropEdgeShade.copy(alpha = 0.76f),
+                                0.48f to detailBackdropEdgeShade.copy(alpha = 0.30f),
                                 0.72f to Color.Transparent,
                                 1f to Color.Transparent,
                             )
                         } else {
                             arrayOf(
-                                0f to bannerPalette.artworkColor.copy(alpha = 0.20f),
-                                0.14f to bannerPalette.artworkColor.copy(alpha = 0.09f),
+                                0f to detailArtworkTint.copy(alpha = 0.20f),
+                                0.14f to detailArtworkTint.copy(alpha = 0.09f),
                                 0.30f to Color.Transparent,
                                 0.70f to Color.Transparent,
-                                0.86f to bannerPalette.artworkColor.copy(alpha = 0.09f),
-                                1f to bannerPalette.artworkColor.copy(alpha = 0.20f),
+                                0.86f to detailArtworkTint.copy(alpha = 0.09f),
+                                1f to detailArtworkTint.copy(alpha = 0.20f),
                             )
                         },
                     ),
@@ -1173,12 +1191,12 @@ fun MovieDetailScreen(
                             .background(
                                 Brush.horizontalGradient(
                                     colorStops = arrayOf(
-                                        0f to bannerPalette.artworkColor.copy(alpha = 0.36f),
-                                        0.18f to bannerPalette.artworkColor.copy(alpha = 0.20f),
+                                        0f to detailArtworkTint.copy(alpha = 0.36f),
+                                        0.18f to detailArtworkTint.copy(alpha = 0.20f),
                                         0.34f to Color.Transparent,
                                         0.66f to Color.Transparent,
-                                        0.82f to bannerPalette.artworkColor.copy(alpha = 0.20f),
-                                        1f to bannerPalette.artworkColor.copy(alpha = 0.36f),
+                                        0.82f to detailArtworkTint.copy(alpha = 0.20f),
+                                        1f to detailArtworkTint.copy(alpha = 0.36f),
                                     ),
                                 ),
                             ),
@@ -2059,7 +2077,7 @@ private fun TrailerBannerToggle(
             disabledContainerColor = Color.Black.copy(alpha = 0.35f),
             disabledContentColor = Color.White.copy(alpha = 0.62f),
         ),
-        contentPadding = PaddingValues(horizontal = 14.dp),
+        contentPadding = PaddingValues(horizontal = if (isTv) 8.dp else 14.dp),
     ) {
         Icon(
             imageVector = Icons.Default.PlayArrow,
@@ -2466,11 +2484,7 @@ private fun RestartPlaybackButton(
             .tvFocusBorder(RoundedCornerShape(50))
             .semantics { contentDescription = description },
         shape = RoundedCornerShape(50),
-        contentPadding = if (isTv) {
-            ButtonDefaults.ContentPadding
-        } else {
-            PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-        },
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = Color.Black.copy(alpha = 0.52f),
             contentColor = Color.White,
@@ -2517,7 +2531,7 @@ private fun PlayMovieCta(
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .then(if (!isTv) Modifier.fillMaxWidth() else Modifier.widthIn(min = 220.dp))
+            .then(if (!isTv) Modifier.fillMaxWidth() else Modifier)
             .height(if (isTv) 44.dp else 52.dp)
             .tvFocusBorder(RoundedCornerShape(50))
             .clip(RoundedCornerShape(50))
@@ -2546,8 +2560,8 @@ private fun PlayMovieCta(
                     "Downloading · ${(animatedFill * 100).toInt()}%",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = playContent,
-                    maxLines = if (isTv) Int.MAX_VALUE else 1,
-                    softWrap = isTv,
+                    maxLines = 1,
+                    softWrap = false,
                     overflow = if (isTv) TextOverflow.Clip else TextOverflow.Ellipsis,
                 )
             }
@@ -2560,8 +2574,8 @@ private fun PlayMovieCta(
                 Text("Finding best stream…",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = playContent,
-                    maxLines = if (isTv) Int.MAX_VALUE else 1,
-                    softWrap = isTv,
+                    maxLines = 1,
+                    softWrap = false,
                     overflow = if (isTv) TextOverflow.Clip else TextOverflow.Ellipsis)
             }
             else -> Row(
@@ -2575,8 +2589,8 @@ private fun PlayMovieCta(
                 Text(buttonLabel,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = if (enabled) playContent else onSurfaceVariant,
-                    maxLines = if (isTv) Int.MAX_VALUE else 1,
-                    softWrap = isTv,
+                    maxLines = 1,
+                    softWrap = false,
                     overflow = if (isTv) TextOverflow.Clip else TextOverflow.Ellipsis)
             }
         }

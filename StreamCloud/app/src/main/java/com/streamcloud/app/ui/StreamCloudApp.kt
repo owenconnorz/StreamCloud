@@ -209,14 +209,22 @@ fun StreamCloudApp(
     val playerSurfaceState = com.streamcloud.app.ui.player.rememberPlayerSurfaceState()
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
+    val context = LocalContext.current
+    val sl = remember { ServiceLocator.get(context) }
+    val appearancePalette by sl.settings.colorPalette.collectAsState(initial = "modern_blue")
     val isTvFormFactor = LocalUiFormFactor.current == UiFormFactor.Tv
     var libraryMoviePaletteActive by remember(isTvFormFactor) {
         mutableStateOf(isTvFormFactor)
     }
+    val useMonochromeDetailPalette =
+        normalizeAppColorPaletteId(appearancePalette) == "monochrome" &&
+            (currentRoute?.startsWith("movie/") == true ||
+                currentRoute?.startsWith("tv/") == true)
     val useSelectedAppPalette = currentRoute == Tab.Movies.route ||
         currentRoute == "movie-search" ||
         (currentRoute == Tab.Library.route && libraryMoviePaletteActive) ||
-        currentRoute == Tab.Settings.route
+        currentRoute == Tab.Settings.route ||
+        useMonochromeDetailPalette
     var adultHomeNavigationVisible by remember { mutableStateOf(false) }
     var settingsHasSubPage by remember { mutableStateOf(false) }
     var settingsBackRequest by remember { mutableStateOf(0) }
@@ -235,8 +243,6 @@ fun StreamCloudApp(
     )
     val isVideoPlayerRoute = currentRoute?.startsWith("player/") == true
 
-    val context = LocalContext.current
-    val sl = remember { ServiceLocator.get(context) }
     val musicHomeProvider by sl.settings.musicHomeProvider.collectAsState(
         initial = com.streamcloud.app.data.music.MusicProvider.YouTubeMusic,
     )
@@ -388,7 +394,6 @@ fun StreamCloudApp(
 
     val showNavLabels by sl.settings.navLabels.collectAsState(initial = true)
     val moviesThemeNameForPill by sl.settings.moviesTheme.collectAsState(initial = "modern_blue")
-    val appearancePalette by sl.settings.colorPalette.collectAsState(initial = "modern_blue")
     val navAccentColor = remember(
         appearancePalette,
         moviesThemeNameForPill,
@@ -538,9 +543,10 @@ fun StreamCloudApp(
         val useRail = LocalUiFormFactor.current != UiFormFactor.Mobile
         val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
         val showRail = useRail && if (isTv) {
-            // Keep the persistent TV top bar available from detail, search,
-            // library, and settings sub-pages; let the player own remote controls.
-            !isVideoPlayerRoute
+            // Hide TV navigation on movie and TV details so artwork and actions use the full screen.
+            !isVideoPlayerRoute &&
+                currentRoute?.startsWith("movie/") != true &&
+                currentRoute?.startsWith("tv/") != true
         } else {
             (currentRoute == null || tabs.any { it.route == currentRoute }) &&
                 (currentRoute != Tab.Adult.route || adultHomeNavigationVisible)

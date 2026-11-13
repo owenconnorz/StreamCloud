@@ -1,3 +1,14 @@
+## TV update — Movie and TV detail screens
+
+### Android TV
+- **Detail pages use the full screen** — the navigation rail is hidden while a movie or series is open.
+- **Black & White applies to detail pages when selected** — the interface follows the chosen palette while title artwork stays in color.
+- **Playback actions share one row** — Continue/Play, Restart, and Trailer are aligned horizontally.
+
+### Included APKs
+- Android TV universal, ARM64, and ARMv7 APKs.
+- Android mobile APK.
+
 ## Android TV — Prime-style home refresh
 
 ### Android TV
