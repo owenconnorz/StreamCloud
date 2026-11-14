@@ -1069,9 +1069,6 @@ fun StreamCloudApp(
                         initialPickerEpisode =
                             entry.arguments?.getString("episode")?.toIntOrNull(),
                         onBack = { nav.popBackStack() },
-                        onOpenSearch = { nav.navigate("movie-search") },
-                        onOpenProfile = { showProfilePicker = true },
-                        profileAvatarUrl = activeProfile?.avatarUrl.orEmpty(),
                         onPlay = { initialUrl, title, sources, progressKey, bingeEpisodes, currentBingeIndex, pauseOverlayMetadata ->
                             com.streamcloud.app.player.MoviePlayerSession.set(
                                 sources, progressKey,
@@ -1142,9 +1139,6 @@ fun StreamCloudApp(
                         initialPickerEpisode =
                             entry.arguments?.getString("episode")?.toIntOrNull(),
                         onBack = { nav.popBackStack() },
-                        onOpenSearch = { nav.navigate("movie-search") },
-                        onOpenProfile = { showProfilePicker = true },
-                        profileAvatarUrl = activeProfile?.avatarUrl.orEmpty(),
                         onPlay = { initialUrl, title, sources, progressKey, bingeEpisodes, currentBingeIndex, pauseOverlayMetadata ->
                             com.streamcloud.app.player.MoviePlayerSession.set(
                                 sources, progressKey,

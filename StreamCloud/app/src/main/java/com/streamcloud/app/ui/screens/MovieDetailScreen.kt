@@ -122,60 +122,6 @@ import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 @Composable
-private fun TvDetailTopActions(
-    onBack: () -> Unit,
-    onOpenSearch: () -> Unit,
-    onOpenProfile: () -> Unit,
-    profileAvatarUrl: String,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 42.dp, vertical = 10.dp)
-            .tvFocusGroup(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(
-            onClick = onBack,
-            modifier = Modifier
-                .size(42.dp)
-                .tvFocusBorder(CircleShape),
-        ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-        }
-        Spacer(Modifier.weight(1f))
-        IconButton(
-            onClick = onOpenSearch,
-            modifier = Modifier
-                .size(42.dp)
-                .tvFocusBorder(CircleShape),
-        ) {
-            Icon(Icons.Default.Search, contentDescription = "Search")
-        }
-        Spacer(Modifier.width(12.dp))
-        IconButton(
-            onClick = onOpenProfile,
-            modifier = Modifier
-                .size(42.dp)
-                .tvFocusBorder(CircleShape),
-        ) {
-            if (profileAvatarUrl.isNotBlank()) {
-                AsyncImage(
-                    model = profileAvatarUrl,
-                    contentDescription = "Choose profile",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape),
-                )
-            } else {
-                Icon(Icons.Default.AccountCircle, contentDescription = "Choose profile")
-            }
-        }
-    }
-}
-
-@Composable
 private fun TvDetailRatingCastPanel(
     movie: TmdbMovie?,
     credits: TmdbCredits?,
@@ -291,9 +237,6 @@ fun MovieDetailScreen(
     movieId: Long,
     mediaType: String = "movie",
     onBack: () -> Unit,
-    onOpenSearch: () -> Unit = {},
-    onOpenProfile: () -> Unit = {},
-    profileAvatarUrl: String = "",
     onPlay: (
         initialUrl: String,
         title: String,
@@ -351,23 +294,6 @@ fun MovieDetailScreen(
     BackHandler(enabled = showTrailerFullscreen) {
         showTrailerFullscreen = false
     }
-    LaunchedEffect(movie != null, openSourcePickerOnStart) {
-        if (isTv && movie != null && !openSourcePickerOnStart) {
-            try { playBtnFocus.requestFocus() } catch (_: Exception) {}
-        }
-    }
-    LaunchedEffect(isTv, tvNavDownFocusHandoffVersion, movie, openSourcePickerOnStart) {
-        if (!isTv || tvNavDownFocusHandoffVersion <= 0 || movie == null || openSourcePickerOnStart) {
-            return@LaunchedEffect
-        }
-        repeat(12) {
-            if (runCatching { playBtnFocus.requestFocus() }.isSuccess) {
-                return@LaunchedEffect
-            }
-            delay(60L)
-        }
-    }
-
     var showStreamPicker by remember { mutableStateOf(false) }
     var pickerForDownload by remember { mutableStateOf(false) }
     var openInitialSourcePicker by rememberSaveable(movieId, mediaType, openSourcePickerOnStart) {
@@ -541,6 +467,28 @@ fun MovieDetailScreen(
             selectedSeason = selectedSeason,
             seasonSelectedByUser = seasonSelectedByUser,
         )
+    }
+
+    val addonCount = installedAddons.size + installedNuvio.size + installedCsPlugins.size
+    val playEnabled = imdbId != null && addonCount > 0 && !resolving
+    val primaryPlayActionReady =
+        playEnabled && (mediaType != "tv" || episodePlaybackTarget != null)
+    LaunchedEffect(
+        isTv,
+        movie != null,
+        openSourcePickerOnStart,
+        tvNavDownFocusHandoffVersion,
+        primaryPlayActionReady,
+    ) {
+        if (!isTv || movie == null || openSourcePickerOnStart) {
+            return@LaunchedEffect
+        }
+        repeat(20) {
+            delay(80L)
+            if (runCatching { playBtnFocus.requestFocus() }.getOrDefault(false)) {
+                return@LaunchedEffect
+            }
+        }
     }
 
     LaunchedEffect(
@@ -919,8 +867,6 @@ fun MovieDetailScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        val addonCount = installedAddons.size + installedNuvio.size + installedCsPlugins.size
-        val playEnabled = imdbId != null && addonCount > 0 && !resolving
         if (isTv) {
             Row(
                 modifier = Modifier.widthIn(max = 680.dp).fillMaxWidth(),
@@ -1283,8 +1229,7 @@ fun MovieDetailScreen(
         } else {
             (viewportWidth * (9f / 16f)).coerceIn(220.dp, 320.dp)
         }
-        // Keep TV titles and actions below the top chrome while letting the backdrop
-        // continue behind the cleared area.
+        // Keep the TV detail content clear of the top edge while the backdrop fills it.
         val showTvBackdropBehindClearance = isTv && !movie?.backdropUrl.isNullOrBlank()
         if (showTvBackdropBehindClearance) {
             MovieArtwork(
@@ -1426,7 +1371,7 @@ fun MovieDetailScreen(
                             .padding(
                                 start = if (compactTvHero) 22.dp else 48.dp,
                                 end = if (compactTvHero) 20.dp else 40.dp,
-                                top = 70.dp,
+                                top = 24.dp,
                                 bottom = 22.dp,
                             ),
                         verticalAlignment = Alignment.CenterVertically,
@@ -1887,14 +1832,7 @@ fun MovieDetailScreen(
             }
         }
 
-        if (isTv) {
-            TvDetailTopActions(
-                onBack = onBack,
-                onOpenSearch = onOpenSearch,
-                onOpenProfile = onOpenProfile,
-                profileAvatarUrl = profileAvatarUrl,
-            )
-        } else {
+        if (!isTv) {
             // Floating back button for mobile.
             IconButton(
                 onClick = onBack,
