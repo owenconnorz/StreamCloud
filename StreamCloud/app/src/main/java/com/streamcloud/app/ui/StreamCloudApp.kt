@@ -2531,12 +2531,12 @@ private fun TvPrimeSideNav(
         adultTabEnabled || it.route != Tab.Adult.route
     }
     val route = currentRoute.orEmpty()
+    val searchDestinationSelected =
+        route == "movie-search" || route.startsWith("ai-search")
     fun tabIsSelected(tab: Tab): Boolean =
         route == tab.route || when (tab.route) {
             Tab.Movies.route ->
-                route == "movie-search" ||
-                    route.startsWith("ai-search") ||
-                    route.startsWith("movie/") ||
+                route.startsWith("movie/") ||
                     route.startsWith("tv/") ||
                     route.startsWith("catalog/") ||
                     route.startsWith("cloudstream/") ||
@@ -2802,7 +2802,7 @@ private fun TvPrimeSideNav(
                 RailAction(
                     icon = MaterialIcons.Filled.Search,
                     label = "Search",
-                    selected = false,
+                    selected = searchDestinationSelected,
                     focused = searchFocused,
                     expanded = railHasFocus,
                     focusRequester = searchFocusRequester,
