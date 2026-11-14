@@ -174,7 +174,7 @@ internal fun FirstRunProfileSetupScreen(
         if (!isTv) return@LaunchedEffect
         repeat(10) {
             delay(60)
-            if (runCatching { primaryFocusRequester.requestFocus() }.getOrDefault(false)) {
+            if (runCatching { primaryFocusRequester.requestFocus() }.isSuccess) {
                 return@LaunchedEffect
             }
         }
