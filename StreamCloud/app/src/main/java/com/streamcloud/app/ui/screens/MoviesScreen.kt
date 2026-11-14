@@ -538,9 +538,11 @@ fun MoviesScreen(
     val tvHomeFirstGenreFocusRequester = remember { FocusRequester() }
     val tvHomeFirstContinueFocusRequester = remember { FocusRequester() }
     val tvHomeFirstTopTenFocusRequester = remember { FocusRequester() }
+    val tvHomeFirstFallbackFocusRequester = remember { FocusRequester() }
     val tvHomeFirstGenreHasFocus = remember { mutableStateOf(false) }
     val tvHomeFirstContinueHasFocus = remember { mutableStateOf(false) }
     val tvHomeFirstTopTenHasFocus = remember { mutableStateOf(false) }
+    val tvHomeFirstFallbackHasFocus = remember { mutableStateOf(false) }
     var tvHomeFastScrolling by remember { mutableStateOf(false) }
     var tvHomeFocusTransferInProgress by remember { mutableStateOf(false) }
     var lastTvHomeVerticalRepeatAt by remember { mutableStateOf(0L) }
@@ -592,6 +594,20 @@ fun MoviesScreen(
         } else {
             state.collections
         }
+    }
+    val firstTvHomeFallbackRowKey = when {
+        state.pinnedCollections.any {
+            it.folders.isNotEmpty() || (isTv && it.viewMode == "tabbed_grid")
+        } -> state.pinnedCollections.first {
+            it.folders.isNotEmpty() || (isTv && it.viewMode == "tabbed_grid")
+        }.let { "pinned_${it.collectionId}" }
+        homeCollectionRows.any { it.items.isNotEmpty() } ->
+            "col_${homeCollectionRows.first { it.items.isNotEmpty() }.id}"
+        firstStremioRowKey != null -> "stremio_$firstStremioRowKey"
+        state.csPluginRows.any { it.items.isNotEmpty() } ->
+            state.csPluginRows.first { it.items.isNotEmpty() }
+                .let { "cshome_${it.pluginInternalName}_${it.sectionName}" }
+        else -> null
     }
     val tvTopTenItems = if (isTv) personalizedTrending.take(10) else emptyList()
     val mobileTopMovies = if (isTv) {
@@ -697,16 +713,13 @@ fun MoviesScreen(
         30.dp + continueCardWidth * 0.54f
     }
     val tvHomeRowsViewportHeight = run {
-        val screenWidth = LocalConfiguration.current.screenWidthDp.dp
         val screenHeight = LocalConfiguration.current.screenHeightDp.dp
-        val genreCardWidth = calculateTvGenreCardWidth(screenWidth, homeGenres.size)
-        val genreRowHeight = 30.dp + genreCardWidth * 9f / 16f + 8.dp
         val followingShelfHeight = 120.dp
         val traditionalViewport = (
             if (visibleContinueWatching.isNotEmpty()) {
-                tvHomeContinueRowHeight + genreRowHeight
+                tvHomeContinueRowHeight + followingShelfHeight
             } else {
-                genreRowHeight + followingShelfHeight
+                followingShelfHeight
             }
         ).coerceIn(220.dp, 380.dp)
         if (tvTopTenItems.isNotEmpty()) {
@@ -732,11 +745,14 @@ fun MoviesScreen(
     val startupFocusTarget = when {
         state.error != null || !hasBrowseContent -> "recovery"
         isTv && tvTopTenItems.isNotEmpty() -> "top_ten"
-        isTv && visibleContinueWatching.isEmpty() -> "genre"
-        state.continueWatching.isNotEmpty() -> "continue"
-        isTv -> "genre"
-        firstCollectionRowId != null -> "collection"
-        firstStremioRowKey != null -> "stremio"
+        isTv && visibleContinueWatching.isNotEmpty() -> "continue"
+        !isTv && state.continueWatching.isNotEmpty() -> "continue"
+        isTv && firstTvHomeFallbackRowKey?.startsWith("pinned_") == true -> "first_row"
+        isTv && firstTvHomeFallbackRowKey?.startsWith("col_") == true -> "collection"
+        isTv && firstTvHomeFallbackRowKey?.startsWith("stremio_") == true -> "stremio"
+        isTv && firstTvHomeFallbackRowKey?.startsWith("cshome_") == true -> "first_row"
+        !isTv && firstCollectionRowId != null -> "collection"
+        !isTv && firstStremioRowKey != null -> "stremio"
         !isTv && !state.loading && state.showHeroSection && state.heroBanner.isNotEmpty() -> "hero"
         else -> null
     }
@@ -938,6 +954,8 @@ fun MoviesScreen(
                 val isFirstGenre = rowKey == "home_genres" && itemIndex == 0
                 val isFirstContinue =
                     rowKey == "continue_watching" && itemIndex == 0
+                val isFirstFallback =
+                    rowKey == firstTvHomeFallbackRowKey && itemIndex == 0
                 if (
                     rowListState != null &&
                     shouldRevealTvHomeFocusItem(
@@ -956,6 +974,7 @@ fun MoviesScreen(
                 // has composed. Look up the card requester on every attempt rather
                 // than caching null and focusing the invisible row container.
                 val itemRequester = when {
+                    isFirstFallback -> tvHomeFirstFallbackFocusRequester
                     isFirstGenre -> tvHomeFirstGenreFocusRequester
                     isFirstContinue -> tvHomeFirstContinueFocusRequester
                     else -> tvHomeItemFocusRequesters[rowKey]?.get(itemIndex)
@@ -967,6 +986,7 @@ fun MoviesScreen(
                 runCatching { itemRequester.requestFocus() }
                 withFrameNanos { }
                 val hasFocus = when {
+                    isFirstFallback -> tvHomeFirstFallbackHasFocus.value
                     isFirstGenre -> tvHomeFirstGenreHasFocus.value
                     isFirstContinue -> tvHomeFirstContinueHasFocus.value
                     else -> tvHomeFocusedRowKey.value == rowKey &&
@@ -1180,8 +1200,9 @@ fun MoviesScreen(
 
     val tvHeroFirstFocusRowKey = selectFirstTvHomeFocusRowKey(
         hasContinueWatching = visibleContinueWatching.isNotEmpty(),
-        hasGenres = homeGenres.isNotEmpty(),
+        hasGenres = false,
         hasTopTen = tvTopTenItems.isNotEmpty(),
+        fallbackRowKey = firstTvHomeFallbackRowKey,
     )
         LaunchedEffect(isTv, tvNavDownFocusHandoffVersion, tvHeroFirstFocusRowKey, query) {
             if (!isTv || tvNavDownFocusHandoffVersion <= 0 || query.isNotBlank()) {
@@ -1299,18 +1320,27 @@ fun MoviesScreen(
                 navFocusRequester = tvNavHeroFocus,
                 navReturnFocusRequester = tvNavSafeFocusRequester,
                 leftFocusRequester = tvNavSearchFocusRequester,
-                downFocusRequester = when (tvHeroFirstFocusRowKey) {
-                     "top_ten" -> tvHomeFirstTopTenFocusRequester
-                    "continue_watching" -> tvHomeFirstContinueFocusRequester
-                    "home_genres" -> tvHomeFirstGenreFocusRequester
+                downFocusRequester = when {
+                    tvHeroFirstFocusRowKey == "top_ten" -> tvHomeFirstTopTenFocusRequester
+                    tvHeroFirstFocusRowKey == "continue_watching" ->
+                        tvHomeFirstContinueFocusRequester
+                    tvHeroFirstFocusRowKey == "home_genres" -> tvHomeFirstGenreFocusRequester
+                    firstTvHomeFallbackRowKey != null &&
+                        tvHeroFirstFocusRowKey == firstTvHomeFallbackRowKey ->
+                        tvHomeFirstFallbackFocusRequester
                     else -> null
                 },
                 downFocusIsConfirmed = {
-                    when (tvHeroFirstFocusRowKey) {
-                         "top_ten" -> tvHomeFirstTopTenHasFocus.value
-                        "continue_watching" ->
+                    when {
+                        tvHeroFirstFocusRowKey == "top_ten" ->
+                            tvHomeFirstTopTenHasFocus.value
+                        tvHeroFirstFocusRowKey == "continue_watching" ->
                             tvHomeFirstContinueHasFocus.value
-                        "home_genres" -> tvHomeFirstGenreHasFocus.value
+                        tvHeroFirstFocusRowKey == "home_genres" ->
+                            tvHomeFirstGenreHasFocus.value
+                        firstTvHomeFallbackRowKey != null &&
+                            tvHeroFirstFocusRowKey == firstTvHomeFallbackRowKey ->
+                            tvHomeFirstFallbackHasFocus.value
                         else -> false
                     }
                 },
@@ -1772,7 +1802,7 @@ fun MoviesScreen(
                         }
                     }
                 }
-                if (homeGenres.isNotEmpty()) {
+                if (!isTv && homeGenres.isNotEmpty()) {
                     item(key = "home_genres") {
                         val rowFocusRequester = rememberTvHomeRowFocusRequester(
                             tvHomeRowFocusRequesters,
@@ -1898,12 +1928,45 @@ fun MoviesScreen(
                                                         Modifier.focusRequester(it)
                                                     } ?: Modifier,
                                                 )
+                                                .then(
+                                                    if (
+                                                        isTv &&
+                                                        rowKey == firstTvHomeFallbackRowKey &&
+                                                        index == 0
+                                                    ) {
+                                                        Modifier.focusRequester(
+                                                            tvHomeFirstFallbackFocusRequester,
+                                                        )
+                                                    } else {
+                                                        Modifier
+                                                    },
+                                                )
+                                                .then(
+                                                    if (
+                                                        isTv &&
+                                                        rowKey == firstTvHomeFallbackRowKey &&
+                                                        index == 0 &&
+                                                        startupFocusTarget == "first_row" &&
+                                                        initialFocusRequester != null
+                                                    ) {
+                                                        Modifier.focusRequester(initialFocusRequester)
+                                                    } else {
+                                                        Modifier
+                                                    },
+                                                )
                                                 .onFocusChanged {
                                                     updateTvHomeItemFocus(
                                                         rowKey,
                                                         index,
                                                         it.isFocused || it.hasFocus,
                                                     )
+                                                    if (
+                                                        rowKey == firstTvHomeFallbackRowKey &&
+                                                        index == 0
+                                                    ) {
+                                                        tvHomeFirstFallbackHasFocus.value =
+                                                            it.isFocused || it.hasFocus
+                                                    }
                                                 }
                                         } else {
                                             Modifier
@@ -1960,6 +2023,34 @@ fun MoviesScreen(
                                     item(key = "pinned_${pinnedRow.collectionId}_viewall") {
                                         ViewAllCard(
                                             posterStyle = homeCardStyle,
+                                            modifier = if (
+                                                isTv &&
+                                                pinnedRow.folders.isEmpty() &&
+                                                rowKey == firstTvHomeFallbackRowKey
+                                            ) {
+                                                Modifier
+                                                    .focusRequester(
+                                                        tvHomeFirstFallbackFocusRequester,
+                                                    )
+                                                    .then(
+                                                        if (
+                                                            startupFocusTarget == "first_row" &&
+                                                            initialFocusRequester != null
+                                                        ) {
+                                                            Modifier.focusRequester(
+                                                                initialFocusRequester,
+                                                            )
+                                                        } else {
+                                                            Modifier
+                                                        },
+                                                    )
+                                                    .onFocusChanged {
+                                                        tvHomeFirstFallbackHasFocus.value =
+                                                            it.isFocused || it.hasFocus
+                                                    }
+                                            } else {
+                                                Modifier
+                                            },
                                             onClick = {
                                                 onOpenCollectionTabbed(pinnedRow.collectionId)
                                             },
@@ -2034,6 +2125,12 @@ fun MoviesScreen(
                                     titleLogoUrl = state.tmdbTitleLogos["$mediaType:${m.id}"],
                                     onRequestTitleLogo = { vm.requestTitleLogo(m.id, mediaType) },
                                     onFocusChanged = { hasFocus ->
+                                        if (
+                                            rowKey == firstTvHomeFallbackRowKey &&
+                                            index == 0
+                                        ) {
+                                            tvHomeFirstFallbackHasFocus.value = hasFocus
+                                        }
                                         if (hasFocus) {
                                             focusedPosterIndex = index
                                             updateTvHomeItemFocus(rowKey, index, true)
@@ -2049,7 +2146,23 @@ fun MoviesScreen(
                                         )
                                         .then(
                                             if (
-                                                row.id == firstCollectionRowId &&
+                                                isTv &&
+                                                rowKey == firstTvHomeFallbackRowKey &&
+                                                index == 0
+                                            ) {
+                                                Modifier.focusRequester(
+                                                    tvHomeFirstFallbackFocusRequester,
+                                                )
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
+                                        .then(
+                                            if (
+                                                (
+                                                    row.id == firstCollectionRowId ||
+                                                        (isTv && rowKey == firstTvHomeFallbackRowKey)
+                                                    ) &&
                                                 index == 0 &&
                                                 startupFocusTarget == "collection" &&
                                                 initialFocusRequester != null
@@ -2158,6 +2271,12 @@ fun MoviesScreen(
                                     },
                                     onRequestTitleLogo = vm::requestTitleLogo,
                                     onFocusChanged = { hasFocus ->
+                                        if (
+                                            rowKey == firstTvHomeFallbackRowKey &&
+                                            index == 0
+                                        ) {
+                                            tvHomeFirstFallbackHasFocus.value = hasFocus
+                                        }
                                         if (hasFocus) {
                                             focusedPosterIndex = index
                                             updateTvHomeItemFocus(rowKey, index, true)
@@ -2173,9 +2292,35 @@ fun MoviesScreen(
                                         )
                                         .then(
                                             if (
+                                                isTv &&
+                                                rowKey == firstTvHomeFallbackRowKey &&
+                                                index == 0
+                                            ) {
+                                                Modifier.focusRequester(
+                                                    tvHomeFirstFallbackFocusRequester,
+                                                )
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
+                                        .then(
+                                            if (
                                                 row.rowKey == firstStremioRowKey &&
                                                 index == 0 &&
                                                 startupFocusTarget == "stremio" &&
+                                                initialFocusRequester != null
+                                            ) {
+                                                Modifier.focusRequester(initialFocusRequester)
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
+                                        .then(
+                                            if (
+                                                isTv &&
+                                                rowKey == firstTvHomeFallbackRowKey &&
+                                                index == 0 &&
+                                                startupFocusTarget == "first_row" &&
                                                 initialFocusRequester != null
                                             ) {
                                                 Modifier.focusRequester(initialFocusRequester)
@@ -2339,6 +2484,12 @@ fun MoviesScreen(
                                     },
                                     onRequestTitleLogo = vm::requestTitleLogo,
                                     onFocusChanged = { hasFocus ->
+                                        if (
+                                            rowKey == firstTvHomeFallbackRowKey &&
+                                            index == 0
+                                        ) {
+                                            tvHomeFirstFallbackHasFocus.value = hasFocus
+                                        }
                                         if (hasFocus) {
                                             focusedPosterIndex = index
                                             updateTvHomeItemFocus(rowKey, index, true)
@@ -2347,9 +2498,35 @@ fun MoviesScreen(
                                             }
                                         }
                                     },
-                                    modifier = itemFocusRequester?.let {
+                                    modifier = (itemFocusRequester?.let {
                                         Modifier.focusRequester(it)
-                                    } ?: Modifier,
+                                    } ?: Modifier)
+                                        .then(
+                                            if (
+                                                isTv &&
+                                                rowKey == firstTvHomeFallbackRowKey &&
+                                                index == 0
+                                            ) {
+                                                Modifier.focusRequester(
+                                                    tvHomeFirstFallbackFocusRequester,
+                                                )
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
+                                        .then(
+                                            if (
+                                                isTv &&
+                                                rowKey == firstTvHomeFallbackRowKey &&
+                                                index == 0 &&
+                                                startupFocusTarget == "first_row" &&
+                                                initialFocusRequester != null
+                                            ) {
+                                                Modifier.focusRequester(initialFocusRequester)
+                                            } else {
+                                                Modifier
+                                            },
+                                        ),
                                     onClick = {
                                         onOpenCsItem(
                                             row.pluginInternalName,
@@ -2686,11 +2863,12 @@ internal fun selectFirstTvHomeFocusRowKey(
     hasContinueWatching: Boolean,
     hasGenres: Boolean,
     hasTopTen: Boolean = false,
+    fallbackRowKey: String? = null,
 ): String? = when {
     hasTopTen -> "top_ten"
     hasContinueWatching -> "continue_watching"
     hasGenres -> "home_genres"
-    else -> null
+    else -> fallbackRowKey
 }
 
 internal fun shouldShowTvHeroActions(
@@ -3964,13 +4142,14 @@ private fun SectionTitle(text: String) {
 @Composable
 private fun ViewAllCard(
     posterStyle: String = "portrait",
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val useLandscape = posterStyle == "landscape"
     val width = if (useLandscape) 220.dp else 140.dp
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     Column(
-        modifier = Modifier
+        modifier = modifier
             .width(width)
             .tvFocusBorder(RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))

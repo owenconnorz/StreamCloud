@@ -83,6 +83,18 @@ class TvGenreLayoutTest {
     }
 
     @Test
+    fun heroFallsThroughToFirstAvailableShelfWhenGenresAreHidden() {
+        assertEquals(
+            "col_popular",
+            selectFirstTvHomeFocusRowKey(
+                hasContinueWatching = false,
+                hasGenres = false,
+                fallbackRowKey = "col_popular",
+            ),
+        )
+    }
+
+    @Test
     fun staleShelfIsNotUsedAfterFocusLeavesIt() {
         assertEquals(
             "home_genres",
