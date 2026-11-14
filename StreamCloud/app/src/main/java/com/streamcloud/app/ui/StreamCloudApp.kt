@@ -2319,6 +2319,7 @@ fun StreamCloudApp(
                             activeProfile?.name.orEmpty()
                         },
                         profileAvatarUrl = activeProfile?.avatarUrl.orEmpty(),
+                        profileName = activeProfile?.name.orEmpty(),
                         onNavFocusChanged = { tvNavHasFocus = it },
                         onDownFocusHandoffRequested = {
                             tvNavDownFocusHandoffVersion++
@@ -2493,6 +2494,7 @@ private fun TvPrimeSideNav(
     onProfileClick: () -> Unit = {},
     profileAvatarSeed: String = "",
     profileAvatarUrl: String = "",
+    profileName: String = "",
     modifier: Modifier = Modifier,
 ) {
     val destinations = tabs.filter {
@@ -2526,19 +2528,23 @@ private fun TvPrimeSideNav(
     var contentHandoffAttempt by remember { mutableIntStateOf(0) }
     val focusManager = LocalFocusManager.current
     val railWidth by animateDpAsState(
-        targetValue = if (railHasFocus) 208.dp else 72.dp,
-        animationSpec = tween(durationMillis = 240),
+        targetValue = if (railHasFocus) 216.dp else 72.dp,
+        animationSpec = spring(
+            dampingRatio = 0.88f,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
         label = "tvSideRailWidth",
     )
     val railScrimAlpha by animateFloatAsState(
-        targetValue = if (railHasFocus) 0.74f else 0.28f,
-        animationSpec = tween(durationMillis = 240),
+        targetValue = if (railHasFocus) 0.76f else 0.28f,
+        animationSpec = tween(durationMillis = 280),
         label = "tvSideRailScrim",
     )
     val focusedDestinationIndex = destinations.indexOfFirst {
         it.route == focusedDestinationKey
     }.takeIf { it >= 0 }
     val focusIndicatorTop = when {
+        profileFocused -> 0.dp
         searchFocused -> 72.dp
         focusedDestinationIndex != null -> 120.dp + 48.dp * focusedDestinationIndex
         else -> null
@@ -2546,7 +2552,7 @@ private fun TvPrimeSideNav(
     val animatedFocusIndicatorTop by animateDpAsState(
         targetValue = focusIndicatorTop ?: 72.dp,
         animationSpec = spring(
-            dampingRatio = 0.82f,
+            dampingRatio = 0.78f,
             stiffness = Spring.StiffnessMediumLow,
         ),
         label = "tvSideRailFocusPosition",
@@ -2678,41 +2684,75 @@ private fun TvPrimeSideNav(
                 horizontalAlignment = Alignment.Start,
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                val profileShape = CircleShape
-                Box(
+                Row(
                     modifier = Modifier
-                        .size(38.dp)
-                        .clip(profileShape)
-                        .background(if (profileFocused) Color.White else Color.Transparent)
-                        .border(
-                            width = if (profileFocused && profileAvatarUrl.isNotBlank()) 2.dp else 0.dp,
-                            color = Color.White,
-                            shape = profileShape,
-                        )
+                        .fillMaxWidth()
+                        .height(38.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.Transparent)
                         .onFocusChanged { profileFocused = it.isFocused }
-                        .tvFocusBorder(profileShape, showOutline = false)
+                        .tvFocusBorder(RoundedCornerShape(12.dp), showOutline = false)
                         .focusProperties { down = searchFocusRequester }
                         .clickable(onClick = onProfileClick),
-                    contentAlignment = Alignment.Center,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    when {
-                        profileAvatarUrl.isNotBlank() -> AsyncImage(
-                            model = profileAvatarUrl,
-                            contentDescription = "Choose profile",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        profileAvatarSeed.isNotBlank() -> Image(
-                            painter = painterResource(profileAvatarDrawable(profileAvatarSeed)),
-                            contentDescription = "Choose profile",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                        else -> Icon(
-                            MaterialIcons.Filled.AccountCircle,
-                            contentDescription = "Choose profile",
-                            tint = if (profileFocused) Color(0xFF111216) else Color.White,
-                            modifier = Modifier.size(22.dp),
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .border(
+                                width = if (profileFocused && profileAvatarUrl.isNotBlank()) 2.dp else 0.dp,
+                                color = Color.White,
+                                shape = CircleShape,
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        when {
+                            profileAvatarUrl.isNotBlank() -> AsyncImage(
+                                model = profileAvatarUrl,
+                                contentDescription = "Choose profile",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            profileAvatarSeed.isNotBlank() -> Image(
+                                painter = painterResource(profileAvatarDrawable(profileAvatarSeed)),
+                                contentDescription = "Choose profile",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                            else -> Icon(
+                                MaterialIcons.Filled.AccountCircle,
+                                contentDescription = "Choose profile",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                    AnimatedVisibility(
+                        visible = railHasFocus,
+                        enter = expandHorizontally(
+                            expandFrom = Alignment.Start,
+                            animationSpec = tween(220),
+                        ) + slideInHorizontally(
+                            initialOffsetX = { -it / 6 },
+                            animationSpec = tween(220),
+                        ) + fadeIn(tween(170)),
+                        exit = shrinkHorizontally(
+                            shrinkTowards = Alignment.Start,
+                            animationSpec = tween(160),
+                        ) + slideOutHorizontally(
+                            targetOffsetX = { -it / 8 },
+                            animationSpec = tween(160),
+                        ) + fadeOut(tween(120)),
+                    ) {
+                        Text(
+                            text = profileName.ifBlank { "Profile" },
+                            modifier = Modifier.padding(start = 12.dp, end = 8.dp),
+                            color = if (profileFocused) Color(0xFF111216) else Color.White,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = if (profileFocused) FontWeight.SemiBold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -2799,22 +2839,22 @@ private fun RailAction(
                 visible = expanded,
                 enter = expandHorizontally(
                     expandFrom = Alignment.Start,
-                    animationSpec = tween(190),
+                    animationSpec = tween(220),
                 ) +
                     slideInHorizontally(
                         initialOffsetX = { -it / 6 },
-                        animationSpec = tween(190),
+                        animationSpec = tween(220),
                     ) +
-                    fadeIn(tween(150)),
+                    fadeIn(tween(170)),
                 exit = shrinkHorizontally(
                     shrinkTowards = Alignment.Start,
-                    animationSpec = tween(140),
+                    animationSpec = tween(160),
                 ) +
                     slideOutHorizontally(
                         targetOffsetX = { -it / 8 },
-                        animationSpec = tween(140),
+                        animationSpec = tween(160),
                     ) +
-                    fadeOut(tween(110)),
+                    fadeOut(tween(120)),
             ) {
                 Text(
                     text = label,
