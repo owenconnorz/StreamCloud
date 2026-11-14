@@ -582,6 +582,14 @@ fun MoviesScreen(
         }
     }
     val tvTopTenItems = if (isTv) state.trending.take(10) else emptyList()
+    val mobileTopMovies = if (isTv) {
+        emptyList()
+    } else {
+        state.trending.asSequence()
+            .filter { it.title != null }
+            .take(10)
+            .toList()
+    }
     val tvGenreArtworkPool = remember(
         state.collections,
         state.trending,
@@ -1358,7 +1366,7 @@ fun MoviesScreen(
                     handleTvHomeLeftEdgeKeyEvent(event) || handleTvHomeVerticalKeyEvent(event)
                 },
             state = moviesListState,
-            contentPadding = PaddingValues(bottom = 16.dp),
+            contentPadding = PaddingValues(bottom = if (isTv) 16.dp else 104.dp),
         ) {
             if (query.isNotBlank()) {
                 item { Spacer(Modifier.statusBarsPadding().height(56.dp)) }
@@ -1497,7 +1505,7 @@ fun MoviesScreen(
                             isTv = true,
                         )
                         Column {
-                            TvHomeSectionTitle("Top 10 in StreamCloud")
+                            TvHomeSectionTitle("Top 10 Movies This Week")
                             LazyRow(
                                 state = topTenRowState,
                                 modifier = Modifier
@@ -1792,6 +1800,34 @@ fun MoviesScreen(
                                 onFirstMovieFocusedChanged(focused)
                             },
                         )
+                    }
+                }
+                if (mobileTopMovies.isNotEmpty()) {
+                    item(key = "mobile_top_ten") {
+                        Column {
+                            SectionTitle("Top 10 Movies This Week")
+                            PosterGrid(
+                                movies = mobileTopMovies,
+                                watchedTmdbIds = watchedTmdbIds,
+                                posterStyle = "portrait",
+                                columns = 2,
+                                onClick = { movie ->
+                                    if (movie.title != null) {
+                                        onMovieClick(movie.id)
+                                    } else {
+                                        onTvClick(movie.id)
+                                    }
+                                },
+                                onLongPress = { movie ->
+                                    posterSheet = PosterSheetItem(
+                                        movie.id,
+                                        movie.displayTitle,
+                                        movie.posterUrl,
+                                        movie.watchedMediaType(),
+                                    )
+                                },
+                            )
+                        }
                     }
                 }
                 state.pinnedCollections.forEach { pinnedRow ->
@@ -2757,7 +2793,7 @@ private fun HomeGenresRow(
         if (isTv) {
             TvHomeSectionTitle("Genres")
         } else {
-            SectionTitle("Genres")
+            SectionTitle("Categories")
         }
         LazyRow(
             state = listState,
@@ -3289,6 +3325,8 @@ private fun HeroPager(
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val mobileHeroHeight = (LocalConfiguration.current.screenHeightDp.dp * 0.45f)
+        .coerceIn(340.dp, 440.dp)
     val tvHeroHeight = (LocalConfiguration.current.screenHeightDp.dp * 0.55f)
         .coerceIn(270.dp, 420.dp)
 
@@ -3377,14 +3415,7 @@ private fun HeroPager(
                 state = pagerState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .shadow(
-                        elevation = 18.dp,
-                        shape = RoundedCornerShape(18.dp),
-                        clip = false,
-                        ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                        spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.38f),
-                    )
-                    .height(520.dp + statusBarHeight),
+                    .height(mobileHeroHeight + statusBarHeight),
                 pageSpacing = 0.dp,
             ) { page ->
                 val item = items[page]
@@ -3570,7 +3601,7 @@ private fun HeroBannerSlide(
             if (item.mediaType == "tv") "Series" else "Movie",
             item.year.takeIf { it.isNotBlank() },
             item.rating.takeIf { it.isNotBlank() },
-        ).joinToString("  â¢  ")
+        ).joinToString("  •  ")
 
         if (isTv) {
             // TV: full-bleed editorial hero with details and actions on the left.
@@ -3701,7 +3732,7 @@ private fun HeroBannerSlide(
                 }
             }
         } else {
-            // Mobile/tablet: vertical gradient + centred layout
+            // Mobile: compact editorial hero keeps enough of the first shelves visible.
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.verticalGradient(
@@ -3717,9 +3748,10 @@ private fun HeroBannerSlide(
             )
             Column(
                 Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = 24.dp, vertical = 28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(horizontal = 22.dp, vertical = 24.dp),
+                horizontalAlignment = Alignment.Start,
             ) {
                 HeroBannerTitle(
                     title = item.title,
@@ -3730,25 +3762,72 @@ private fun HeroBannerSlide(
                 Text(
                     meta,
                     color = Color.White.copy(alpha = 0.85f),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.bodyMedium,
                 )
-                Spacer(Modifier.height(14.dp))
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(Color.White)
-                        .clickable(onClick = onClick)
-                        .padding(horizontal = 26.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                ) {
+                item.overview.takeIf { it.isNotBlank() }?.let { overview ->
+                    Spacer(Modifier.height(7.dp))
                     Text(
-                        "View Details",
-                        color = Color.Black,
-                        style = MaterialTheme.typography.titleSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                        ),
+                        text = overview,
+                        color = Color.White.copy(alpha = 0.86f),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.primary)
+                            .clickable(onClick = onPlayClick)
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.PlayArrow,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Text(
+                            "Watch Now",
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                            ),
+                        )
+                    }
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Black.copy(alpha = 0.45f))
+                            .border(
+                                width = 1.dp,
+                                color = Color.White.copy(alpha = 0.35f),
+                                shape = RoundedCornerShape(12.dp),
+                            )
+                            .clickable(onClick = onClick)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Info,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            "More Info",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                    }
                 }
             }
         }
@@ -3767,8 +3846,8 @@ private fun HeroBannerTitle(
             contentDescription = "$title logo",
             contentScale = ContentScale.Fit,
             modifier = Modifier
-                .fillMaxWidth(if (isTv) 0.56f else 0.72f)
-                .height(if (isTv) 68.dp else 76.dp),
+                .fillMaxWidth(if (isTv) 0.56f else 0.66f)
+                .height(if (isTv) 68.dp else 52.dp),
         )
     } else {
         Text(
@@ -4011,12 +4090,13 @@ private fun ContinueWatchingCard(
     onClick: () -> Unit,
     onLongPress: () -> Unit,
 ) {
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     val cardWidth = if (isTv) {
-        (LocalConfiguration.current.screenWidthDp.dp * 0.21f).coerceIn(176.dp, 272.dp)
+        (screenWidth * 0.21f).coerceIn(176.dp, 272.dp)
     } else {
-        320.dp
+        (screenWidth * 0.43f).coerceIn(156.dp, 210.dp)
     }
-    val cardHeight = if (isTv) cardWidth * 0.54f else 124.dp
+    val cardHeight = if (isTv) cardWidth * 0.54f else cardWidth * 0.62f
     val pct = if (entry.durationMs > 0L)
         (entry.positionMs.toFloat() / entry.durationMs.toFloat()).coerceIn(0f, 1f)
     else 0f
@@ -4207,7 +4287,7 @@ private fun continueWatchingLandscapeSubtitle(entry: WatchProgressEntity): Strin
             "${remainingMinutes / 60L}h ${remainingMinutes % 60L}m left"
         else -> "${remainingMinutes}m left"
     }
-    return listOfNotNull(episodeLabel, remainingLabel).joinToString(" Â· ")
+    return listOfNotNull(episodeLabel, remainingLabel).joinToString(" · ")
 }
 
 @Composable
@@ -4665,11 +4745,12 @@ private fun PosterGrid(
     movies: List<TmdbMovie>,
     watchedTmdbIds: Set<Long>,
     posterStyle: String = "portrait",
+    columns: Int = if (posterStyle == "landscape") 2 else 3,
     onClick: (TmdbMovie) -> Unit,
     onLongPress: (TmdbMovie) -> Unit = {},
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    val chunkSize = if (posterStyle == "landscape") 2 else 3
+    val chunkSize = columns.coerceIn(1, 4)
     Column(
         modifier = Modifier
             .padding(horizontal = 16.dp)
@@ -4732,7 +4813,7 @@ private fun PosterGrid(
 private fun watchProgressDisplayLabel(entry: WatchProgressEntity): String {
     if (entry.mediaType != "tv") return "Movie"
     return if (entry.seasonNumber > 0 && entry.episodeNumber > 0) {
-        "Series Â· S${entry.seasonNumber.toString().padStart(2, '0')} E${entry.episodeNumber.toString().padStart(2, '0')}"
+        "Series · S${entry.seasonNumber.toString().padStart(2, '0')} E${entry.episodeNumber.toString().padStart(2, '0')}"
     } else {
         "Series"
     }
