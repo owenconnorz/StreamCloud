@@ -841,11 +841,17 @@ fun MovieDetailScreen(
                     Text(
                         synopsis,
                         style = MaterialTheme.typography.bodyMedium.copy(
-                            fontSize = 16.sp,
-                            lineHeight = 23.sp,
+                            fontSize = if (isTv) 12.sp else 16.sp,
+                            lineHeight = if (isTv) 16.sp else 23.sp,
                         ),
-                        color = Color.White.copy(alpha = 0.88f),
-                        maxLines = if (overviewExpanded) Int.MAX_VALUE else 3,
+                        color = Color.White.copy(alpha = if (isTv) 0.82f else 0.88f),
+                        maxLines = if (overviewExpanded) {
+                            Int.MAX_VALUE
+                        } else if (isTv) {
+                            4
+                        } else {
+                            3
+                        },
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (!overviewExpanded && synopsis.length > 180) {
