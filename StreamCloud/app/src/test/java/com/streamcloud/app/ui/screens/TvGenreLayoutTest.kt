@@ -70,10 +70,22 @@ class TvGenreLayoutTest {
     }
 
     @Test
-    fun heroDownPrefersContinueWatchingBeforeGenres() {
+    fun heroDownPrefersContinueWatchingBeforeOtherShelves() {
         assertEquals(
             "continue_watching",
-            selectFirstTvHomeFocusRowKey(hasContinueWatching = true, hasGenres = true),
+            selectFirstTvHomeFocusRowKey(
+                hasContinueWatching = true,
+                hasGenres = true,
+                hasTopTen = true,
+            ),
+        )
+        assertEquals(
+            "top_ten",
+            selectFirstTvHomeFocusRowKey(
+                hasContinueWatching = false,
+                hasGenres = false,
+                hasTopTen = true,
+            ),
         )
         assertEquals(
             "home_genres",

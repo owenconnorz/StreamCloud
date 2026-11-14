@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -712,25 +713,12 @@ fun MoviesScreen(
         val continueCardWidth = (screenWidth * 0.21f).coerceIn(176.dp, 272.dp)
         30.dp + continueCardWidth * 0.54f
     }
-    val tvHomeRowsViewportHeight = run {
-        val screenHeight = LocalConfiguration.current.screenHeightDp.dp
-        val followingShelfHeight = 120.dp
-        val traditionalViewport = (
-            if (visibleContinueWatching.isNotEmpty()) {
-                tvHomeContinueRowHeight + followingShelfHeight
-            } else {
-                followingShelfHeight
-            }
-        ).coerceIn(220.dp, 380.dp)
-        if (tvTopTenItems.isNotEmpty()) {
-            (screenHeight * 0.40f).coerceIn(220.dp, 300.dp)
-        } else {
-            traditionalViewport
-        }
+    val tvHomeRowsViewportHeight = when {
+        visibleContinueWatching.isNotEmpty() -> tvHomeContinueRowHeight + 16.dp
+        tvTopTenItems.isNotEmpty() -> 194.dp
+        else -> 224.dp
     }
-    val tvHeroBackdropRowsViewportHeight = if (
-        visibleContinueWatching.isNotEmpty() && tvTopTenItems.isEmpty()
-    ) {
+    val tvHeroBackdropRowsViewportHeight = if (visibleContinueWatching.isNotEmpty()) {
         (tvHomeRowsViewportHeight - tvHomeContinueRowHeight).coerceAtLeast(0.dp)
     } else {
         tvHomeRowsViewportHeight
@@ -744,8 +732,8 @@ fun MoviesScreen(
         state.csPluginRows.any { it.items.isNotEmpty() }
     val startupFocusTarget = when {
         state.error != null || !hasBrowseContent -> "recovery"
-        isTv && tvTopTenItems.isNotEmpty() -> "top_ten"
         isTv && visibleContinueWatching.isNotEmpty() -> "continue"
+        isTv && tvTopTenItems.isNotEmpty() -> "top_ten"
         !isTv && state.continueWatching.isNotEmpty() -> "continue"
         isTv && firstTvHomeFallbackRowKey?.startsWith("pinned_") == true -> "first_row"
         isTv && firstTvHomeFallbackRowKey?.startsWith("col_") == true -> "collection"
@@ -1312,6 +1300,7 @@ fun MoviesScreen(
                 items = state.heroBanner,
                 focusedItem = focusedHomeHero,
                 rowsViewportHeight = tvHeroBackdropRowsViewportHeight,
+                dotsBottomInset = tvHomeRowsViewportHeight,
                 initialFocusRequester = if (startupFocusTarget == "hero") {
                     initialFocusRequester
                 } else {
@@ -1531,7 +1520,7 @@ fun MoviesScreen(
                         MoviesLoadingPlaceholder()
                     }
                 }
-                if (tvTopTenItems.isNotEmpty()) {
+                val appendTopTenShelf: LazyListScope.() -> Unit = {
                     item(key = "top_ten") {
                         val rowKey = "top_ten"
                         val rowFocusRequester = rememberTvHomeRowFocusRequester(
@@ -1801,6 +1790,9 @@ fun MoviesScreen(
                             }
                         }
                     }
+                }
+                if (tvTopTenItems.isNotEmpty()) {
+                    appendTopTenShelf()
                 }
                 if (!isTv && homeGenres.isNotEmpty()) {
                     item(key = "home_genres") {
@@ -2865,8 +2857,8 @@ internal fun selectFirstTvHomeFocusRowKey(
     hasTopTen: Boolean = false,
     fallbackRowKey: String? = null,
 ): String? = when {
-    hasTopTen -> "top_ten"
     hasContinueWatching -> "continue_watching"
+    hasTopTen -> "top_ten"
     hasGenres -> "home_genres"
     else -> fallbackRowKey
 }
@@ -3148,6 +3140,7 @@ private fun TvHeroBackdrop(
     items: List<HeroBannerItem>,
     focusedItem: HeroBannerItem?,
     rowsViewportHeight: androidx.compose.ui.unit.Dp,
+    dotsBottomInset: androidx.compose.ui.unit.Dp = rowsViewportHeight,
     detailsVisible: Boolean,
     initialFocusRequester: FocusRequester? = null,
     navFocusRequester: FocusRequester? = null,
@@ -3336,18 +3329,11 @@ private fun TvHeroBackdrop(
                         .padding(
                             // Keep hero text and actions clear of the overlaid TV shortcut rail.
                             start = 92.dp,
-                            end = LocalConfiguration.current.screenWidthDp.dp * 0.52f,
-                            top = 24.dp,
+                            end = LocalConfiguration.current.screenWidthDp.dp * 0.42f,
+                            top = 48.dp,
                         )
-                        .widthIn(max = 640.dp),
+                        .widthIn(max = 580.dp),
                 ) {
-                    Text(
-                        "FEATURED",
-                        color = Color.White.copy(alpha = 0.84f),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.4.sp,
-                    )
                     if (!titleLogoUrl.isNullOrBlank() && !titleLogoFailed) {
                         AsyncImage(
                             model = tvHighResolutionTmdbArtworkUrl(titleLogoUrl),
@@ -3355,7 +3341,7 @@ private fun TvHeroBackdrop(
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 72.dp),
+                                .heightIn(max = 64.dp),
                             onError = { titleLogoFailed = true },
                         )
                     } else {
@@ -3373,15 +3359,18 @@ private fun TvHeroBackdrop(
                     }
                     Text(
                         meta,
-                        color = Color.White.copy(alpha = 0.82f),
-                        style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp),
+                        color = Color.White.copy(alpha = 0.76f),
+                        style = MaterialTheme.typography.labelLarge.copy(fontSize = 12.sp),
                         maxLines = 1,
                     )
                     hero.overview.trim().takeIf(String::isNotBlank)?.let { overview ->
                         Text(
                             overview,
-                            color = Color.White.copy(alpha = 0.88f),
-                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, lineHeight = 18.sp),
+                            color = Color.White.copy(alpha = 0.82f),
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp,
+                            ),
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -3417,11 +3406,11 @@ private fun TvHeroBackdrop(
                                     handleHeroActionKey(event, isPrimaryAction = true)
                                 },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                containerColor = Color.White,
+                                contentColor = Color(0xFF15151A),
                             ),
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 5.dp),
                         ) {
                             Icon(
                                 Icons.Default.PlayArrow,
@@ -3430,7 +3419,7 @@ private fun TvHeroBackdrop(
                             )
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                "Watch now",
+                                "Watch Now",
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.Bold,
                             )
@@ -3448,11 +3437,11 @@ private fun TvHeroBackdrop(
                                     handleHeroActionKey(event, isPrimaryAction = false)
                                 },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                                contentColor = MaterialTheme.colorScheme.onSurface,
+                                containerColor = Color.Black.copy(alpha = 0.46f),
+                                contentColor = Color.White,
                             ),
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 5.dp),
                         ) {
                             Icon(
                                 Icons.Default.Info,
@@ -3474,8 +3463,11 @@ private fun TvHeroBackdrop(
         if (items.size > 1 && focusedItem == null) {
             Row(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = rowsViewportHeight + 12.dp),
+                    .align(Alignment.BottomEnd)
+                    .padding(
+                        end = LocalConfiguration.current.screenWidthDp.dp * 0.20f,
+                        bottom = dotsBottomInset + 16.dp,
+                    ),
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
