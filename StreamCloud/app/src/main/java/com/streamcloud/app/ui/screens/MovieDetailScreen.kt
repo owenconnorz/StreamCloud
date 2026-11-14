@@ -121,12 +121,179 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
+@Composable
+private fun TvDetailTopActions(
+    onBack: () -> Unit,
+    onOpenSearch: () -> Unit,
+    onOpenProfile: () -> Unit,
+    profileAvatarUrl: String,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 42.dp, vertical = 10.dp)
+            .tvFocusGroup(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .size(42.dp)
+                .tvFocusBorder(CircleShape),
+        ) {
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+        }
+        Spacer(Modifier.weight(1f))
+        IconButton(
+            onClick = onOpenSearch,
+            modifier = Modifier
+                .size(42.dp)
+                .tvFocusBorder(CircleShape),
+        ) {
+            Icon(Icons.Default.Search, contentDescription = "Search")
+        }
+        Spacer(Modifier.width(12.dp))
+        IconButton(
+            onClick = onOpenProfile,
+            modifier = Modifier
+                .size(42.dp)
+                .tvFocusBorder(CircleShape),
+        ) {
+            if (profileAvatarUrl.isNotBlank()) {
+                AsyncImage(
+                    model = profileAvatarUrl,
+                    contentDescription = "Choose profile",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape),
+                )
+            } else {
+                Icon(Icons.Default.AccountCircle, contentDescription = "Choose profile")
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvDetailRatingCastPanel(
+    movie: TmdbMovie?,
+    credits: TmdbCredits?,
+    mediaType: String,
+    onPersonClick: (Long, String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val rating = movie?.voteAverage ?: 0.0
+    val creditLabel = if (mediaType == "tv") "CREATOR" else "DIRECTOR"
+    val creditNames = if (mediaType == "tv") {
+        movie?.createdBy.orEmpty().map { it.name }.take(2)
+    } else {
+        credits?.crew.orEmpty()
+            .filter { it.job.equals("Director", ignoreCase = true) }
+            .distinctBy { it.name }
+            .take(2)
+            .map { it.name }
+    }
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.Black.copy(alpha = 0.48f))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                if (rating > 0.0) String.format(java.util.Locale.US, "%.1f", rating) else "—",
+                color = Color(0xFF55D94A),
+                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+            )
+            Text(
+                "/10",
+                modifier = Modifier.padding(start = 3.dp, bottom = 4.dp),
+                color = Color.White.copy(alpha = 0.76f),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        Text(
+            movie?.voteCount?.takeIf { it > 0 }?.let { "$it TMDB ratings" } ?: "No ratings yet",
+            color = Color.White.copy(alpha = 0.68f),
+            style = MaterialTheme.typography.labelSmall,
+        )
+        HorizontalDivider(color = Color.White.copy(alpha = 0.18f))
+        Text(
+            creditLabel,
+            color = Color.White.copy(alpha = 0.60f),
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+        )
+        Text(
+            creditNames.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "Not listed",
+            color = Color.White,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            "CAST",
+            color = Color.White.copy(alpha = 0.60f),
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+        )
+        credits?.cast.orEmpty().take(3).forEach { person ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .tvFocusBorder(RoundedCornerShape(6.dp))
+                    .clickable { onPersonClick(person.id, person.name) },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (!person.profileUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = person.profileUrl,
+                        contentDescription = person.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape),
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Default.Person,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.72f),
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+                Text(
+                    person.name,
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MovieDetailScreen(
     movieId: Long,
     mediaType: String = "movie",
     onBack: () -> Unit,
+    onOpenSearch: () -> Unit = {},
+    onOpenProfile: () -> Unit = {},
+    profileAvatarUrl: String = "",
     onPlay: (
         initialUrl: String,
         title: String,
@@ -169,6 +336,10 @@ fun MovieDetailScreen(
     val installedAddons by sl.stremio.addons.collectAsState(initial = emptyList())
     val installedNuvio by sl.nuvio.installed.collectAsState(initial = emptyList())
     val installedCsPlugins by sl.plugins.installed.collectAsState(initial = emptyList())
+    val watchlistDao = remember { LibraryDb.get(context.applicationContext).watchlist() }
+    val isWatchlisted by remember(movieId) {
+        watchlistDao.isWatchlisted(movieId)
+    }.collectAsState(initial = false)
     var resolving by remember { mutableStateOf(false) }
     var resolverMessage by remember { mutableStateOf<String?>(null) }
     var restartFromBeginning by remember(movieId, mediaType) { mutableStateOf(false) }
@@ -871,6 +1042,20 @@ fun MovieDetailScreen(
                     active = isWatched,
                     description = if (isWatched) "Mark as unwatched" else "Mark as watched",
                 ) { toggleWatched() }
+                MovieActionCircle(
+                    icon = if (isWatchlisted) Icons.Default.Check else Icons.Default.Add,
+                    active = isWatchlisted,
+                    description = if (isWatchlisted) "Edit watchlists" else "Add to watchlist",
+                ) {
+                    movie?.let { item ->
+                        watchlistPickerEntry = WatchlistEntity(
+                            tmdbId = movieId,
+                            title = item.displayTitle,
+                            posterUrl = item.posterUrl,
+                            mediaType = mediaType,
+                        )
+                    }
+                }
             }
         } else if (mediaType == "tv") {
             Row(
@@ -1087,6 +1272,7 @@ fun MovieDetailScreen(
     ) {
         val viewportHeight = maxHeight
         val viewportWidth = maxWidth
+        val compactTvHero = isTv && viewportWidth < 1000.dp
         // Details no longer show the TV navigation rail, so start the hero at
         // the top edge instead of leaving an empty navigation-safe strip.
         val artworkHeroTopClearance = if (isTv) 0.dp else 32.dp
@@ -1233,13 +1419,62 @@ fun MovieDetailScreen(
                             ),
                     )
                 }
-                Column(
-                    Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth(if (isTv) 0.62f else 1f)
-                        .padding(horizontal = if (isTv) 40.dp else 20.dp, vertical = 18.dp),
-                ) {
-                    detailHeader()
+                if (isTv) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(
+                                start = if (compactTvHero) 22.dp else 48.dp,
+                                end = if (compactTvHero) 20.dp else 40.dp,
+                                top = 70.dp,
+                                bottom = 22.dp,
+                            ),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(
+                            if (compactTvHero) 14.dp else 22.dp,
+                        ),
+                    ) {
+                        MovieArtwork(
+                            primaryUrl = movie?.posterUrl,
+                            fallbackUrl = movie?.backdropUrl,
+                            contentDescription = movie?.displayTitle ?: "Poster",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .width(if (compactTvHero) 140.dp else 184.dp)
+                                .height(if (compactTvHero) 210.dp else 278.dp)
+                                .clip(RoundedCornerShape(12.dp)),
+                        )
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            detailHeader()
+                        }
+                        TvDetailRatingCastPanel(
+                            movie = movie,
+                            credits = credits,
+                            mediaType = mediaType,
+                            onPersonClick = onPersonClick,
+                            modifier = Modifier
+                                .widthIn(
+                                    min = if (compactTvHero) 160.dp else 208.dp,
+                                    max = if (compactTvHero) 190.dp else 246.dp,
+                                )
+                                .fillMaxHeight()
+                                .padding(vertical = 30.dp),
+                        )
+                    }
+                } else {
+                    Column(
+                        Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 18.dp),
+                    ) {
+                        detailHeader()
+                    }
                 }
             }
 
@@ -1555,8 +1790,49 @@ fun MovieDetailScreen(
                 }
             }
 
-            // Similar grid (outside padding for wider cards)
-            if (similar.isNotEmpty()) {
+            // TV details use a poster rail like the reference; mobile retains its wider grid.
+            if (isTv && similar.isNotEmpty()) {
+                LazyRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .tvFocusGroup(),
+                    contentPadding = PaddingValues(horizontal = 40.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(similar, key = { "similar-${it.id}" }) { sm ->
+                        Column(
+                            modifier = Modifier
+                                .width(142.dp)
+                                .clickable {
+                                    if (mediaType == "tv") onTvClick(sm.id) else onMovieClick(sm.id)
+                                }
+                                .tvFocusBorder(RoundedCornerShape(10.dp)),
+                        ) {
+                            MovieArtwork(
+                                primaryUrl = sm.posterUrl,
+                                fallbackUrl = sm.backdropUrl,
+                                contentDescription = sm.displayTitle,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(204.dp)
+                                    .clip(RoundedCornerShape(10.dp)),
+                            )
+                            Text(
+                                sm.displayTitle,
+                                modifier = Modifier.padding(top = 6.dp),
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                ),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            } else if (similar.isNotEmpty()) {
                 val similarRows = similar.chunked(2)
                 Column(Modifier.padding(horizontal = 20.dp)) {
                     similarRows.forEach { pair ->
@@ -1611,8 +1887,15 @@ fun MovieDetailScreen(
             }
         }
 
-        // ── Floating back button (phone only — TV uses system back) ──────────
-        if (!isTv) {
+        if (isTv) {
+            TvDetailTopActions(
+                onBack = onBack,
+                onOpenSearch = onOpenSearch,
+                onOpenProfile = onOpenProfile,
+                profileAvatarUrl = profileAvatarUrl,
+            )
+        } else {
+            // Floating back button for mobile.
             IconButton(
                 onClick = onBack,
                 modifier = Modifier.padding(12.dp).clip(RoundedCornerShape(50))

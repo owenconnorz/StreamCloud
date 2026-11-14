@@ -226,6 +226,7 @@ fun StreamCloudApp(
                 currentRoute?.startsWith("person/") == true)
     val useSelectedAppPalette = currentRoute == Tab.Movies.route ||
         currentRoute == "movie-search" ||
+        currentRoute?.startsWith("ai-search") == true ||
         (currentRoute == Tab.Library.route && libraryMoviePaletteActive) ||
         currentRoute == Tab.Settings.route ||
         useMonochromeDetailPalette ||
@@ -1068,6 +1069,9 @@ fun StreamCloudApp(
                         initialPickerEpisode =
                             entry.arguments?.getString("episode")?.toIntOrNull(),
                         onBack = { nav.popBackStack() },
+                        onOpenSearch = { nav.navigate("movie-search") },
+                        onOpenProfile = { showProfilePicker = true },
+                        profileAvatarUrl = activeProfile?.avatarUrl.orEmpty(),
                         onPlay = { initialUrl, title, sources, progressKey, bingeEpisodes, currentBingeIndex, pauseOverlayMetadata ->
                             com.streamcloud.app.player.MoviePlayerSession.set(
                                 sources, progressKey,
@@ -1138,6 +1142,9 @@ fun StreamCloudApp(
                         initialPickerEpisode =
                             entry.arguments?.getString("episode")?.toIntOrNull(),
                         onBack = { nav.popBackStack() },
+                        onOpenSearch = { nav.navigate("movie-search") },
+                        onOpenProfile = { showProfilePicker = true },
+                        profileAvatarUrl = activeProfile?.avatarUrl.orEmpty(),
                         onPlay = { initialUrl, title, sources, progressKey, bingeEpisodes, currentBingeIndex, pauseOverlayMetadata ->
                             com.streamcloud.app.player.MoviePlayerSession.set(
                                 sources, progressKey,
@@ -1269,6 +1276,21 @@ fun StreamCloudApp(
                             val p = URLEncoder.encode(poster ?: "", "UTF-8")
                             nav.navigate("stremio-detail/$a/$ty/$m/$tt/$p")
                         },
+                        onOpenAi = { prompt ->
+                            val encoded = URLEncoder.encode(prompt, "UTF-8")
+                            nav.navigate("ai-search?q=$encoded")
+                        },
+                    )
+                }
+                composable(
+                    "ai-search?q={q}",
+                    arguments = listOf(navArgument("q") {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    }),
+                ) { entry ->
+                    com.streamcloud.app.ui.screens.AiScreen(
+                        initialPrompt = entry.arguments?.getString("q").orEmpty(),
                     )
                 }
                 composable("plugin-picker") {
@@ -2315,6 +2337,8 @@ fun StreamCloudApp(
                     TvPrimeSideNav(
                         tabs = tabs,
                         currentRoute = currentRoute,
+                        referencePurpleStyle = currentRoute == "movie-search" &&
+                            normalizeAppColorPaletteId(appearancePalette) != "monochrome",
                         firstTabFocus = firstTvNavFocus,
                         searchFocusRequester = tvNavSearchFocus,
                         contentFocusRequester = tvNavHeroFocus,
@@ -2486,6 +2510,7 @@ fun StreamCloudApp(
 private fun TvPrimeSideNav(
     tabs: List<Tab>,
     currentRoute: String?,
+    referencePurpleStyle: Boolean = false,
     firstTabFocus: FocusRequester,
     searchFocusRequester: FocusRequester,
     contentFocusRequester: FocusRequester,
@@ -2510,6 +2535,7 @@ private fun TvPrimeSideNav(
         route == tab.route || when (tab.route) {
             Tab.Movies.route ->
                 route == "movie-search" ||
+                    route.startsWith("ai-search") ||
                     route.startsWith("movie/") ||
                     route.startsWith("tv/") ||
                     route.startsWith("catalog/") ||
@@ -2541,7 +2567,7 @@ private fun TvPrimeSideNav(
         label = "tvSideRailWidth",
     )
     val railScrimAlpha by animateFloatAsState(
-        targetValue = if (railHasFocus) 0.76f else 0.28f,
+        targetValue = if (referencePurpleStyle) 0.98f else if (railHasFocus) 0.76f else 0.28f,
         animationSpec = tween(durationMillis = 280),
         label = "tvSideRailScrim",
     )
@@ -2564,7 +2590,7 @@ private fun TvPrimeSideNav(
     )
     val focusIndicatorColor by animateColorAsState(
         targetValue = if (railHasFocus && focusIndicatorTop != null) {
-            Color.White
+            if (referencePurpleStyle) Color(0xFF8F35C7) else Color.White
         } else {
             Color.Transparent
         },
@@ -2666,7 +2692,13 @@ private fun TvPrimeSideNav(
                 .align(Alignment.TopStart)
                 .fillMaxHeight()
                 .width(railWidth)
-                .background(Color.Black.copy(alpha = railScrimAlpha)),
+                .background(
+                    if (referencePurpleStyle) {
+                        Color(0xFF0C0711).copy(alpha = railScrimAlpha)
+                    } else {
+                        Color.Black.copy(alpha = railScrimAlpha)
+                    },
+                ),
         ) {
             if (focusIndicatorColor != Color.Transparent) {
                 Box(
@@ -2753,7 +2785,11 @@ private fun TvPrimeSideNav(
                         Text(
                             text = profileName.ifBlank { "Profile" },
                             modifier = Modifier.padding(start = 12.dp, end = 8.dp),
-                            color = if (profileFocused) Color(0xFF111216) else Color.White,
+                            color = if (referencePurpleStyle || !profileFocused) {
+                                Color.White
+                            } else {
+                                Color(0xFF111216)
+                            },
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = if (profileFocused) FontWeight.SemiBold else FontWeight.Medium,
                             maxLines = 1,
@@ -2772,6 +2808,7 @@ private fun TvPrimeSideNav(
                     focusRequester = searchFocusRequester,
                     onFocusChanged = { searchFocused = it },
                     onClick = onSearchClick,
+                    referencePurpleStyle = referencePurpleStyle,
                 )
 
                 destinations.forEach { tab ->
@@ -2791,6 +2828,7 @@ private fun TvPrimeSideNav(
                             }
                         },
                         onClick = { onTabSelected(tab.route) },
+                    referencePurpleStyle = referencePurpleStyle,
                     )
                 }
             }
@@ -2808,10 +2846,12 @@ private fun RailAction(
     focusRequester: FocusRequester? = null,
     onFocusChanged: (Boolean) -> Unit,
     onClick: () -> Unit,
+    referencePurpleStyle: Boolean = false,
 ) {
     val shape = RoundedCornerShape(12.dp)
     val backgroundColor by animateColorAsState(
         targetValue = when {
+            selected && !focused && referencePurpleStyle -> Color(0xFF8F35C7).copy(alpha = 0.20f)
             selected && !focused -> Color.White.copy(alpha = 0.16f)
             else -> Color.Transparent
         },
@@ -2837,7 +2877,17 @@ private fun RailAction(
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = if (focused) Color(0xFF111216) else Color.White.copy(alpha = 0.88f),
+                tint = if (referencePurpleStyle) {
+                    when {
+                        focused -> Color.White
+                        selected -> Color(0xFFC06DE5)
+                        else -> Color.White.copy(alpha = 0.78f)
+                    }
+                } else if (focused) {
+                    Color(0xFF111216)
+                } else {
+                    Color.White.copy(alpha = 0.88f)
+                },
                 modifier = Modifier.size(19.dp),
             )
             AnimatedVisibility(
@@ -2865,7 +2915,13 @@ private fun RailAction(
                     text = label,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = if (focused || selected) FontWeight.SemiBold else FontWeight.Medium,
-                    color = if (focused) Color(0xFF111216) else Color.White.copy(alpha = 0.94f),
+                    color = if (referencePurpleStyle) {
+                        if (focused || selected) Color.White else Color.White.copy(alpha = 0.84f)
+                    } else if (focused) {
+                        Color(0xFF111216)
+                    } else {
+                        Color.White.copy(alpha = 0.94f)
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )

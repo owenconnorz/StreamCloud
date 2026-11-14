@@ -3,11 +3,11 @@ name: Fire TV focus handoff
 description: Android TV spatial focus behavior — pager trapping, drawer open trigger, and vertical scroll suppression
 ---
 
-Keep the persistent TV navigation at the top, transparent with no enclosing black bar, and use horizontal text destinations. Moving focus left/right immediately opens that destination and slides a white selection pill to it. D-pad Down must hand off to the exact first focus target on the active screen. On Movies, Down from navigation lands on the Watch now hero action; Down from the hero reaches the first real shelf card, and Up from that first shelf returns to the hero before navigation.
+Use one persistent left-side icon rail for Android TV destination navigation; do not show a competing top destination bar. D-pad Down must hand off to the exact first focus target on the active screen. On Movies, Down from the rail lands on the Watch now hero action; Down from the hero reaches the first real shelf card, and Up from that first shelf returns to the hero before the rail.
 
-**Why:** The user requested the top navigation layout from their TV reference and reported that Down from navigation and Up/Down around page content could leave focus trapped or skip rows.
+**Why:** The user replaced the earlier top-navigation direction with a left icon rail and reported that Up/Down movement on TV can lose focus or skip rows.
 
-**How to apply:** Give each route a bounded, screen-owned Down handoff to a real visible target; never point native directional focus at a detached Lazy item. Search should focus its first on-screen keyboard key, and details should focus the primary play/continue action. Keep Up at the top navigation bar trapped.
+**How to apply:** Give each route a bounded, screen-owned Down handoff from the rail to a real visible target; never point native directional focus at a detached Lazy item. Search should focus its first on-screen keyboard key, and details should focus the primary play/continue action. Keep Up at the top of the rail handled without sending focus into nonexistent content.
 
 Nested TV rails should rely on the focusable item's normal list reveal behavior rather than adding an unconditional `BringIntoViewRequester` to every focused card. Repeated D-pad events should also be consumed after throttled focus movement, including at a group edge.
 

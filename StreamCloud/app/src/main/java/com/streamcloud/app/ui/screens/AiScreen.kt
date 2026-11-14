@@ -35,13 +35,13 @@ private enum class AiTab(val label: String) { Chat("Chat"), Image("Image gen"), 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AiScreen() {
+fun AiScreen(initialPrompt: String = "") {
     val context = LocalContext.current
     val vm: AiViewModel = viewModel(factory = AiViewModel.factory(context))
     val state by vm.state.collectAsState()
 
     var tab by remember { mutableStateOf(AiTab.Chat) }
-    var input by remember { mutableStateOf("") }
+    var input by remember(initialPrompt) { mutableStateOf(initialPrompt) }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Spacer(Modifier.height(12.dp))
