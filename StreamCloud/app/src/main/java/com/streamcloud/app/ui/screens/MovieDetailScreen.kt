@@ -19,6 +19,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -290,6 +291,10 @@ fun MovieDetailScreen(
 
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val playBtnFocus = remember { FocusRequester() }
+    val primaryPlayActionHasFocus = remember(movieId, mediaType) { mutableStateOf(false) }
+    val primaryPlayActionFocusModifier = Modifier.onFocusChanged {
+        primaryPlayActionHasFocus.value = it.isFocused
+    }
     val trailerCloseFocusRequester = remember { FocusRequester() }
     BackHandler(enabled = showTrailerFullscreen) {
         showTrailerFullscreen = false
@@ -484,8 +489,9 @@ fun MovieDetailScreen(
             return@LaunchedEffect
         }
         repeat(20) {
+            runCatching { playBtnFocus.requestFocus() }
             delay(80L)
-            if (runCatching { playBtnFocus.requestFocus() }.getOrDefault(false)) {
+            if (primaryPlayActionHasFocus.value) {
                 return@LaunchedEffect
             }
         }
@@ -892,6 +898,7 @@ fun MovieDetailScreen(
                             .height(44.dp)
                             .tvFocusBorder(RoundedCornerShape(50))
                             .focusRequester(playBtnFocus)
+                            .then(primaryPlayActionFocusModifier)
                             .semantics {
                                 contentDescription = episodePlaybackTarget?.buttonLabel
                                     ?: "Loading episode"
@@ -942,7 +949,8 @@ fun MovieDetailScreen(
                             buttonLabel = if (hasRestartPoint) "Resume" else "Play Movie",
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .focusRequester(playBtnFocus),
+                                .focusRequester(playBtnFocus)
+                                .then(primaryPlayActionFocusModifier),
                         )
                     }
                 }
@@ -1025,7 +1033,15 @@ fun MovieDetailScreen(
                     modifier = (if (isTv) Modifier else Modifier.weight(1f))
                         .height(if (isTv) 44.dp else 52.dp)
                         .tvFocusBorder(RoundedCornerShape(50))
-                        .then(if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier)
+                        .then(
+                            if (isTv) {
+                                Modifier
+                                    .focusRequester(playBtnFocus)
+                                    .then(primaryPlayActionFocusModifier)
+                            } else {
+                                Modifier
+                            },
+                        )
                         .semantics {
                             contentDescription = episodePlaybackTarget?.buttonLabel
                                 ?: "Loading episode"
@@ -1144,7 +1160,13 @@ fun MovieDetailScreen(
                         downloadProgress = downloadProgress,
                         onClick = { playMovie() },
                         isTv = isTv,
-                        modifier = if (isTv) Modifier.focusRequester(playBtnFocus) else Modifier,
+                        modifier = if (isTv) {
+                            Modifier
+                                .focusRequester(playBtnFocus)
+                                .then(primaryPlayActionFocusModifier)
+                        } else {
+                            Modifier
+                        },
                     )
                 }
                 if (hasRestartPoint) {
