@@ -253,6 +253,18 @@ fun MoviesScreen(
     )
     val state by vm.state.collectAsState()
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val preferredGenreIds = remember(activeProfile?.favoriteMovieGenreIds) {
+        activeProfile?.favoriteMovieGenreIds.orEmpty().toSet()
+    }
+    val personalizedTrending = remember(state.trending, preferredGenreIds) {
+        if (preferredGenreIds.isEmpty()) {
+            state.trending
+        } else {
+            state.trending.sortedByDescending { movie ->
+                movie.genreIds.count { it in preferredGenreIds }
+            }
+        }
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     val adultGenreScope = rememberCoroutineScope()
     DisposableEffect(lifecycleOwner, vm) {
@@ -581,11 +593,11 @@ fun MoviesScreen(
             state.collections
         }
     }
-    val tvTopTenItems = if (isTv) state.trending.take(10) else emptyList()
+    val tvTopTenItems = if (isTv) personalizedTrending.take(10) else emptyList()
     val mobileTopMovies = if (isTv) {
         emptyList()
     } else {
-        state.trending.asSequence()
+        personalizedTrending.asSequence()
             .filter { it.title != null }
             .take(10)
             .toList()

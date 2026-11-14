@@ -125,6 +125,20 @@ fun ProfilePickerScreen(
     repo: ProfileRepository,
     onDone: () -> Unit,
 ) {
+    var firstRunSetupPending by remember(repo) {
+        mutableStateOf(repo.shouldShowFirstRunSetup())
+    }
+    if (firstRunSetupPending) {
+        FirstRunProfileSetupScreen(
+            repo = repo,
+            onDone = {
+                firstRunSetupPending = false
+                onDone()
+            },
+        )
+        return
+    }
+
     val context = LocalContext.current
     val allProfiles by repo.profiles.collectAsState(initial = repo.currentProfiles())
     val nuvioUserId by com.streamcloud.app.data.ServiceLocator.get(context)
@@ -279,6 +293,12 @@ private fun ProfileGridView(
             color = Color.White,
         )
         Spacer(Modifier.height(36.dp))
+        Text(
+            "Choose a profile to continue",
+            color = Color.White.copy(alpha = 0.68f),
+            fontSize = 14.sp,
+        )
+        Spacer(Modifier.height(18.dp))
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
             modifier = Modifier
@@ -496,21 +516,25 @@ private fun ProfileGridItem(
         modifier = if (isTv) Modifier else Modifier.clickable(onClick = activate),
     ) {
         Box(contentAlignment = Alignment.BottomEnd) {
+            val avatarShape = if (isTv) CircleShape else RoundedCornerShape(18.dp)
             Box(
                 Modifier
-                    .size(if (isTv) 140.dp else 120.dp)
+                    .then(
+                        if (isTv) Modifier.size(140.dp)
+                        else Modifier.width(132.dp).height(124.dp),
+                    )
                     .then(
                         if (initialFocusRequester != null) {
                             Modifier.focusRequester(initialFocusRequester)
                         } else Modifier
                     )
-                    .clip(CircleShape)
+                    .clip(avatarShape)
                     .then(
                         if (isActive)
                             Modifier.border(
                                 if (isTv) 4.dp else 3.dp,
                                 if (isTv) Color(0xFF13BCEB) else Color(0xFF1E4EA8),
-                                CircleShape,
+                                avatarShape,
                             )
                         else Modifier
                     )
@@ -521,7 +545,7 @@ private fun ProfileGridItem(
                             // Manage Profiles mode as the mobile layout.
                             Modifier
                                 .tvFocusBorder(
-                                    CircleShape,
+                                    avatarShape,
                                     color = Color(0xFF13BCEB),
                                 )
                                 .combinedClickable(
@@ -530,9 +554,10 @@ private fun ProfileGridItem(
                                 )
                         else Modifier
                     ),
+                contentAlignment = Alignment.Center,
             ) {
                 AvatarImage(
-                    profile  = profile,
+                    profile = profile,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -614,18 +639,21 @@ private fun AddProfileItem(
     ) {
         Box(
             Modifier
-                .size(if (isTv) 140.dp else 120.dp)
+                .then(
+                    if (isTv) Modifier.size(140.dp)
+                    else Modifier.width(132.dp).height(124.dp),
+                )
                 .then(
                     if (initialFocusRequester != null) {
                         Modifier.focusRequester(initialFocusRequester)
                     } else Modifier
                 )
-                .clip(CircleShape)
+                .clip(if (isTv) CircleShape else RoundedCornerShape(18.dp))
                 .background(if (isTv) Color(0xFF112631) else Color(0xFF111315))
                 .border(
                     2.dp,
                     if (isTv) Color(0xFF13BCEB).copy(alpha = 0.4f) else Color.White.copy(alpha = 0.1f),
-                    CircleShape,
+                    if (isTv) CircleShape else RoundedCornerShape(18.dp),
                 )
                 .then(
                     if (isTv) {
@@ -679,6 +707,9 @@ private fun EditProfileView(
     var customUrl    by rememberSaveable { mutableStateOf(profile.avatarUrl) }
     var avatarSeed   by rememberSaveable(profile.id) {
         mutableStateOf(profile.avatarSeed.ifBlank { profile.name })
+    }
+    var favoriteGenreIds by rememberSaveable(profile.id) {
+        mutableStateOf(profile.favoriteMovieGenreIds.toSet())
     }
     val selectedAvatarSeed = resolveBuiltInAvatarSeed(avatarSeed)
     var pinHash      by rememberSaveable { mutableStateOf(profile.pinHash) }
@@ -767,6 +798,77 @@ private fun EditProfileView(
                             cursorColor          = Color(0xFF1E4EA8),
                         ),
                     )
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFF1C1C1E),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        "Recommendation genres",
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Matching titles appear higher in this profile’s home picks.",
+                        color = Color(0xFF8E8E93),
+                        fontSize = 13.sp,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    val genreRows = (SetupGenres.size + 1) / 2
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        modifier = Modifier.height(
+                            (genreRows * 48 + (genreRows - 1) * 8).dp,
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        userScrollEnabled = false,
+                    ) {
+                        gridItems(SetupGenres, key = { it.tmdbId }) { genre ->
+                            val selected = genre.tmdbId in favoriteGenreIds
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (selected) genre.color.copy(alpha = 0.28f)
+                                    else Color.White.copy(alpha = 0.06f),
+                                border = BorderStroke(
+                                    if (selected) 2.dp else 1.dp,
+                                    if (selected) genre.color else Color.White.copy(alpha = 0.12f),
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .clickable {
+                                        favoriteGenreIds = if (selected) {
+                                            favoriteGenreIds - genre.tmdbId
+                                        } else {
+                                            favoriteGenreIds + genre.tmdbId
+                                        }
+                                    },
+                            ) {
+                                Box(
+                                    Modifier.fillMaxSize().padding(horizontal = 10.dp),
+                                    contentAlignment = Alignment.CenterStart,
+                                ) {
+                                    Text(
+                                        genre.title,
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -949,6 +1051,7 @@ private fun EditProfileView(
                             name       = name.ifBlank { "Profile" },
                             avatarUrl  = customUrl,
                             avatarSeed = avatarSeed,
+                            favoriteMovieGenreIds = favoriteGenreIds.toList().sorted(),
                             pinHash    = pinHash,
                         )
                     )

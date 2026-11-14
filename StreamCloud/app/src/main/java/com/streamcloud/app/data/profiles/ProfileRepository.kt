@@ -28,6 +28,19 @@ class ProfileRepository(context: Context) {
 
     fun currentActiveId(): String? = _activeId.value
 
+    fun shouldShowFirstRunSetup(): Boolean {
+        val hasProfiles = _profiles.value.isNotEmpty()
+        if (hasProfiles && !prefs.contains(KEY_FIRST_RUN_COMPLETE)) {
+            markFirstRunSetupComplete()
+            return false
+        }
+        return !prefs.getBoolean(KEY_FIRST_RUN_COMPLETE, false)
+    }
+
+    fun markFirstRunSetupComplete() {
+        prefs.edit().putBoolean(KEY_FIRST_RUN_COMPLETE, true).apply()
+    }
+
     fun nuvioProfileIndex(userId: String, profileId: String): Int? {
         val accountId = userId.trim()
         if (accountId.isBlank()) return null
@@ -153,6 +166,7 @@ class ProfileRepository(context: Context) {
                 remote.copy(
                     id = existing.id,
                     pinHash = existing.pinHash,
+                    favoriteMovieGenreIds = existing.favoriteMovieGenreIds,
                     nuvioProfileIndex = null,
                     nuvioProfileIndexes = existing.nuvioProfileIndexes +
                         (accountId to requireNotNull(remote.nuvioProfileIndex)),
@@ -212,5 +226,6 @@ class ProfileRepository(context: Context) {
     companion object {
         private const val KEY_LIST   = "profiles_json"
         private const val KEY_ACTIVE = "active_profile_id"
+        private const val KEY_FIRST_RUN_COMPLETE = "first_run_setup_complete"
     }
 }
