@@ -1047,9 +1047,9 @@ fun SettingsHubScreen(
                         ) {
                             data class TM(val id: String, val label: String, val bg: Color, val useLightIcon: Boolean)
                             listOf(
-                                TM("system", "Auto",  Color(0xFF2C2826), true),
-                                TM("light",  "Light", Color(0xFFF5F0EE), false),
-                                TM("dark",   "Dark",  Color(0xFF1A1210), true),
+                                TM("system", "Auto",  Color(0xFF163448), true),
+                                TM("light",  "Light", Color(0xFFF0F7FA), false),
+                                TM("dark",   "Dark",  Color(0xFF0B1E2C), true),
                                 TM("black",  "Black", Color.Black,       true),
                             ).forEach { tm ->
                                 ThemeModeItem(
@@ -1077,7 +1077,7 @@ fun SettingsHubScreen(
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            "Applies to Movies, Library and Settings. Music and Adult stay unchanged.",
+                            "Cinematic palettes apply to Movies, Search, Library, TV, actors and Settings.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 4.dp),

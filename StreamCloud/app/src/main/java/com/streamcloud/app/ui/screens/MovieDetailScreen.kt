@@ -619,28 +619,34 @@ fun MovieDetailScreen(
     )
     val detailBaseColors = MaterialTheme.colorScheme
     val detailArtworkTint = if (useMonochromePalette) Color.Black else bannerPalette.artworkColor
-    val detailBackdropShade =
-        if (useMonochromePalette) Color.Black else Color(0xFF07080D)
-    val detailBackdropEdgeShade =
-        if (useMonochromePalette) Color.Black else Color(0xFF05070A)
+    val detailBackdropShade = when {
+        useMonochromePalette -> Color.Black
+        isTv -> Color(0xFF071522)
+        else -> Color(0xFF07080D)
+    }
+    val detailBackdropEdgeShade = when {
+        useMonochromePalette -> Color.Black
+        isTv -> Color(0xFF071522)
+        else -> Color(0xFF05070A)
+    }
     MaterialTheme(
         colorScheme = detailBaseColors.copy(
             primary = if (useMonochromePalette) detailBaseColors.primary
-            else if (isTv) Color(0xFF079FC5) else bannerPalette.accent,
+            else if (isTv) detailBaseColors.primary else bannerPalette.accent,
             onPrimary = if (useMonochromePalette) detailBaseColors.onPrimary
-            else if (isTv) Color.White else bannerPalette.onAccent,
+            else if (isTv) detailBaseColors.onPrimary else bannerPalette.onAccent,
             secondary = if (useMonochromePalette) detailBaseColors.secondary
-            else if (isTv) Color(0xFF079FC5) else bannerPalette.accent,
+            else if (isTv) detailBaseColors.secondary else bannerPalette.accent,
             onSecondary = if (useMonochromePalette) detailBaseColors.onSecondary
-            else if (isTv) Color.White else bannerPalette.onAccent,
+            else if (isTv) detailBaseColors.onSecondary else bannerPalette.onAccent,
             primaryContainer = if (useMonochromePalette) detailBaseColors.primaryContainer
-            else if (isTv) Color(0xFF123B4A) else bannerPalette.accentContainer,
+            else if (isTv) detailBaseColors.primaryContainer else bannerPalette.accentContainer,
             onPrimaryContainer = detailBaseColors.onPrimaryContainer,
             background = if (isTv) detailBackdropShade else Color.Black,
             surface = if (useMonochromePalette) detailBaseColors.surface
-            else if (isTv) Color(0xFF111820) else bannerPalette.surfaceTint,
+            else if (isTv) detailBaseColors.surface else bannerPalette.surfaceTint,
             surfaceVariant = if (useMonochromePalette) detailBaseColors.surfaceVariant
-            else if (isTv) Color(0xFF111820) else bannerPalette.surfaceTint,
+            else if (isTv) detailBaseColors.surfaceVariant else bannerPalette.surfaceTint,
         ),
     ) {
     val scrollState = rememberScrollState()

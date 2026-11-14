@@ -220,11 +220,16 @@ fun StreamCloudApp(
         normalizeAppColorPaletteId(appearancePalette) == "monochrome" &&
             (currentRoute?.startsWith("movie/") == true ||
                 currentRoute?.startsWith("tv/") == true)
+    val useCinematicPaletteOnMediaPages =
+        normalizeAppColorPaletteId(appearancePalette) != "monochrome" &&
+            (currentRoute == Tab.LiveTv.route ||
+                currentRoute?.startsWith("person/") == true)
     val useSelectedAppPalette = currentRoute == Tab.Movies.route ||
         currentRoute == "movie-search" ||
         (currentRoute == Tab.Library.route && libraryMoviePaletteActive) ||
         currentRoute == Tab.Settings.route ||
-        useMonochromeDetailPalette
+        useMonochromeDetailPalette ||
+        useCinematicPaletteOnMediaPages
     var adultHomeNavigationVisible by remember { mutableStateOf(false) }
     var settingsHasSubPage by remember { mutableStateOf(false) }
     var settingsBackRequest by remember { mutableStateOf(0) }

@@ -104,8 +104,8 @@ private val PROFILE_PICKER_BACKGROUND = Brush.verticalGradient(
 
 private val TV_PROFILE_PICKER_BACKGROUND = Brush.verticalGradient(
     colorStops = arrayOf(
-        0f to Color(0xFF05070B),
-        0.5f to Color(0xFF030509),
+        0f to Color(0xFF0A2D43),
+        0.5f to Color(0xFF071522),
         1f to Color.Black,
     ),
 )

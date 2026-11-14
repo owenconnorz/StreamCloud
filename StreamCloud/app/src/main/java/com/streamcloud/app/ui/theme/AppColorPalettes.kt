@@ -26,25 +26,25 @@ internal data class AppColorPalette(
 internal val AllAppColorPalettes = listOf(
     AppColorPalette(
         id = "modern_blue",
-        label = "Modern Blue",
-        background = Color(0xFF202B3B),
-        surface = Color(0xFF29384D),
-        surfaceVariant = Color(0xFF34445A),
-        primary = Color(0xFF4F8EF7),
-        primaryContainer = Color(0xFF34445A),
-        secondary = Color(0xFF4F8EF7),
+        label = "Cinematic Blue",
+        background = Color(0xFF071522),
+        surface = Color(0xFF0B1E2C),
+        surfaceVariant = Color(0xFF123247),
+        primary = Color(0xFF13A9D8),
+        primaryContainer = Color(0xFF0B5878),
+        secondary = Color(0xFF62D5F2),
         onBackground = Color.White,
         onSurface = Color.White,
-        onSurfaceVariant = Color(0xFFB8C4D6),
-        onPrimary = Color.White,
+        onSurfaceVariant = Color(0xFFB7CDD8),
+        onPrimary = Color(0xFF06202B),
         onPrimaryContainer = Color.White,
         swatches = listOf(
-            Color(0xFF202B3B),
-            Color(0xFF29384D),
-            Color(0xFF34445A),
-            Color(0xFF4F8EF7),
+            Color(0xFF071522),
+            Color(0xFF0B1E2C),
+            Color(0xFF123247),
+            Color(0xFF13A9D8),
             Color.White,
-            Color(0xFFB8C4D6),
+            Color(0xFFB7CDD8),
         ),
     ),
     AppColorPalette(
@@ -185,8 +185,8 @@ internal fun legacyAppColorScheme(paletteId: String, light: Boolean): ColorSchem
     val current = palettes[normalizeAppColorPaletteId(paletteId)]!!
     val legacy = when (current.id) {
         "modern_blue" -> current.copy(
-            primaryContainer = Color(0xFF4F8EF7),
-            onSurfaceVariant = Color(0xFFD3DDEB),
+            primaryContainer = Color(0xFF0B5878),
+            onSurfaceVariant = Color(0xFFB7CDD8),
         )
         "purple_aurora" -> current.copy(
             secondary = Color(0xFF5D3FD3),
@@ -226,6 +226,7 @@ private fun buildAppColorScheme(palette: AppColorPalette, light: Boolean): Color
         when {
             palette.id == "light_clean" -> palette.background
             isMonochrome -> Color(0xFFF6F6F6)
+            palette.id == "modern_blue" -> Color(0xFFF0F7FA)
             else -> Color(0xFFF4F6FA)
         }
     } else {
@@ -240,13 +241,21 @@ private fun buildAppColorScheme(palette: AppColorPalette, light: Boolean): Color
         when {
             palette.id == "light_clean" -> palette.surfaceVariant
             isMonochrome -> Color(0xFFE4E4E4)
+            palette.id == "modern_blue" -> Color(0xFFDDEEF4)
             else -> Color(0xFFE5EBF3)
         }
     } else {
         palette.surfaceVariant
     }
-    val primary = if (light && isMonochrome) Color(0xFF151515) else palette.primary
-    val onPrimary = if (light && isMonochrome) Color.White else palette.onPrimary
+    val primary = when {
+        light && isMonochrome -> Color(0xFF151515)
+        light && palette.id == "modern_blue" -> Color(0xFF08789D)
+        else -> palette.primary
+    }
+    val onPrimary = when {
+        light && (isMonochrome || palette.id == "modern_blue") -> Color.White
+        else -> palette.onPrimary
+    }
     val onBackground = if (light) {
         if (isMonochrome) Color(0xFF171717) else Color(0xFF1E293B)
     } else {
@@ -265,7 +274,7 @@ private fun buildAppColorScheme(palette: AppColorPalette, light: Boolean): Color
         palette.onSurfaceVariant
     }
     val onPrimaryContainer = if (light && isMonochrome) Color(0xFF171717)
-    else if (light) Color(0xFF1E293B)
+    else if (light) Color(0xFF163444)
     else palette.onPrimaryContainer
     val onSecondary = if (palette.secondary.luminance() > 0.45f) {
         Color(0xFF1E293B)

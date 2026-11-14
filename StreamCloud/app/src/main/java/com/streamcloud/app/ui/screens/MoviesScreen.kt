@@ -765,7 +765,7 @@ fun MoviesScreen(
         Modifier
             .fillMaxSize()
             .background(
-                if (isTv) Color(0xFF07080D) else MaterialTheme.colorScheme.background,
+                MaterialTheme.colorScheme.background,
             )
             .onPreviewKeyEvent { event ->
                 if (isTv && event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN) {
@@ -2555,7 +2555,7 @@ private fun MoviesHeader(
         Text(
             "StreamCloud",
             style = MaterialTheme.typography.titleLarge,
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onBackground,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.weight(1f),
         )
@@ -2571,7 +2571,7 @@ private fun MoviesHeader(
                 Icon(
                     Icons.Default.Search,
                     contentDescription = "Search",
-                    tint = Color.White,
+                    tint = MaterialTheme.colorScheme.onSurface,
                 )
             }
         }
@@ -2586,7 +2586,7 @@ private fun MoviesHeader(
                 Icon(
                     Icons.Default.Extension,
                     contentDescription = "Switch Plugin",
-                    tint = Color.White,
+                    tint = MaterialTheme.colorScheme.onSurface,
                 )
             }
         }
@@ -3024,7 +3024,7 @@ private fun TvHeroBackdrop(
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(MaterialTheme.colorScheme.background),
     ) {
         val heroBackdropHeight = (maxHeight - rowsViewportHeight).coerceAtLeast(0.dp)
         Box(
@@ -3191,11 +3191,11 @@ private fun TvHeroBackdrop(
                                     handleHeroActionKey(event, isPrimaryAction = true)
                                 },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White,
-                                contentColor = Color(0xFF111216),
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
                             ),
-                            shape = RoundedCornerShape(7.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                         ) {
                             Icon(
                                 Icons.Default.PlayArrow,
@@ -3222,11 +3222,11 @@ private fun TvHeroBackdrop(
                                     handleHeroActionKey(event, isPrimaryAction = false)
                                 },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xE6FFFFFF),
-                                contentColor = Color(0xFF111216),
+                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                                contentColor = MaterialTheme.colorScheme.onSurface,
                             ),
-                            shape = RoundedCornerShape(7.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                         ) {
                             Icon(
                                 Icons.Default.Info,
@@ -3261,7 +3261,7 @@ private fun TvHeroBackdrop(
                             .clip(CircleShape)
                             .background(
                                 if (index == currentPage) {
-                                    Color.White
+                                    MaterialTheme.colorScheme.primary
                                 } else {
                                     Color.White.copy(alpha = 0.46f)
                                 },

@@ -240,7 +240,7 @@ fun MovieSearchScreen(
                 }
                 .tvFocusBorder(
                     RoundedCornerShape(28.dp),
-                    color = if (isTv) MaterialTheme.colorScheme.primary else Color.White,
+                    color = MaterialTheme.colorScheme.primary,
                 ),
             placeholder = {
                 Text(
@@ -422,7 +422,7 @@ private fun TvSearchSidebar(
         Text(
             text = query.ifBlank { "Search" },
             style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onBackground,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -510,7 +510,7 @@ private fun TvSearchSuggestions(
             item(key = "tv-suggestions-loading") {
                 Text(
                     "Searching…",
-                    color = Color.White.copy(alpha = 0.72f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
                 )
@@ -537,7 +537,7 @@ private fun TvSearchSuggestionChip(
             .tvFocusBorder(
                 shape,
                 borderWidth = 2.dp,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.primary,
                 showOutline = false,
             )
             .clickable(onClick = onClick)
@@ -576,7 +576,7 @@ private fun TvSearchKey(
             .tvFocusBorder(
                 shape,
                 borderWidth = 2.dp,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.primary,
                 showOutline = false,
                 showFocusFill = false,
             )
@@ -626,7 +626,7 @@ private fun RecentSearches(
                     Text(
                         "Find something to watch",
                         style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onBackground,
                         textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(10.dp))
@@ -674,7 +674,7 @@ private fun RecentSearches(
                     "Recent searches",
                     style = (if (isTv) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium)
                         .copy(fontWeight = FontWeight.Bold),
-                    color = if (isTv) Color.White else MaterialTheme.colorScheme.onBackground,
+                    color = MaterialTheme.colorScheme.onBackground,
                 )
                 TextButton(onClick = onClearAll) {
                     Text("Clear all", color = MaterialTheme.colorScheme.primary)
@@ -777,7 +777,7 @@ private fun TvCombinedResultsGrid(
                 "No results for \"$query\"",
                 modifier = Modifier.padding(12.dp),
                 style = MaterialTheme.typography.titleSmall,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         return
@@ -982,7 +982,7 @@ private fun TvResultsGridHeader(title: String, loading: Boolean) {
     ) {
         Text(
             title,
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onBackground,
             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -1024,7 +1024,7 @@ private fun TvGridPaginationCard(
             } else {
                 Text(
                     if (error == null) "LOAD MORE" else "RETRY",
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                     textAlign = TextAlign.Center,
                 )
@@ -1079,8 +1079,160 @@ private fun CombinedResultsList(
             Text(
                 "No results for \"$query\"",
                 style = if (isTv) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.bodyLarge,
-                color = if (isTv) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        return
+    }
+
+    if (!isTv) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = padding.calculateTopPadding() + 8.dp,
+                bottom = 32.dp,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            state.searchCorrection?.let { correctedQuery ->
+                item(key = "search-correction", span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        "Showing results for \"$correctedQuery\"",
+                        modifier = Modifier.padding(bottom = 2.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            if (state.tvSearchResults.isNotEmpty() || state.seriesLoading ||
+                state.tvPagination.error != null
+            ) {
+                item(key = "mobile-series-heading", span = { GridItemSpan(maxLineSpan) }) {
+                    NuvioGridSectionHeader("TV Series", state.seriesLoading)
+                }
+                gridItems(
+                    items = state.tvSearchResults,
+                    key = { "tv-${it.id}" },
+                ) { movie ->
+                    NuvioCard(
+                        imageUrl = movie.posterUrl,
+                        fallbackImageUrl = movie.backdropUrl,
+                        title = movie.displayTitle,
+                        isWatched = movie.id in watchedTmdbIds,
+                        fillAvailableWidth = true,
+                        onClick = { onTvClick(movie.id) },
+                    )
+                }
+                if (!state.seriesLoading && !state.tvPagination.endReached) {
+                    item(key = "mobile-tv-pagination", span = { GridItemSpan(maxLineSpan) }) {
+                        PaginationCard(
+                            loading = state.tvPagination.isLoading,
+                            error = state.tvPagination.error,
+                            onClick = onLoadMoreTv,
+                        )
+                    }
+                }
+            }
+
+            if (state.searchResults.isNotEmpty() || state.moviesLoading ||
+                state.moviePagination.error != null
+            ) {
+                item(key = "mobile-movies-heading", span = { GridItemSpan(maxLineSpan) }) {
+                    NuvioGridSectionHeader("Movies", state.moviesLoading)
+                }
+                gridItems(
+                    items = state.searchResults,
+                    key = { "movie-${it.id}" },
+                ) { movie ->
+                    NuvioCard(
+                        imageUrl = movie.posterUrl,
+                        fallbackImageUrl = movie.backdropUrl,
+                        title = movie.displayTitle,
+                        isWatched = movie.id in watchedTmdbIds,
+                        fillAvailableWidth = true,
+                        onClick = { onMovieClick(movie.id) },
+                    )
+                }
+                if (!state.moviesLoading && !state.moviePagination.endReached) {
+                    item(key = "mobile-movie-pagination", span = { GridItemSpan(maxLineSpan) }) {
+                        PaginationCard(
+                            loading = state.moviePagination.isLoading,
+                            error = state.moviePagination.error,
+                            onClick = onLoadMoreMovies,
+                        )
+                    }
+                }
+            }
+
+            csGrouped.forEach { (pluginName, results) ->
+                item(
+                    key = "mobile-cs-heading-$pluginName",
+                    span = { GridItemSpan(maxLineSpan) },
+                ) {
+                    NuvioGridSectionHeader("$pluginName · Search", loading = false)
+                }
+                gridItems(
+                    items = results,
+                    key = { "cs-$pluginName-${it.item.url}" },
+                ) { result ->
+                    NuvioCard(
+                        imageUrl = result.item.posterUrl,
+                        title = result.item.name,
+                        fillAvailableWidth = true,
+                        onClick = {
+                            onOpenCsItem(
+                                result.pluginInternalName,
+                                result.item.url,
+                                result.item.name,
+                                result.item.posterUrl,
+                            )
+                        },
+                    )
+                }
+            }
+            if (state.csLoading && csGrouped.isEmpty()) {
+                item(key = "mobile-cs-loading", span = { GridItemSpan(maxLineSpan) }) {
+                    NuvioGridSectionHeader("CloudStream · Search", loading = true)
+                }
+            }
+
+            stremioGrouped.forEach { (addonName, results) ->
+                item(
+                    key = "mobile-stremio-heading-$addonName",
+                    span = { GridItemSpan(maxLineSpan) },
+                ) {
+                    NuvioGridSectionHeader("$addonName · Search", loading = false)
+                }
+                gridItems(
+                    items = results,
+                    key = { "stremio-$addonName-${it.item.id}" },
+                ) { result ->
+                    NuvioCard(
+                        imageUrl = result.item.poster,
+                        title = result.item.name,
+                        fillAvailableWidth = true,
+                        onClick = {
+                            onOpenStremio(
+                                result.addonId,
+                                result.item.type,
+                                result.item.id,
+                                result.item.name,
+                                result.item.poster,
+                            )
+                        },
+                    )
+                }
+            }
+            if (state.stremioLoading && stremioGrouped.isEmpty()) {
+                item(key = "mobile-stremio-loading", span = { GridItemSpan(maxLineSpan) }) {
+                    NuvioGridSectionHeader("Stremio · Search", loading = true)
+                }
+            }
         }
         return
     }
@@ -1239,6 +1391,33 @@ private fun CombinedResultsList(
     }
 }
 
+@Composable
+private fun NuvioGridSectionHeader(
+    title: String,
+    loading: Boolean,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onBackground,
+        )
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Nuvio-style section: header + horizontal card row
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1263,7 +1442,7 @@ private fun NuvioSection(
                 header,
                 style = (if (isTv) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium)
                     .copy(fontWeight = FontWeight.Bold),
-                color = if (isTv) Color.White else MaterialTheme.colorScheme.onBackground,
+                color = MaterialTheme.colorScheme.onBackground,
             )
             if (loading) {
                 CircularProgressIndicator(
@@ -1300,7 +1479,7 @@ private fun NuvioCard(
     returnToKeyboardFocusRequester: FocusRequester? = null,
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    val cardWidth = if (isTv) 210.dp else 132.dp
+    val cardWidth = if (isTv) 224.dp else 154.dp
     Column(
         modifier = if (fillAvailableWidth) {
             Modifier.fillMaxWidth()
@@ -1312,7 +1491,7 @@ private fun NuvioCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(if (isTv && fillAvailableWidth) 16f / 10f else 2f / 3f)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(14.dp))
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                 .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
                 .onPreviewKeyEvent { event ->
@@ -1329,9 +1508,9 @@ private fun NuvioCard(
                     }
                 }
                 .tvFocusBorder(
-                    RoundedCornerShape(10.dp),
+                    RoundedCornerShape(14.dp),
                     borderWidth = if (isTv) 5.dp else 3.dp,
-                    color = if (isTv) MaterialTheme.colorScheme.primary else Color.White,
+                    color = MaterialTheme.colorScheme.primary,
                 )
                 .clickable(onClick = onClick),
         ) {
@@ -1350,7 +1529,7 @@ private fun NuvioCard(
         Text(
             text = title,
             style = if (isTv) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.labelMedium,
-            color = if (isTv) Color.White else MaterialTheme.colorScheme.onBackground,
+            color = MaterialTheme.colorScheme.onBackground,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 2.dp),
