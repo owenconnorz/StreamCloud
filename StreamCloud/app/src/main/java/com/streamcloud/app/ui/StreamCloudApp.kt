@@ -143,6 +143,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -2335,6 +2336,7 @@ fun StreamCloudApp(
                         contentFocusRequester = tvNavHeroFocus,
                         contentFocusReceived = !tvNavHasFocus,
                         adultTabEnabled = nsfwEnabled,
+                        accentColor = navAccentColor,
                         profileAvatarSeed = activeProfile?.avatarSeed.orEmpty().ifBlank {
                             activeProfile?.name.orEmpty()
                         },
@@ -3428,6 +3430,7 @@ private fun TvPeacockTopNav(
     onTabSelected: (String) -> Unit,
     onSearchClick: () -> Unit,
     adultTabEnabled: Boolean,
+    accentColor: Color,
     onProfileClick: () -> Unit,
     profileAvatarSeed: String,
     profileAvatarUrl: String,
@@ -3435,6 +3438,11 @@ private fun TvPeacockTopNav(
     modifier: Modifier = Modifier,
 ) {
     val route = currentRoute.orEmpty()
+    val accentContentColor = if (accentColor.luminance() > 0.179f) {
+        Color.Black
+    } else {
+        Color.White
+    }
     val profileContentDescription = profileName
         .takeIf { it.isNotBlank() }
         ?.let { "Choose profile for $it" }
@@ -3551,9 +3559,15 @@ private fun TvPeacockTopNav(
         onDownFocusHandoffRequested()
     }
 
-    val activeDestinationIndex = destinations.indexOfFirst {
-        it.key == if (navHasFocus) focusedDestinationKey else selectedKey
-    }.takeIf { it >= 0 } ?: selectedIndex.takeIf { it >= 0 } ?: 0
+    val activeDestinationIndex = if (searchFocused || profileFocused) {
+        -1
+    } else {
+        destinations.indexOfFirst {
+            it.key == (if (navHasFocus) focusedDestinationKey else selectedDestinationKey)
+        }.takeIf { it >= 0 }
+            ?: selectedDestinationIndex.takeIf { it >= 0 }
+            ?: 0
+    }
     val focusRequesterIndex = selectedIndex.takeIf { it >= 0 } ?: 0
 
     Box(
@@ -3594,7 +3608,7 @@ private fun TvPeacockTopNav(
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .widthIn(max = 780.dp)
+                    .widthIn(max = 620.dp)
                     .fillMaxWidth()
                     .height(38.dp)
                     .clip(barShape)
@@ -3604,26 +3618,6 @@ private fun TvPeacockTopNav(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    modifier = Modifier.widthIn(max = 112.dp),
-                ) {
-                    Image(
-                        painter = painterResource(com.streamcloud.app.R.drawable.ic_streamcloud_brand),
-                        contentDescription = "StreamCloud",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.size(width = 24.dp, height = 22.dp),
-                    )
-                    Text(
-                        text = "StreamCloud",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White,
-                        maxLines = 1,
-                    )
-                }
-
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
@@ -3636,7 +3630,7 @@ private fun TvPeacockTopNav(
                         }
                         .clip(CircleShape)
                         .background(
-                            if (searchFocused) Color.White.copy(alpha = 0.18f)
+                            if (searchFocused) accentColor
                             else Color.Transparent,
                         )
                         .tvFocusBorder(CircleShape, showOutline = false)
@@ -3645,7 +3639,7 @@ private fun TvPeacockTopNav(
                     Icon(
                         imageVector = MaterialIcons.Filled.Search,
                         contentDescription = "Search",
-                        tint = Color.White,
+                        tint = if (searchFocused) accentContentColor else Color.White,
                         modifier = Modifier.size(19.dp),
                     )
                 }
@@ -3664,16 +3658,18 @@ private fun TvPeacockTopNav(
                             animationSpec = tween(durationMillis = 220),
                             label = "tvPeacockNavigationSelection",
                         )
-                        Box(
-                            Modifier
-                                .align(Alignment.CenterStart)
-                                .offset(x = selectedPillOffset)
-                                .width(slotWidth)
-                                .height(28.dp)
-                                .padding(horizontal = 3.dp)
-                                .clip(RoundedCornerShape(18.dp))
-                                .background(Color(0xFFFFD526)),
-                        )
+                        if (activeDestinationIndex >= 0) {
+                            Box(
+                                Modifier
+                                    .align(Alignment.CenterStart)
+                                    .offset(x = selectedPillOffset)
+                                    .width(slotWidth)
+                                    .height(28.dp)
+                                    .padding(horizontal = 3.dp)
+                                    .clip(RoundedCornerShape(18.dp))
+                                    .background(accentColor),
+                            )
+                        }
                         Row(
                             Modifier
                                 .align(Alignment.Center)
@@ -3732,7 +3728,7 @@ private fun TvPeacockTopNav(
                                             FontWeight.Medium
                                         },
                                         color = if (active) {
-                                            Color(0xFF171717)
+                                            accentContentColor
                                         } else {
                                             Color.White.copy(alpha = 0.94f)
                                         },
@@ -3755,11 +3751,19 @@ private fun TvPeacockTopNav(
                         }
                         .clip(CircleShape)
                         .background(
-                            if (profileFocused) Color.White.copy(alpha = 0.18f)
+                            if (profileFocused) accentColor.copy(alpha = 0.18f)
                             else Color.Transparent,
                         )
-                        .onFocusChanged { profileFocused = it.isFocused }
+                        .onFocusChanged {
+                            profileFocused = it.isFocused
+                            if (it.isFocused) focusedDestinationKey = null
+                        }
                         .tvFocusBorder(CircleShape, showOutline = false)
+                        .border(
+                            width = if (profileFocused) 2.dp else 0.dp,
+                            color = if (profileFocused) accentColor else Color.Transparent,
+                            shape = CircleShape,
+                        )
                         .clickable(onClick = onProfileClick),
                 ) {
                     when {

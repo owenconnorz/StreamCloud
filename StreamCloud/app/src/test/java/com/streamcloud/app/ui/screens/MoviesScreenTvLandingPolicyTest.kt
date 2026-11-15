@@ -1,5 +1,6 @@
 package com.streamcloud.app.ui.screens
 
+import com.streamcloud.app.ui.viewmodel.HeroBannerItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -7,6 +8,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MoviesScreenTvLandingPolicyTest {
+    @Test
+    fun featuredTvHeroSkipsContinueWatchingTitles() {
+        val featured = selectTvFeaturedHeroItems(
+            items = listOf(
+                HeroBannerItem(imageUrl = "grinch.jpg", title = "The Grinch", tmdbId = 1L),
+                HeroBannerItem(imageUrl = "movie.jpg", title = "Featured", tmdbId = 2L),
+            ),
+            continueWatchingIdentities = setOf(tvHomeHeroIdentity(1L, "movie")),
+            resolvedStremioTmdbIds = emptyMap(),
+        )
+
+        assertEquals(listOf("Featured"), featured.map { it.title })
+        assertFalse(featured.single().isContinueWatching)
+    }
+
+    @Test
+    fun featuredTvHeroMarksContinueWatchingWhenItIsTheOnlyAvailableChoice() {
+        val featured = selectTvFeaturedHeroItems(
+            items = listOf(
+                HeroBannerItem(imageUrl = "grinch.jpg", title = "The Grinch", tmdbId = 1L),
+            ),
+            continueWatchingIdentities = setOf(tvHomeHeroIdentity(1L, "movie")),
+            resolvedStremioTmdbIds = emptyMap(),
+        )
+
+        assertTrue(featured.single().isContinueWatching)
+    }
+
     @Test
     fun topTenIsTheFirstFocusableShelfWhenAvailable() {
         assertEquals(

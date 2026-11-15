@@ -567,6 +567,12 @@ fun MoviesScreen(
         updateTvHomeRowFocus(rowKey, true)
     }
     var focusedHomeHero by remember { mutableStateOf<HeroBannerItem?>(null) }
+    LaunchedEffect(isTv, query, tvNavSafeFocusReceived) {
+        if (isTv && query.isBlank() && tvNavSafeFocusReceived) {
+            focusedHomeHero = null
+            moviesListState.scrollToItem(0)
+        }
+    }
     val tvHeroDetailsVisible by remember(moviesListState, query) {
         derivedStateOf {
             shouldShowTvHeroActions(
@@ -704,10 +710,27 @@ fun MoviesScreen(
             genreShortcuts
         }
     }
+    val continueWatchingHeroIdentities = remember(state.continueWatching) {
+        state.continueWatching.mapNotNull { entry ->
+            entry.tmdbId.takeIf { it > 0L }
+                ?.let { tvHomeHeroIdentity(it, entry.mediaType) }
+        }.toSet()
+    }
+    val tvHeroItems = remember(
+        state.heroBanner,
+        continueWatchingHeroIdentities,
+        state.stremioTmdbIds,
+    ) {
+        selectTvFeaturedHeroItems(
+            items = state.heroBanner,
+            continueWatchingIdentities = continueWatchingHeroIdentities,
+            resolvedStremioTmdbIds = state.stremioTmdbIds,
+        )
+    }
     val hasTvHero = isTv &&
         query.isBlank() &&
         state.showHeroSection &&
-        state.heroBanner.isNotEmpty()
+        tvHeroItems.isNotEmpty()
     val tvHomeContinueRowHeight = run {
         val screenWidth = LocalConfiguration.current.screenWidthDp.dp
         val continueCardWidth = (screenWidth * 0.21f).coerceIn(176.dp, 272.dp)
@@ -1091,6 +1114,7 @@ fun MoviesScreen(
 
             if (hasTvHero) {
                 moviesListState.scrollToItem(0)
+                focusedHomeHero = null
                 if (requestTvHomeHeroFocus()) return true
                 val navRequester = tvNavSafeFocusRequester ?: return false
                 repeat(12) {
@@ -1297,10 +1321,12 @@ fun MoviesScreen(
 
         if (hasTvHero) {
             TvHeroBackdrop(
-                items = state.heroBanner,
+                items = tvHeroItems,
                 focusedItem = focusedHomeHero,
                 rowsViewportHeight = tvHeroBackdropRowsViewportHeight,
                 dotsBottomInset = tvHomeRowsViewportHeight,
+                actionsBottomInset = tvHomeRowsViewportHeight,
+                navigationFocused = tvNavSafeFocusReceived,
                 initialFocusRequester = if (startupFocusTarget == "hero") {
                     initialFocusRequester
                 } else {
@@ -1382,9 +1408,10 @@ fun MoviesScreen(
                     }
                 },
                 onMoreDetails = openHeroDetails,
-                detailsVisible = tvHeroDetailsVisible,
+                detailsVisible = tvHeroDetailsVisible || tvNavSafeFocusReceived,
                 onActionsFocusChanged = { focused ->
                     tvNavHeroHasFocus = focused
+                    if (focused) focusedHomeHero = null
                     onFirstMovieFocusedChanged(focused)
                 },
             )
@@ -3125,6 +3152,40 @@ private fun stremioHeroBannerItem(meta: StremioMetaPreview): HeroBannerItem? {
     )
 }
 
+internal fun tvHomeHeroIdentity(tmdbId: Long, mediaType: String): String {
+    val normalizedType = if (
+        mediaType.equals("tv", ignoreCase = true) ||
+        mediaType.equals("series", ignoreCase = true)
+    ) {
+        "tv"
+    } else {
+        "movie"
+    }
+    return "$tmdbId:$normalizedType"
+}
+
+internal fun selectTvFeaturedHeroItems(
+    items: List<HeroBannerItem>,
+    continueWatchingIdentities: Set<String>,
+    resolvedStremioTmdbIds: Map<String, Long>,
+): List<HeroBannerItem> {
+    val markedItems = items.map { item ->
+        val resolvedTmdbId = item.tmdbId ?: item.stremioMeta?.let { meta ->
+            resolvedStremioTmdbIds["stremio:${meta.type}:${meta.id}"]
+        }
+        val matchesContinueWatching = resolvedTmdbId?.let {
+            tvHomeHeroIdentity(it, item.mediaType) in continueWatchingIdentities
+        } == true
+        val isContinueWatching = item.isContinueWatching || matchesContinueWatching
+        if (item.isContinueWatching == isContinueWatching) {
+            item
+        } else {
+            item.copy(isContinueWatching = isContinueWatching)
+        }
+    }
+    return markedItems.filterNot { it.isContinueWatching }.ifEmpty { markedItems }
+}
+
 private fun continueWatchingHeroItem(
     entry: WatchProgressEntity,
     imageUrl: String,
@@ -3133,6 +3194,7 @@ private fun continueWatchingHeroItem(
     title = entry.title,
     tmdbId = entry.tmdbId.takeIf { it > 0L },
     mediaType = entry.mediaType,
+    isContinueWatching = true,
 )
 
 @Composable
@@ -3141,6 +3203,8 @@ private fun TvHeroBackdrop(
     focusedItem: HeroBannerItem?,
     rowsViewportHeight: androidx.compose.ui.unit.Dp,
     dotsBottomInset: androidx.compose.ui.unit.Dp = rowsViewportHeight,
+    actionsBottomInset: androidx.compose.ui.unit.Dp = rowsViewportHeight,
+    navigationFocused: Boolean = false,
     detailsVisible: Boolean,
     initialFocusRequester: FocusRequester? = null,
     navFocusRequester: FocusRequester? = null,
@@ -3166,6 +3230,14 @@ private fun TvHeroBackdrop(
     val moreDetailsFocusRequester = remember { FocusRequester() }
     val downFocusScope = rememberCoroutineScope()
     val downFocusTarget = downFocusRequester
+    LaunchedEffect(navigationFocused, items) {
+        if (!navigationFocused || items.size <= 1) return@LaunchedEffect
+        val candidateIndices = items.indices.filterNot { items[it].isContinueWatching }
+            .ifEmpty { items.indices.toList() }
+        currentPage = candidateIndices[
+            kotlin.random.Random.Default.nextInt(candidateIndices.size)
+        ]
+    }
     LaunchedEffect(watchNowFocused, moreDetailsFocused) {
         actionsFocused = watchNowFocused || moreDetailsFocused
         onActionsFocusChanged(actionsFocused)
@@ -3301,8 +3373,10 @@ private fun TvHeroBackdrop(
             val titleLogoUrl = titleLogoUrlFor(hero)
             val titleLogoRequestKey = titleLogoRequestKeyFor(hero)
             var titleLogoFailed by remember(hero.title, titleLogoUrl) { mutableStateOf(false) }
-            LaunchedEffect(titleLogoRequestKey, titleLogoUrl) {
-                if (titleLogoUrl.isNullOrBlank()) onRequestTitleLogoFor(hero)
+            LaunchedEffect(titleLogoRequestKey, titleLogoUrl, focusedItem) {
+                if (focusedItem == null && titleLogoUrl.isNullOrBlank()) {
+                    onRequestTitleLogoFor(hero)
+                }
             }
             val meta = listOfNotNull(
                 if (
@@ -3317,7 +3391,7 @@ private fun TvHeroBackdrop(
                 hero.rating.takeIf(String::isNotBlank),
             ).joinToString("  â¢  ")
             AnimatedVisibility(
-                visible = detailsVisible,
+                visible = detailsVisible && focusedItem == null,
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .fillMaxWidth(),
@@ -3327,7 +3401,7 @@ private fun TvHeroBackdrop(
                 Column(
                     modifier = Modifier
                         .padding(
-                            // Keep hero text and actions clear of the overlaid TV shortcut rail.
+                            // Keep hero copy inside the artwork's safe area.
                             start = 92.dp,
                             end = LocalConfiguration.current.screenWidthDp.dp * 0.42f,
                             top = 48.dp,
@@ -3375,6 +3449,21 @@ private fun TvHeroBackdrop(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                }
+            }
+            AnimatedVisibility(
+                visible = detailsVisible && focusedItem == null && !hero.isContinueWatching,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(
+                        start = 92.dp,
+                        end = LocalConfiguration.current.screenWidthDp.dp * 0.42f,
+                        bottom = actionsBottomInset + 8.dp,
+                    )
+                    .widthIn(max = 580.dp),
+                enter = fadeIn(tween(180)),
+                exit = fadeOut(tween(140)),
+            ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
                             onClick = { onPlayNow(hero) },

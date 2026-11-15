@@ -111,6 +111,7 @@ data class HeroBannerItem(
     val tmdbId: Long? = null,
     val mediaType: String = "movie",
     val stremioMeta: StremioMetaPreview? = null,
+    val isContinueWatching: Boolean = false,
 )
 
 data class CsPluginRow(
