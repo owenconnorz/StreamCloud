@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -589,7 +590,7 @@ fun StreamCloudApp(
             }
         }
         fun focusTvNavigation() {
-            runCatching { tvNavSearchFocus.requestFocus() }
+            runCatching { firstTvNavFocus.requestFocus() }
         }
         Row(
             Modifier
@@ -612,7 +613,7 @@ fun StreamCloudApp(
                     bubblePhase = true,
                     onMoveFocusFailed = { direction ->
                         if (
-                            direction == FocusDirection.Left &&
+                            direction == FocusDirection.Up &&
                             isTv &&
                             showRail
                         ) {
@@ -710,9 +711,7 @@ fun StreamCloudApp(
                     }
             ) {
                 Column(
-                    Modifier
-                        .fillMaxSize()
-                        .padding(start = if (isTv && showRail) 72.dp else 0.dp),
+                    Modifier.fillMaxSize(),
                 ) {
                     Box(
                         Modifier.weight(1f).fillMaxSize().then(
@@ -2328,11 +2327,9 @@ fun StreamCloudApp(
                             },
                         )
                     }
-                    TvPrimeSideNav(
+                    TvPeacockTopNav(
                         tabs = tabs,
                         currentRoute = currentRoute,
-                        referencePurpleStyle = currentRoute == "movie-search" &&
-                            normalizeAppColorPaletteId(appearancePalette) != "monochrome",
                         firstTabFocus = firstTvNavFocus,
                         searchFocusRequester = tvNavSearchFocus,
                         contentFocusRequester = tvNavHeroFocus,
@@ -2366,10 +2363,8 @@ fun StreamCloudApp(
                             }
                         },
                         modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .fillMaxHeight()
-                            // Expand over the page while keeping the content inset fixed.
-                            .width(220.dp),
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth(),
                     )
                 }
 
@@ -3066,7 +3061,7 @@ private fun TvPrimeTopNav(
         }
         TvTopNavigationDestination(
             key = tab.route,
-            label = if (tab.route == Tab.Movies.route) "Home" else tab.label,
+            label = tab.label,
             selected = selected,
             route = tab.route,
         )
@@ -3417,6 +3412,374 @@ private fun TvPrimeTopNav(
             }
         }
 
+    }
+}
+
+@Composable
+private fun TvPeacockTopNav(
+    tabs: List<Tab>,
+    currentRoute: String?,
+    firstTabFocus: FocusRequester,
+    searchFocusRequester: FocusRequester,
+    contentFocusRequester: FocusRequester,
+    contentFocusReceived: Boolean,
+    onNavFocusChanged: (Boolean) -> Unit,
+    onDownFocusHandoffRequested: () -> Unit,
+    onTabSelected: (String) -> Unit,
+    onSearchClick: () -> Unit,
+    adultTabEnabled: Boolean,
+    onProfileClick: () -> Unit,
+    profileAvatarSeed: String,
+    profileAvatarUrl: String,
+    modifier: Modifier = Modifier,
+) {
+    val route = currentRoute.orEmpty()
+    val destinations = tabs
+        .filter { adultTabEnabled || it.route != Tab.Adult.route }
+        .map { tab ->
+            val selected = route == tab.route || when (tab.route) {
+                Tab.Movies.route ->
+                    route == "movie-search" ||
+                        route.startsWith("movie/") ||
+                        route.startsWith("tv/") ||
+                        route.startsWith("catalog/") ||
+                        route.startsWith("cloudstream/") ||
+                        route.startsWith("cs-") ||
+                        route.startsWith("stremio-")
+                Tab.Music.route ->
+                    route.startsWith("music-") ||
+                        route.startsWith("spotify-") ||
+                        route.startsWith("artist/")
+                Tab.Library.route ->
+                    route.startsWith("library-") || route.startsWith("collection")
+                Tab.Adult.route -> route.startsWith("adult-")
+                else -> false
+            }
+            TvTopNavigationDestination(
+                key = tab.route,
+                label = tab.label,
+                selected = selected,
+                route = tab.route,
+            )
+        }
+    val selectedIndex = destinations.indexOfFirst { it.selected }
+    val selectedKey = destinations.getOrNull(selectedIndex)?.key
+    var navHasFocus by remember { mutableStateOf(false) }
+    var focusedDestinationKey by remember { mutableStateOf<String?>(null) }
+    var searchFocused by remember { mutableStateOf(false) }
+    var profileFocused by remember { mutableStateOf(false) }
+    var pendingDownFocusHandoff by remember { mutableStateOf(false) }
+    var downFocusAttempt by remember { mutableIntStateOf(0) }
+    val focusManager = LocalFocusManager.current
+    val firstDestinationFocusRequester = remember { FocusRequester() }
+    val lastDestinationFocusRequester = remember { FocusRequester() }
+    val profileFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(currentRoute, navHasFocus, selectedKey) {
+        if (!navHasFocus) focusedDestinationKey = selectedKey
+    }
+
+    LaunchedEffect(
+        downFocusAttempt,
+        pendingDownFocusHandoff,
+        navHasFocus,
+        currentRoute,
+        contentFocusReceived,
+    ) {
+        if (!pendingDownFocusHandoff) return@LaunchedEffect
+        val screenOwnsDownHandoff =
+            currentRoute == Tab.Movies.route ||
+                currentRoute == "movie-search" ||
+                currentRoute?.startsWith("movie/") == true ||
+                currentRoute?.startsWith("tv/") == true
+        if (screenOwnsDownHandoff) {
+            repeat(12) {
+                kotlinx.coroutines.delay(50L)
+                if (!pendingDownFocusHandoff || !navHasFocus) {
+                    pendingDownFocusHandoff = false
+                    return@LaunchedEffect
+                }
+            }
+            pendingDownFocusHandoff = false
+            return@LaunchedEffect
+        }
+
+        repeat(16) {
+            kotlinx.coroutines.delay(160L)
+            if (!pendingDownFocusHandoff) return@LaunchedEffect
+            runCatching { contentFocusRequester.requestFocus() }
+            kotlinx.coroutines.delay(60L)
+            if (!navHasFocus) {
+                pendingDownFocusHandoff = false
+                return@LaunchedEffect
+            }
+            if (contentFocusReceived) {
+                val moved = runCatching {
+                    focusManager.moveFocus(FocusDirection.Down)
+                }.getOrDefault(false)
+                if (moved) {
+                    pendingDownFocusHandoff = false
+                    return@LaunchedEffect
+                }
+            }
+        }
+        if (pendingDownFocusHandoff) {
+            runCatching { focusManager.moveFocus(FocusDirection.Down) }
+            kotlinx.coroutines.delay(60L)
+        }
+        pendingDownFocusHandoff = false
+    }
+
+    fun commitFocusedDestination() {
+        destinations
+            .firstOrNull { it.key == focusedDestinationKey }
+            ?.takeIf { !it.selected }
+            ?.route
+            ?.let(onTabSelected)
+    }
+
+    fun requestDownHandoff() {
+        if (pendingDownFocusHandoff) return
+        pendingDownFocusHandoff = true
+        commitFocusedDestination()
+        downFocusAttempt++
+        onDownFocusHandoffRequested()
+    }
+
+    val activeDestinationIndex = destinations.indexOfFirst {
+        it.key == if (navHasFocus) focusedDestinationKey else selectedKey
+    }.takeIf { it >= 0 } ?: selectedIndex.takeIf { it >= 0 } ?: 0
+    val focusRequesterIndex = selectedIndex.takeIf { it >= 0 } ?: 0
+
+    Box(
+        modifier = modifier
+            .tvFocusGroup()
+            .onFocusChanged {
+                navHasFocus = it.hasFocus
+                onNavFocusChanged(it.hasFocus)
+                if (!it.hasFocus) pendingDownFocusHandoff = false
+            }
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.DirectionDown -> {
+                        requestDownHandoff()
+                        true
+                    }
+                    Key.DirectionUp -> true
+                    else -> {
+                        if (event.key != Key.DirectionDown) {
+                            pendingDownFocusHandoff = false
+                        }
+                        false
+                    }
+                }
+            },
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(
+                    horizontal = TvOverscanPadding + 10.dp,
+                    vertical = 4.dp,
+                ),
+        ) {
+            val barShape = RoundedCornerShape(24.dp)
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .widthIn(max = 780.dp)
+                    .fillMaxWidth()
+                    .height(38.dp)
+                    .clip(barShape)
+                    .background(Color.Black.copy(alpha = 0.72f))
+                    .border(1.dp, Color.White.copy(alpha = 0.14f), barShape)
+                    .padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier.widthIn(max = 112.dp),
+                ) {
+                    Image(
+                        painter = painterResource(com.streamcloud.app.R.drawable.ic_streamcloud_brand),
+                        contentDescription = "StreamCloud",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.size(width = 24.dp, height = 22.dp),
+                    )
+                    Text(
+                        text = "StreamCloud",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                        maxLines = 1,
+                    )
+                }
+
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(32.dp)
+                        .focusRequester(searchFocusRequester)
+                        .focusProperties { right = firstDestinationFocusRequester }
+                        .onFocusChanged {
+                            searchFocused = it.isFocused
+                            if (it.isFocused) focusedDestinationKey = null
+                        }
+                        .clip(CircleShape)
+                        .background(
+                            if (searchFocused) Color.White.copy(alpha = 0.18f)
+                            else Color.Transparent,
+                        )
+                        .tvFocusBorder(CircleShape, showOutline = false)
+                        .clickable(onClick = onSearchClick),
+                ) {
+                    Icon(
+                        imageVector = MaterialIcons.Filled.Search,
+                        contentDescription = "Search",
+                        tint = Color.White,
+                        modifier = Modifier.size(19.dp),
+                    )
+                }
+
+                if (destinations.isNotEmpty()) {
+                    BoxWithConstraints(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(34.dp),
+                    ) {
+                        val slotWidth = (maxWidth / destinations.size).coerceAtMost(104.dp)
+                        val navRowWidth = slotWidth * destinations.size
+                        val navRowOffset = (maxWidth - navRowWidth) / 2
+                        val selectedPillOffset by animateDpAsState(
+                            targetValue = navRowOffset + slotWidth * activeDestinationIndex,
+                            animationSpec = tween(durationMillis = 220),
+                            label = "tvPeacockNavigationSelection",
+                        )
+                        Box(
+                            Modifier
+                                .align(Alignment.CenterStart)
+                                .offset(x = selectedPillOffset)
+                                .width(slotWidth)
+                                .height(28.dp)
+                                .padding(horizontal = 3.dp)
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(Color(0xFFFFD526)),
+                        )
+                        Row(
+                            Modifier
+                                .align(Alignment.Center)
+                                .width(navRowWidth)
+                                .height(34.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            destinations.forEachIndexed { index, destination ->
+                                val active = index == activeDestinationIndex
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .then(
+                                            if (index == 0) {
+                                                Modifier
+                                                    .focusRequester(firstDestinationFocusRequester)
+                                                    .focusProperties { left = searchFocusRequester }
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
+                                        .then(
+                                            if (index == focusRequesterIndex) {
+                                                Modifier.focusRequester(firstTabFocus)
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
+                                        .then(
+                                            if (index == destinations.lastIndex) {
+                                                Modifier
+                                                    .focusRequester(lastDestinationFocusRequester)
+                                                    .focusProperties { right = profileFocusRequester }
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
+                                        .onFocusChanged { focus ->
+                                            if (focus.isFocused) {
+                                                focusedDestinationKey = destination.key
+                                            }
+                                        }
+                                        .clickable {
+                                            focusedDestinationKey = destination.key
+                                            destination.route?.let(onTabSelected)
+                                        },
+                                ) {
+                                    Text(
+                                        text = destination.label,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (active) {
+                                            FontWeight.SemiBold
+                                        } else {
+                                            FontWeight.Medium
+                                        },
+                                        color = if (active) {
+                                            Color(0xFF171717)
+                                        } else {
+                                            Color.White.copy(alpha = 0.94f)
+                                        },
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(30.dp)
+                        .focusRequester(profileFocusRequester)
+                        .focusProperties {
+                            left = lastDestinationFocusRequester
+                        }
+                        .clip(CircleShape)
+                        .background(
+                            if (profileFocused) Color.White.copy(alpha = 0.18f)
+                            else Color.Transparent,
+                        )
+                        .onFocusChanged { profileFocused = it.isFocused }
+                        .tvFocusBorder(CircleShape, showOutline = false)
+                        .clickable(onClick = onProfileClick),
+                ) {
+                    when {
+                        profileAvatarUrl.isNotBlank() -> AsyncImage(
+                            model = profileAvatarUrl,
+                            contentDescription = "Choose profile",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        profileAvatarSeed.isNotBlank() -> Image(
+                            painter = painterResource(profileAvatarDrawable(profileAvatarSeed)),
+                            contentDescription = "Choose profile",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        else -> Icon(
+                            MaterialIcons.Filled.AccountCircle,
+                            contentDescription = "Choose profile",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
