@@ -67,8 +67,10 @@ import com.streamcloud.app.ui.theme.normalizeAppColorPaletteId
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.viewmodel.CsSearchResult
+import com.streamcloud.app.ui.viewmodel.MobileSearchFilters
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 import com.streamcloud.app.ui.viewmodel.StremioSearchResult
+import com.streamcloud.app.ui.viewmodel.filterMobileSearchTitles
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,6 +112,8 @@ fun MovieSearchScreen(
     var selectedGenres by remember { mutableStateOf(emptySet<Int>()) }
     var showFilterPanel by remember { mutableStateOf(false) }
     var selectedFilterTab by remember { mutableStateOf(TvSearchFilterTab.Genre) }
+    var mobileSearchFilters by remember { mutableStateOf(MobileSearchFilters()) }
+    var mobileFilterPanel by remember { mutableStateOf<MobileSearchFilterPanel?>(null) }
     var focusResultsAfterSearch by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val firstKeyboardKeyFocusRequester = remember { FocusRequester() }
@@ -125,9 +129,24 @@ fun MovieSearchScreen(
         selectedType,
         selectedLanguage,
         selectedGenres,
+        mobileSearchFilters,
+        watchedTmdbIds,
     ) {
         if (!isTv) {
-            state
+            state.copy(
+                searchResults = filterMobileSearchTitles(
+                    items = state.searchResults,
+                    isTv = false,
+                    filters = mobileSearchFilters,
+                    watchedIds = watchedTmdbIds,
+                ),
+                tvSearchResults = filterMobileSearchTitles(
+                    items = state.tvSearchResults,
+                    isTv = true,
+                    filters = mobileSearchFilters,
+                    watchedIds = watchedTmdbIds,
+                ),
+            )
         } else {
             state.copy(
                 moviesLoading = state.moviesLoading && selectedType != TvSearchType.Series,
@@ -237,6 +256,14 @@ fun MovieSearchScreen(
             vm.search(normalizedQuery)
         } else {
             vm.search("")
+        }
+    }
+    LaunchedEffect(query, isTv, mobileSearchFilters, vm) {
+        if (isTv) return@LaunchedEffect
+        if (query.trim().length < 2 && mobileSearchFilters.requiresDiscovery) {
+            vm.searchMobileBrowse(mobileSearchFilters)
+        } else {
+            vm.clearMobileSearchBrowse()
         }
     }
 
@@ -580,31 +607,59 @@ fun MovieSearchScreen(
                     }
                 }
             } else {
-                if (displayedQuery.length < 2) {
-                    RecentSearches(
-                        history = state.searchHistory,
-                        padding = padding,
-                        firstItemFocusRequester = firstHistoryFocusRequester,
-                        onSelect = { submitSearch(it) },
-                        onRemove = { vm.removeFromSearchHistory(it) },
-                        onClearAll = { vm.clearSearchHistory() },
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding),
+                ) {
+                    MobileSearchFilterBar(
+                        filters = mobileSearchFilters,
+                        onFiltersChanged = { mobileSearchFilters = it },
+                        onPanelSelected = { mobileFilterPanel = it },
                     )
-                } else {
-                    CombinedResultsList(
-                        state = state,
-                        query = displayedQuery,
-                        padding = padding,
-                        watchedTmdbIds = watchedTmdbIds,
-                        firstResultFocusRequester = firstResultFocusRequester,
-                        keyboardFocusRequester = firstKeyboardKeyFocusRequester,
-                        onMovieClick = onMovieClick,
-                        onTvClick = onTvClick,
-                        onLoadMoreMovies = vm::loadMoreMovies,
-                        onLoadMoreTv = vm::loadMoreTv,
-                        onOpenCsItem = onOpenCsItem,
-                        onOpenStremio = onOpenStremio,
-                    )
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (displayedQuery.length < 2) {
+                            MobileSearchBrowseContent(
+                                state = state,
+                                filters = mobileSearchFilters,
+                                watchedIds = watchedTmdbIds,
+                                searchHistory = state.searchHistory,
+                                onMovieClick = onMovieClick,
+                                onTvClick = onTvClick,
+                                onSearchHistorySelected = { submitSearch(it) },
+                                onRemoveSearchHistory = { vm.removeFromSearchHistory(it) },
+                                onClearSearchHistory = { vm.clearSearchHistory() },
+                                onRetry = { vm.searchMobileBrowse(mobileSearchFilters) },
+                            )
+                        } else {
+                            CombinedResultsList(
+                                state = filteredState,
+                                query = displayedQuery,
+                                padding = PaddingValues(),
+                                watchedTmdbIds = watchedTmdbIds,
+                                firstResultFocusRequester = firstResultFocusRequester,
+                                keyboardFocusRequester = firstKeyboardKeyFocusRequester,
+                                onMovieClick = onMovieClick,
+                                onTvClick = onTvClick,
+                                onLoadMoreMovies = vm::loadMoreMovies,
+                                onLoadMoreTv = vm::loadMoreTv,
+                                onOpenCsItem = onOpenCsItem,
+                                onOpenStremio = onOpenStremio,
+                            )
+                        }
+                    }
                 }
+            }
+        }
+        if (!isTv && mobileFilterPanel != null) {
+            val panel = mobileFilterPanel
+            if (panel != null) {
+                MobileSearchFilterSheet(
+                    panel = panel,
+                    filters = mobileSearchFilters,
+                    onFiltersChanged = { mobileSearchFilters = it },
+                    onDismiss = { mobileFilterPanel = null },
+                )
             }
         }
     }

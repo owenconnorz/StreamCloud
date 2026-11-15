@@ -158,6 +158,10 @@ data class MoviesState(
     val continueWatching: List<WatchProgressEntity> = emptyList(),
     val searchResults: List<TmdbMovie> = emptyList(),
     val tvSearchResults: List<TmdbMovie> = emptyList(),
+    val mobileSearchBrowseMovies: List<TmdbMovie> = emptyList(),
+    val mobileSearchBrowseTv: List<TmdbMovie> = emptyList(),
+    val mobileSearchBrowseLoading: Boolean = false,
+    val mobileSearchBrowseError: String? = null,
     val searchCorrection: String? = null,
     val csSearchResults: List<CsSearchResult> = emptyList(),
     val stremioSearchResults: List<StremioSearchResult> = emptyList(),
@@ -307,6 +311,8 @@ class MoviesViewModel(
     private var searchJob: Job? = null
     private var moviePageJob: Job? = null
     private var tvPageJob: Job? = null
+    private var mobileSearchBrowseJob: Job? = null
+    private var mobileSearchBrowseRequestId = 0L
     private var searchRequestId = 0L
 
     // Separate hero-banner caches so TMDB and Stremio items can update independently
@@ -1495,6 +1501,128 @@ class MoviesViewModel(
 
     fun loadMoreTv() {
         loadMoreTmdb(isTv = true)
+    }
+
+    fun clearMobileSearchBrowse() {
+        mobileSearchBrowseJob?.cancel()
+        mobileSearchBrowseJob = null
+        mobileSearchBrowseRequestId += 1L
+        _state.update {
+            it.copy(
+                mobileSearchBrowseMovies = emptyList(),
+                mobileSearchBrowseTv = emptyList(),
+                mobileSearchBrowseLoading = false,
+                mobileSearchBrowseError = null,
+            )
+        }
+    }
+
+    fun searchMobileBrowse(filters: MobileSearchFilters) {
+        mobileSearchBrowseJob?.cancel()
+        val requestId = ++mobileSearchBrowseRequestId
+        val includeMovies = filters.mediaType != MobileSearchMediaType.TvShows
+        val includeTv = filters.mediaType != MobileSearchMediaType.Movies
+        _state.update {
+            it.copy(
+                mobileSearchBrowseMovies = emptyList(),
+                mobileSearchBrowseTv = emptyList(),
+                mobileSearchBrowseLoading = true,
+                mobileSearchBrowseError = null,
+            )
+        }
+
+        mobileSearchBrowseJob = viewModelScope.launch {
+            suspend fun fetchMovies(): Result<List<TmdbMovie>> = try {
+                val query = mobileSearchDiscoveryQuery(filters, isTv = false)
+                Result.success(
+                    sl.tmdb.discover(
+                        apiKey = sl.tmdbApiKey,
+                        withGenres = query.withGenres,
+                        sortBy = query.sortBy,
+                        voteAverageGte = query.voteAverageMin,
+                        voteAverageLte = query.voteAverageMax,
+                        voteCountGte = query.voteCountMin,
+                        primaryReleaseDateGte = query.dateStart,
+                        primaryReleaseDateLte = query.dateEnd,
+                        withOriginalLanguage = query.originalLanguage,
+                        certificationCountry = query.certificationCountry,
+                        certification = query.certification,
+                    ).results,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Result.failure(error)
+            }
+
+            suspend fun fetchTv(): Result<List<TmdbMovie>> = try {
+                val query = mobileSearchDiscoveryQuery(filters, isTv = true)
+                Result.success(
+                    sl.tmdb.discoverTv(
+                        apiKey = sl.tmdbApiKey,
+                        withGenres = query.withGenres,
+                        sortBy = query.sortBy,
+                        voteAverageGte = query.voteAverageMin,
+                        voteAverageLte = query.voteAverageMax,
+                        voteCountGte = query.voteCountMin,
+                        firstAirDateGte = query.dateStart,
+                        firstAirDateLte = query.dateEnd,
+                        withOriginalLanguage = query.originalLanguage,
+                    ).results,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Result.failure(error)
+            }
+
+            try {
+                val (movies, tv) = coroutineScope {
+                    val movieRequest = async {
+                        if (includeMovies) fetchMovies() else Result.success(emptyList())
+                    }
+                    val tvRequest = async {
+                        if (includeTv) fetchTv() else Result.success(emptyList())
+                    }
+                    movieRequest.await() to tvRequest.await()
+                }
+                if (requestId != mobileSearchBrowseRequestId) return@launch
+
+                val errors = listOfNotNull(
+                    movies.exceptionOrNull()?.takeIf { includeMovies },
+                    tv.exceptionOrNull()?.takeIf { includeTv },
+                )
+                val allRequestedFailed = errors.size == listOf(includeMovies, includeTv).count { it }
+                _state.update {
+                    it.copy(
+                        mobileSearchBrowseMovies = movies.getOrDefault(emptyList()),
+                        mobileSearchBrowseTv = tv.getOrDefault(emptyList()),
+                        mobileSearchBrowseLoading = false,
+                        mobileSearchBrowseError = when {
+                            errors.isEmpty() -> null
+                            allRequestedFailed -> errors.first().message
+                                ?.takeIf(String::isNotBlank) ?: "Unable to load discovery results"
+                            else -> "Some discovery results could not be loaded"
+                        },
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (requestId == mobileSearchBrowseRequestId) {
+                    _state.update {
+                        it.copy(
+                            mobileSearchBrowseMovies = emptyList(),
+                            mobileSearchBrowseTv = emptyList(),
+                            mobileSearchBrowseLoading = false,
+                            mobileSearchBrowseError = error.message
+                                ?.takeIf(String::isNotBlank)
+                                ?: "Unable to load discovery results",
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private fun loadMoreTmdb(isTv: Boolean) {

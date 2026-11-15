@@ -135,6 +135,7 @@ data class TmdbMovie(
     @SerialName("backdrop_path") val backdropPath: String? = null,
     @SerialName("vote_average") val voteAverage: Double = 0.0,
     @SerialName("vote_count") val voteCount: Int = 0,
+    val popularity: Double = 0.0,
     @SerialName("release_date") val releaseDate: String? = null,
     @SerialName("first_air_date") val firstAirDate: String? = null,
     @SerialName("genre_ids") val genreIds: List<Int> = emptyList(),
@@ -338,6 +339,14 @@ interface TmdbApi {
         @Query("primary_release_year") primaryReleaseYear: Int? = null,
         @Query("sort_by") sortBy: String = "popularity.desc",
         @Query("page") page: Int = 1,
+        @Query("vote_average.gte") voteAverageGte: Double? = null,
+        @Query("vote_average.lte") voteAverageLte: Double? = null,
+        @Query("vote_count.gte") voteCountGte: Int? = null,
+        @Query("primary_release_date.gte") primaryReleaseDateGte: String? = null,
+        @Query("primary_release_date.lte") primaryReleaseDateLte: String? = null,
+        @Query("with_original_language") withOriginalLanguage: String? = null,
+        @Query("certification_country") certificationCountry: String? = null,
+        @Query("certification") certification: String? = null,
     ): TmdbListResponse
 
     // ── TV detail ─────────────────────────────────────────────────────────────
@@ -419,6 +428,12 @@ interface TmdbApi {
         @Query("with_genres") withGenres: String? = null,
         @Query("sort_by") sortBy: String = "popularity.desc",
         @Query("page") page: Int = 1,
+        @Query("vote_average.gte") voteAverageGte: Double? = null,
+        @Query("vote_average.lte") voteAverageLte: Double? = null,
+        @Query("vote_count.gte") voteCountGte: Int? = null,
+        @Query("first_air_date.gte") firstAirDateGte: String? = null,
+        @Query("first_air_date.lte") firstAirDateLte: String? = null,
+        @Query("with_original_language") withOriginalLanguage: String? = null,
     ): TmdbListResponse
 
     // ── Find ──────────────────────────────────────────────────────────────────
