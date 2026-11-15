@@ -2328,7 +2328,7 @@ fun StreamCloudApp(
                             },
                         )
                     }
-                    TvPeacockTopNav(
+                    if (currentRoute != "movie-search") TvPeacockTopNav(
                         tabs = tabs,
                         currentRoute = currentRoute,
                         firstTabFocus = firstTvNavFocus,
