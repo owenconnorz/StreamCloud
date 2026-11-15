@@ -3563,9 +3563,9 @@ private fun TvPeacockTopNav(
         -1
     } else {
         destinations.indexOfFirst {
-            it.key == (if (navHasFocus) focusedDestinationKey else selectedDestinationKey)
+            it.key == (if (navHasFocus) focusedDestinationKey else selectedKey)
         }.takeIf { it >= 0 }
-            ?: selectedDestinationIndex.takeIf { it >= 0 }
+            ?: selectedIndex.takeIf { it >= 0 }
             ?: 0
     }
     val focusRequesterIndex = selectedIndex.takeIf { it >= 0 } ?: 0
