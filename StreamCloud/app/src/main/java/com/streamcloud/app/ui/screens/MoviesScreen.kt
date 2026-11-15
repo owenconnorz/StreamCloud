@@ -3547,7 +3547,6 @@ private fun TvHeroBackdrop(
                     }
                 }
             }
-        }
 
         if (items.size > 1 && focusedItem == null) {
             Row(
