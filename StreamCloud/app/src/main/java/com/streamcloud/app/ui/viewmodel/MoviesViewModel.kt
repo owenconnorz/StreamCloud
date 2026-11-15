@@ -1517,7 +1517,7 @@ class MoviesViewModel(
         }
     }
 
-    fun searchMobileBrowse(filters: MobileSearchFilters) {
+    internal fun searchMobileBrowse(filters: MobileSearchFilters) {
         mobileSearchBrowseJob?.cancel()
         val requestId = ++mobileSearchBrowseRequestId
         val includeMovies = filters.mediaType != MobileSearchMediaType.TvShows
