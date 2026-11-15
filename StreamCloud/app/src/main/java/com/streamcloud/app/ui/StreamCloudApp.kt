@@ -3431,9 +3431,14 @@ private fun TvPeacockTopNav(
     onProfileClick: () -> Unit,
     profileAvatarSeed: String,
     profileAvatarUrl: String,
+    profileName: String,
     modifier: Modifier = Modifier,
 ) {
     val route = currentRoute.orEmpty()
+    val profileContentDescription = profileName
+        .takeIf { it.isNotBlank() }
+        ?.let { "Choose profile for $it" }
+        ?: "Choose profile"
     val destinations = tabs
         .filter { adultTabEnabled || it.route != Tab.Adult.route }
         .map { tab ->
@@ -3760,19 +3765,19 @@ private fun TvPeacockTopNav(
                     when {
                         profileAvatarUrl.isNotBlank() -> AsyncImage(
                             model = profileAvatarUrl,
-                            contentDescription = "Choose profile",
+                            contentDescription = profileContentDescription,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize(),
                         )
                         profileAvatarSeed.isNotBlank() -> Image(
                             painter = painterResource(profileAvatarDrawable(profileAvatarSeed)),
-                            contentDescription = "Choose profile",
+                            contentDescription = profileContentDescription,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize(),
                         )
                         else -> Icon(
                             MaterialIcons.Filled.AccountCircle,
-                            contentDescription = "Choose profile",
+                            contentDescription = profileContentDescription,
                             tint = Color.White,
                             modifier = Modifier.size(20.dp),
                         )
