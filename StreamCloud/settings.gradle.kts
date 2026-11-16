@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "StreamCloud"
 include(":app")
+include(":wear")

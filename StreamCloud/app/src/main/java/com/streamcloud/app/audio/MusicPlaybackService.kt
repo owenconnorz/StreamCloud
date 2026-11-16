@@ -68,6 +68,7 @@ import com.streamcloud.app.data.ytmusic.PlaybackLatencyTrace
 import com.streamcloud.app.data.ytmusic.YtmPlaylist
 import com.streamcloud.app.data.ytmusic.YtmSong
 import com.streamcloud.app.data.ytmusic.YtPlayback
+import com.streamcloud.app.wear.WearMusicProtocol
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -1983,6 +1984,8 @@ class MusicPlaybackService : MediaLibraryService() {
                 .add(LIKE_COMMAND)
                 .add(REPEAT_COMMAND)
                 .add(QUICK_ADD_COMMAND)
+                .add(RESOLVE_WEAR_STREAM_COMMAND)
+                .add(REJECT_WEAR_STREAM_COMMAND)
                 .build()
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(sessionCommands)
@@ -1996,6 +1999,85 @@ class MusicPlaybackService : MediaLibraryService() {
             args: Bundle,
         ): ListenableFuture<SessionResult> {
             when (customCommand.customAction) {
+                WearMusicProtocol.ACTION_RESOLVE_STREAM -> {
+                    if (controller.packageName != packageName) {
+                        return Futures.immediateFuture(
+                            SessionResult(
+                                SessionResult.RESULT_ERROR_NOT_SUPPORTED,
+                                Bundle().apply {
+                                    putString(
+                                        WearMusicProtocol.RESULT_ERROR,
+                                        "Watch stream requests are only supported by StreamCloud.",
+                                    )
+                                },
+                            ),
+                        )
+                    }
+                    val future = SettableFuture.create<SessionResult>()
+                    ioScope.launch {
+                        runCatching {
+                            val mediaId = args.getString(WearMusicProtocol.ARG_MEDIA_ID).orEmpty()
+                            val videoId = mediaId.substringAfter("v=", "").substringBefore("&")
+                            require(videoId.matches(Regex("[A-Za-z0-9_-]{11}"))) {
+                                "This item doesn't have a supported watch stream."
+                            }
+                            val stream = resolveStreamUrl(videoId, mediaId)
+                            require(!stream.requiresWebSessionHeaders) {
+                                "This track needs phone playback because it uses a private web session."
+                            }
+                            SessionResult(
+                                SessionResult.RESULT_SUCCESS,
+                                Bundle().apply {
+                                    putString(WearMusicProtocol.RESULT_STREAM_URL, stream.url)
+                                    putString(WearMusicProtocol.RESULT_USER_AGENT, stream.userAgent)
+                                },
+                            )
+                        }.onSuccess(future::set)
+                            .onFailure { error ->
+                                future.set(
+                                    SessionResult(
+                                        SessionResult.RESULT_ERROR_BAD_VALUE,
+                                        Bundle().apply {
+                                            putString(
+                                                WearMusicProtocol.RESULT_ERROR,
+                                                error.message ?: "The phone couldn't prepare that track.",
+                                            )
+                                        },
+                                    ),
+                                )
+                            }
+                    }
+                    return future
+                }
+                WearMusicProtocol.ACTION_REJECT_STREAM -> {
+                    if (controller.packageName != packageName) {
+                        return Futures.immediateFuture(
+                            SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED),
+                        )
+                    }
+                    val videoId = args.getString(WearMusicProtocol.ARG_VIDEO_ID).orEmpty()
+                    val failedUrl = args.getString(WearMusicProtocol.ARG_FAILED_URL).orEmpty()
+                    if (videoId.matches(Regex("[A-Za-z0-9_-]{11}")) && failedUrl.isNotBlank()) {
+                        val current = StreamUrlCache.getEntry(
+                            videoId,
+                            expectedSessionFingerprint = YtPlayerUtils.currentWebSessionFingerprint(),
+                            expectedAudioQuality = YtPlayerUtils.effectiveAudioQuality(),
+                        )
+                        if (current?.url == failedUrl) {
+                            StreamUrlCache.remove(videoId)
+                            rejectedStreamFingerprintsByVideoId
+                                .computeIfAbsent(videoId) { ConcurrentHashMap.newKeySet() }
+                                .add(YtStreamIdentity.fingerprint(failedUrl))
+                            current.clientLabel?.takeIf(String::isNotBlank)?.let { client ->
+                                rejectedYouTubeClientsByVideoId
+                                    .computeIfAbsent(videoId) { ConcurrentHashMap.newKeySet() }
+                                    .add(client)
+                                YtPlayerUtils.recordCdnFailure(client)
+                            }
+                        }
+                    }
+                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
                 ACTION_LIKE -> {
                     val future = SettableFuture.create<SessionResult>()
                     ioScope.launch {
@@ -3301,6 +3383,10 @@ class MusicPlaybackService : MediaLibraryService() {
         const val ACTION_LIKE   = "com.streamcloud.app.action.like"
         const val ACTION_REPEAT = "com.streamcloud.app.action.repeat"
         const val ACTION_QUICK_ADD = "com.streamcloud.app.action.quick_add"
+        private val RESOLVE_WEAR_STREAM_COMMAND =
+            SessionCommand(WearMusicProtocol.ACTION_RESOLVE_STREAM, Bundle.EMPTY)
+        private val REJECT_WEAR_STREAM_COMMAND =
+            SessionCommand(WearMusicProtocol.ACTION_REJECT_STREAM, Bundle.EMPTY)
         val LIKE_COMMAND   = SessionCommand(ACTION_LIKE,   Bundle())
         val REPEAT_COMMAND = SessionCommand(ACTION_REPEAT, Bundle())
         val QUICK_ADD_COMMAND = SessionCommand(ACTION_QUICK_ADD, Bundle())

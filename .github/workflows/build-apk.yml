@@ -49,6 +49,7 @@ jobs:
             const requiredArtifacts = [
               "StreamCloud-mobile-apk",
               "StreamCloud-tv-apk",
+              "StreamCloud-wear-apk",
             ];
 
             for (const run of data.workflow_runs) {
@@ -99,6 +100,9 @@ jobs:
             test_task: testMobileDebugUnitTest
           - flavor: tv
             assemble_task: assembleTvRelease
+            test_task: ""
+          - flavor: wear
+            assemble_task: :wear:assembleRelease
             test_task: ""
     runs-on: ubuntu-latest
     steps:
@@ -198,6 +202,12 @@ jobs:
           ./gradlew ${{ matrix.assemble_task }}
           --no-daemon --stacktrace --no-build-cache
 
+      - name: Build Wear OS release APK
+        if: matrix.flavor == 'wear'
+        run: >-
+          ./gradlew ${{ matrix.assemble_task }}
+          --no-daemon --stacktrace --no-build-cache
+
       - name: Collect APK artifacts
         run: |
           mkdir -p artifacts
@@ -206,7 +216,7 @@ jobs:
             universal="$(find "$apk_dir" -type f \( -name '*universal*release.apk' -o -name 'app-mobile-release.apk' \) -print -quit)"
             test -n "$universal" || { echo "::error::Mobile universal APK was not produced"; find "$apk_dir" -type f -print; exit 1; }
             cp "$universal" artifacts/StreamCloud-mobile-release.apk
-          else
+          elif [[ "${{ matrix.flavor }}" == "tv" ]]; then
             apk_dir="app/build/outputs/apk/tv/release"
             universal="$(find "$apk_dir" -type f \( -name '*universal*release.apk' -o -name 'app-tv-release.apk' \) -print -quit)"
             arm64="$(find "$apk_dir" -type f -name '*arm64-v8a*release.apk' -print -quit)"
@@ -217,6 +227,11 @@ jobs:
             cp "$universal" artifacts/StreamCloud-tv-release.apk
             cp "$arm64" artifacts/StreamCloud-tv-arm64-v8a-release.apk
             cp "$armv7" artifacts/StreamCloud-tv-armeabi-v7a-release.apk
+          else
+            apk_dir="wear/build/outputs/apk/release"
+            watch_apk="$(find "$apk_dir" -type f -name 'wear-release.apk' -print -quit)"
+            test -n "$watch_apk" || { echo "::error::Wear OS release APK was not produced"; find "$apk_dir" -type f -print; exit 1; }
+            cp "$watch_apk" artifacts/StreamCloud-wear-release.apk
           fi
           ls -la artifacts/
 
@@ -269,7 +284,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts
-          for variant in mobile tv tv-arm64-v8a tv-armeabi-v7a; do
+          for variant in mobile tv tv-arm64-v8a tv-armeabi-v7a wear; do
             target="artifacts/StreamCloud-${variant}-release.apk"
             source="$(find artifacts -type f -name "StreamCloud-${variant}-release.apk" -print -quit)"
             if [[ -z "$source" ]]; then
@@ -295,4 +310,5 @@ jobs:
             StreamCloud/artifacts/StreamCloud-tv-release.apk
             StreamCloud/artifacts/StreamCloud-tv-arm64-v8a-release.apk
             StreamCloud/artifacts/StreamCloud-tv-armeabi-v7a-release.apk
+            StreamCloud/artifacts/StreamCloud-wear-release.apk
           fail_on_unmatched_files: true

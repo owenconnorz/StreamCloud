@@ -106,6 +106,14 @@
             </intent-filter>
         </service>
 
+        <service
+            android:name=".wear.WearMusicBridgeService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.BIND_LISTENER" />
+            </intent-filter>
+        </service>
+
         <!-- Media3 download service — handles background music downloads that survive
              process death. Downloads are stored in downloadCache (filesDir/download)
              as a permanent SimpleCache, mirroring Metrolist's ExoDownloadService. -->
