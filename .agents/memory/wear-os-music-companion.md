@@ -14,3 +14,15 @@ Direct watch streaming is limited to provider tracks whose audio URLs the phone 
 **Why:** Provider authentication and stream identity belong to the phone; carrying web cookies or stale signed URLs onto a watch can break playback and expose private session state.
 
 **How to apply:** Recheck provider support and session-header requirements before adding watch playback for another source; retain phone playback as the fallback.
+
+Keep the phone-side `WearableListenerService` registered with `BIND_LISTENER` so it can receive watch requests while the app is not foregrounded. Android lint flags this legacy registration as deprecated; suppress only `WearableBindListener` on the specific action in both manifests rather than disabling release lint.
+
+**Why:** The bridge must receive background watch-to-phone messages, and release lint treats the old action as fatal even though the listener service still depends on it.
+
+**How to apply:** If replacing the listener mechanism, first verify equivalent background message delivery; otherwise preserve the service and use the narrow manifest suppression.
+
+Run phone-side Media3 `MediaBrowser` and `MediaController` operations, including browser creation and release, on `Dispatchers.Main.immediate`. Keep Wearable message transport and blocking task waits on IO.
+
+**Why:** Media3 controllers are bound to their application looper; using them from the listener's IO coroutine throws a wrong-thread exception and can leave the watch waiting for a response.
+
+**How to apply:** When adding Wear bridge operations, marshal the full controller transaction to Main, then return to IO before sending the Wearable response.

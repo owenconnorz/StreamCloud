@@ -37,7 +37,13 @@ class WearMusicBridgeService : com.google.android.gms.wearable.WearableListenerS
             .getOrElse { return }
 
         bridgeScope.launch {
-            val response = runCatching { handleRequest(request) }
+            // Media3 MediaBrowser/MediaController APIs are bound to the main
+            // application looper. Keep message handling and blocking Wearable
+            // Tasks on IO, but marshal the complete controller transaction to
+            // Main so the browser is also released on its owning thread.
+            val response = runCatching {
+                withContext(Dispatchers.Main.immediate) { handleRequest(request) }
+            }
                 .getOrElse { error ->
                     if (error is CancellationException) throw error
                     JSONObject()
