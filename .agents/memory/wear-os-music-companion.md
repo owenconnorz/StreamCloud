@@ -38,3 +38,9 @@ Give the watch a dedicated Now Playing screen with artwork, track details, playb
 **Why:** The user said a screen made only of skip and pause buttons is not a proper media screen.
 
 **How to apply:** When changing Wear music UI, prioritize the active track player and make browsing available without replacing the player with a list of transport chips.
+
+Offer watch updates from the Wear APK attached to a published GitHub Release; download to app cache and hand off installation to Android's package installer.
+
+**Why:** The user wants to update the watch app without repeatedly sideloading it from another device, while Android still requires install confirmation for manually distributed APKs.
+
+**How to apply:** Keep the Wear package ID and release signing identity unchanged, and do not imply that GitHub APK updates install silently.

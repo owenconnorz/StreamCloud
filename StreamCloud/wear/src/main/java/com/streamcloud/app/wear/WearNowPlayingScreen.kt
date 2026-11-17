@@ -40,6 +40,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.wear.compose.material.Button
 import androidx.wear.compose.material.ButtonDefaults
+import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.CompactButton
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
@@ -50,7 +51,11 @@ internal fun WearNowPlayingScreen(
     snapshot: WearPlaybackSnapshot,
     selectedOutput: PlaybackTarget,
     statusMessage: String,
+    updateTitle: String?,
+    updateDetails: String,
+    updateEnabled: Boolean,
     onSelectOutput: (PlaybackTarget) -> Unit,
+    onUpdate: () -> Unit,
     onBrowse: () -> Unit,
     onTransport: (String, Long) -> Unit,
 ) {
@@ -200,6 +205,16 @@ internal fun WearNowPlayingScreen(
                 }
             }
         }
+        if (updateTitle != null) {
+            item {
+                WearUpdateChip(
+                    title = updateTitle,
+                    details = updateDetails,
+                    enabled = updateEnabled,
+                    onClick = onUpdate,
+                )
+            }
+        }
         item {
             Button(onClick = onBrowse, modifier = Modifier.fillMaxWidth()) {
                 Text("Browse music")
@@ -216,6 +231,22 @@ internal fun WearNowPlayingScreen(
             }
         }
     }
+}
+
+@Composable
+internal fun WearUpdateChip(
+    title: String,
+    details: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Chip(
+        onClick = onClick,
+        enabled = enabled,
+        label = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        secondaryLabel = { Text(details, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable

@@ -16,6 +16,7 @@ val releaseKeyStore = keyStorePath
     ?.takeIf { it.exists() }
     ?: rootProject.file("streamcloud-debug.jks")
 val usesConfiguredKey = keyStorePath != null && releaseKeyStore.absolutePath == keyStorePath
+val githubRepository = System.getenv("GITHUB_REPOSITORY") ?: "owenconnorz/StreamCloud"
 
 android {
     namespace = "com.streamcloud.app.wear"
@@ -30,6 +31,8 @@ android {
         targetSdk = 34
         versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1)
         versionName = "1.0.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
+        buildConfigField("String", "GITHUB_OWNER", "\"${githubRepository.substringBefore('/')}\"")
+        buildConfigField("String", "GITHUB_REPO", "\"${githubRepository.substringAfter('/')}\"")
     }
 
     signingConfigs {
@@ -67,6 +70,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     buildTypes {
@@ -88,6 +92,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.wear.compose:compose-foundation:1.4.0")
     implementation("androidx.wear.compose:compose-material:1.4.0")
     implementation("androidx.wear:wear:1.3.0")

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +34,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,6 +71,7 @@ internal enum class PlaybackTarget(val label: String) {
 private fun WearMusicApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val updateChecker = remember { WearUpdateChecker(context.applicationContext) }
     val folders = remember { mutableStateListOf<WatchFolder>() }
     var items by remember { mutableStateOf<List<WatchMusicItem>>(emptyList()) }
     var rootId by remember { mutableStateOf("") }
@@ -80,6 +83,11 @@ private fun WearMusicApp() {
     var phoneSnapshot by remember { mutableStateOf(emptyWearSnapshot()) }
     var watchSnapshot by remember { mutableStateOf(emptyWearSnapshot()) }
     var showNowPlaying by remember { mutableStateOf(false) }
+    var availableUpdate by remember { mutableStateOf<WearUpdateInfo?>(null) }
+    var downloadedUpdate by remember { mutableStateOf<File?>(null) }
+    var updateMessage by remember { mutableStateOf("") }
+    var updateProgress by remember { mutableFloatStateOf(0f) }
+    var downloadingUpdate by remember { mutableStateOf(false) }
     var currentPage by remember { mutableStateOf(0) }
     var pageSize by remember { mutableStateOf(40) }
 
@@ -96,6 +104,14 @@ private fun WearMusicApp() {
         watchSnapshot
     } else {
         phoneSnapshot
+    }
+    val updateChipTitle = when {
+        downloadingUpdate -> "Downloading update · ${(updateProgress * 100).toInt()}%"
+        downloadedUpdate != null -> "Install downloaded update"
+        else -> "StreamCloud update available"
+    }
+    val updateChipDetails = updateMessage.ifBlank {
+        availableUpdate?.let { "${it.tagName} · ${formatUpdateSize(it.sizeBytes)}" }.orEmpty()
     }
 
     fun acceptItems(response: JSONObject) {
@@ -302,6 +318,41 @@ private fun WearMusicApp() {
         }
     }
 
+    fun installLatestUpdate() {
+        val update = availableUpdate ?: return
+        if (downloadingUpdate) return
+        scope.launch {
+            downloadingUpdate = true
+            updateProgress = 0f
+            updateMessage = ""
+            try {
+                val apk = downloadedUpdate?.takeIf(File::exists)
+                    ?: run {
+                        var lastPercent = -1
+                        updateChecker.download(update) { progress ->
+                            val percent = (progress * 100).toInt()
+                            if (percent != lastPercent) {
+                                lastPercent = percent
+                                updateProgress = progress
+                            }
+                        }.also { downloadedUpdate = it }
+                    }
+
+                if (!updateChecker.canInstallPackages()) {
+                    updateMessage = "Allow installs for StreamCloud, then tap here again."
+                    updateChecker.openInstallPermissionSettings()
+                } else {
+                    updateChecker.launchInstaller(apk)
+                    updateMessage = "Confirm installation in the Android installer."
+                }
+            } catch (error: Exception) {
+                updateMessage = "Update failed: ${error.message ?: "try again"}"
+            } finally {
+                downloadingUpdate = false
+            }
+        }
+    }
+
     fun performAction(item: WatchMusicItem) {
         if (item.browsable) openFolder(item)
         else if (item.playable) {
@@ -311,6 +362,9 @@ private fun WearMusicApp() {
 
     LaunchedEffect(Unit) {
         loadRoot()
+        scope.launch {
+            availableUpdate = runCatching { updateChecker.fetchLatest() }.getOrNull()
+        }
         launch {
             var firstWatchStateRead = true
             while (true) {
@@ -351,7 +405,11 @@ private fun WearMusicApp() {
                     snapshot = activeSnapshot,
                     selectedOutput = target,
                     statusMessage = message,
+                    updateTitle = if (availableUpdate != null) updateChipTitle else null,
+                    updateDetails = updateChipDetails,
+                    updateEnabled = !downloadingUpdate,
                     onSelectOutput = { target = it },
+                    onUpdate = ::installLatestUpdate,
                     onBrowse = { showNowPlaying = false },
                     onTransport = { action, positionMs ->
                         scope.launch {
@@ -393,6 +451,16 @@ private fun WearMusicApp() {
                         color = Color(0xFF1BC8E8),
                         style = MaterialTheme.typography.title3,
                     )
+                }
+                if (availableUpdate != null) {
+                    item {
+                        WearUpdateChip(
+                            title = updateChipTitle,
+                            details = updateChipDetails,
+                            enabled = !downloadingUpdate,
+                            onClick = ::installLatestUpdate,
+                        )
+                    }
                 }
                 if (phoneSnapshot.hasItem || watchSnapshot.hasItem) {
                     item {
@@ -518,6 +586,13 @@ private fun emptyWearSnapshot() = WearPlaybackSnapshot(
     positionMs = 0L,
     durationMs = 0L,
 )
+
+private fun formatUpdateSize(bytes: Long): String =
+    if (bytes >= 1024L * 1024L) {
+        "${"%.1f".format(bytes / (1024f * 1024f))} MB"
+    } else {
+        "${(bytes / 1024L).coerceAtLeast(1L)} KB"
+    }
 
 private fun parseItems(array: JSONArray?, parentId: String): List<WatchMusicItem> =
     buildList {
