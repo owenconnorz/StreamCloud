@@ -100,27 +100,19 @@ jobs:
           inputs.publish_release != true ||
           needs.find-build.outputs.run_id == ''
         )
-        &&
-        (
-          github.event_name != 'workflow_dispatch' ||
-          inputs.publish_release != true ||
-          inputs.wear_only_release != true ||
-          matrix.flavor == 'wear'
-        )
       }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - flavor: mobile
-            assemble_task: assembleMobileRelease
-            test_task: testMobileDebugUnitTest
-          - flavor: tv
-            assemble_task: assembleTvRelease
-            test_task: ""
-          - flavor: wear
-            assemble_task: :wear:assembleRelease
-            test_task: ""
+        include: >-
+          ${{ fromJSON(
+            github.event_name == 'workflow_dispatch' &&
+            inputs.publish_release == true &&
+            inputs.wear_only_release == true &&
+            '[{"flavor":"wear","assemble_task":":wear:assembleRelease","test_task":""}]'
+            ||
+            '[{"flavor":"mobile","assemble_task":"assembleMobileRelease","test_task":"testMobileDebugUnitTest"},{"flavor":"tv","assemble_task":"assembleTvRelease","test_task":""},{"flavor":"wear","assemble_task":":wear:assembleRelease","test_task":""}]'
+          ) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout (LFS disabled — libtorrserver.so extracted from release APK below)
