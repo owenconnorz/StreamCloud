@@ -13,7 +13,7 @@
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_streamcloud_watch"
-        android:label="StreamCloud Music"
+        android:label="StreamCloud"
         android:theme="@android:style/Theme.DeviceDefault">
         <meta-data
             android:name="com.google.android.wearable.standalone"

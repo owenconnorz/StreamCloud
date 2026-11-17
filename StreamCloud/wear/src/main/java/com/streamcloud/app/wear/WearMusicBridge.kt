@@ -15,7 +15,12 @@ import java.util.concurrent.ConcurrentHashMap
 internal object WearMusicBridge {
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
 
-    suspend fun request(context: Context, operation: String, values: JSONObject = JSONObject()): JSONObject {
+    suspend fun request(
+        context: Context,
+        operation: String,
+        values: JSONObject = JSONObject(),
+        timeoutMs: Long = RESPONSE_TIMEOUT_MS,
+    ): JSONObject {
         val appContext = context.applicationContext
         val requestId = UUID.randomUUID().toString()
         val response = CompletableDeferred<JSONObject>()
@@ -38,7 +43,7 @@ internal object WearMusicBridge {
                         ),
                 )
             }
-            return withTimeout(RESPONSE_TIMEOUT_MS) { response.await() }
+            return withTimeout(timeoutMs) { response.await() }
         } finally {
             pending.remove(requestId)
         }

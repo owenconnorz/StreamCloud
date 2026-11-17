@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -90,6 +91,17 @@ private fun WearMusicApp() {
     var downloadingUpdate by remember { mutableStateOf(false) }
     var currentPage by remember { mutableStateOf(0) }
     var pageSize by remember { mutableStateOf(40) }
+    var librarySection by remember { mutableStateOf(WearLibrarySection.MUSIC) }
+    var videoItems by remember { mutableStateOf<List<WearVideoItem>>(emptyList()) }
+    var selectedMovie by remember { mutableStateOf<WearVideoItem?>(null) }
+    var videoStreams by remember { mutableStateOf<List<WearVideoStream>>(emptyList()) }
+    var videoQuery by remember { mutableStateOf("") }
+    var adultPin by remember { mutableStateOf("") }
+    var videoTitle by remember { mutableStateOf("") }
+    var videoUrl by remember { mutableStateOf("") }
+    var videoHeaders by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var videoMimeType by remember { mutableStateOf("") }
+    var showVideoPlayer by remember { mutableStateOf(false) }
 
     val activePlaybackTarget = when {
         watchSnapshot.playing && !phoneSnapshot.playing -> PlaybackTarget.WATCH
@@ -482,6 +494,134 @@ private fun WearMusicApp() {
         }
     }
 
+    fun loadVideoLibrary(section: WearLibrarySection, query: String = videoQuery) {
+        if (section == WearLibrarySection.MUSIC) return
+        scope.launch {
+            loading = true
+            message = ""
+            selectedMovie = null
+            videoStreams = emptyList()
+            val response = runCatching {
+                val operation = if (section == WearLibrarySection.MOVIES) "movies" else "adultPage"
+                val request = JSONObject().put("query", query)
+                if (section == WearLibrarySection.ADULT) {
+                    request.put("pin", adultPin).put("page", 1)
+                }
+                WearMusicBridge.request(
+                    context = context,
+                    operation = operation,
+                    values = request,
+                    timeoutMs = VIDEO_REQUEST_TIMEOUT_MS,
+                )
+            }.getOrElse { error ->
+                loading = false
+                message = error.message ?: "Couldn't load videos."
+                return@launch
+            }
+            loading = false
+            if (!response.optBoolean("ok")) {
+                videoItems = emptyList()
+                message = response.optString("message", "Couldn't load videos.")
+                return@launch
+            }
+            videoItems = parseVideoItems(response.optJSONArray("items"), section)
+            message = response.optString("message")
+            if (section == WearLibrarySection.ADULT) {
+                val provider = response.optString("source")
+                if (provider.isNotBlank() && videoItems.isNotEmpty()) {
+                    message = "$provider · select a video"
+                }
+            } else if (videoItems.isEmpty()) {
+                message = "No movies found."
+            }
+        }
+    }
+
+    fun openVideoItem(item: WearVideoItem) {
+        scope.launch {
+            loading = true
+            message = if (item.source.isBlank()) "Finding watch-ready streams…" else "Preparing video…"
+            if (item.source.isBlank()) {
+                selectedMovie = item
+                videoStreams = emptyList()
+                val response = runCatching {
+                    WearMusicBridge.request(
+                        context = context,
+                        operation = "movieStreams",
+                        values = JSONObject()
+                            .put("tmdbId", item.id.toLongOrNull() ?: 0L)
+                            .put("title", item.title)
+                            .put("year", item.year),
+                        timeoutMs = VIDEO_REQUEST_TIMEOUT_MS,
+                    )
+                }.getOrElse { error ->
+                    loading = false
+                    message = error.message ?: "Couldn't find a movie stream."
+                    return@launch
+                }
+                loading = false
+                if (!response.optBoolean("ok")) {
+                    message = response.optString("message", "Couldn't find a movie stream.")
+                    return@launch
+                }
+                selectedMovie = item.copy(
+                    overview = response.optString("overview", item.overview),
+                    artwork = response.optString("artwork", item.artwork),
+                )
+                videoStreams = parseVideoStreams(response.optJSONArray("streams"))
+                message = response.optString("message")
+                if (videoStreams.isEmpty() && message.isBlank()) {
+                    message = "No direct watch-ready streams were found."
+                }
+            } else {
+                val response = runCatching {
+                    WearMusicBridge.request(
+                        context = context,
+                        operation = "adultPlay",
+                        values = JSONObject()
+                            .put("source", item.source)
+                            .put("videoId", item.id)
+                            .put("pageUrl", item.pageUrl)
+                            .put("directUrl", item.directUrl)
+                            .put("pin", adultPin),
+                        timeoutMs = VIDEO_REQUEST_TIMEOUT_MS,
+                    )
+                }.getOrElse { error ->
+                    loading = false
+                    message = error.message ?: "Couldn't prepare this video."
+                    return@launch
+                }
+                loading = false
+                if (!response.optBoolean("ok")) {
+                    message = response.optString("message", "Couldn't prepare this video.")
+                    return@launch
+                }
+                videoTitle = item.title
+                videoUrl = response.optString("url")
+                videoHeaders = parseHeaders(response.optJSONObject("headers"))
+                videoMimeType = response.optString("mimeType")
+                if (videoUrl.isBlank()) {
+                    message = "The provider did not return a playable watch stream."
+                } else {
+                    showNowPlaying = false
+                    showVideoPlayer = true
+                    message = ""
+                }
+            }
+        }
+    }
+
+    fun playVideoStream(stream: WearVideoStream) {
+        videoTitle = selectedMovie?.title ?: stream.title
+        videoUrl = stream.url
+        videoHeaders = stream.headers
+        videoMimeType = stream.mimeType.ifBlank {
+            if (stream.url.substringBefore('?').endsWith(".m3u8", true)) "application/x-mpegURL" else ""
+        }
+        showNowPlaying = false
+        showVideoPlayer = true
+    }
+
     fun installLatestUpdate() {
         val update = availableUpdate ?: return
         if (downloadingUpdate) return
@@ -556,7 +696,15 @@ private fun WearMusicApp() {
 
     MaterialTheme {
         Scaffold(timeText = { TimeText() }) {
-            if (showNowPlaying) {
+            if (showVideoPlayer) {
+                WearVideoPlayerScreen(
+                    title = videoTitle,
+                    streamUrl = videoUrl,
+                    headers = videoHeaders,
+                    mimeType = videoMimeType,
+                    onBack = { showVideoPlayer = false },
+                )
+            } else if (showNowPlaying) {
                 WearNowPlayingScreen(
                     snapshot = activeSnapshot,
                     selectedOutput = target,
@@ -593,6 +741,35 @@ private fun WearMusicApp() {
                         }
                     },
                 )
+            } else if (librarySection != WearLibrarySection.MUSIC) {
+                WearVideoLibraryScreen(
+                    section = librarySection,
+                    items = videoItems,
+                    selectedMovie = selectedMovie,
+                    streams = videoStreams,
+                    query = videoQuery,
+                    adultPin = adultPin,
+                    loading = loading,
+                    message = message,
+                    onQueryChange = { videoQuery = it },
+                    onPinChange = { adultPin = it },
+                    onSearch = { loadVideoLibrary(librarySection, videoQuery) },
+                    onSelectSection = { section ->
+                        librarySection = section
+                        if (section != WearLibrarySection.ADULT) adultPin = ""
+                        if (section != WearLibrarySection.MUSIC) {
+                            videoQuery = ""
+                            loadVideoLibrary(section, "")
+                        }
+                    },
+                    onSelectItem = ::openVideoItem,
+                    onSelectStream = ::playVideoStream,
+                    onBackToItems = {
+                        selectedMovie = null
+                        videoStreams = emptyList()
+                        message = ""
+                    },
+                )
             } else {
             ScalingLazyColumn(
                 modifier = Modifier
@@ -607,6 +784,27 @@ private fun WearMusicApp() {
                         color = Color(0xFF1BC8E8),
                         style = MaterialTheme.typography.title3,
                     )
+                }
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        WearLibrarySection.entries.forEach { section ->
+                            Chip(
+                                onClick = {
+                                    librarySection = section
+                                    if (section != WearLibrarySection.ADULT) adultPin = ""
+                                    if (section != WearLibrarySection.MUSIC) {
+                                        videoQuery = ""
+                                        loadVideoLibrary(section, "")
+                                    }
+                                },
+                                label = { Text(section.label, maxLines = 1) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
                 }
                 if (availableUpdate != null) {
                     item {
@@ -803,6 +1001,66 @@ private fun parsePlaybackQueue(array: JSONArray?): List<WearWatchTrack> =
         }
     }
 
+private fun parseVideoItems(
+    array: JSONArray?,
+    section: WearLibrarySection,
+): List<WearVideoItem> =
+    buildList {
+        if (array == null) return@buildList
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            add(
+                WearVideoItem(
+                    id = item.optString("id"),
+                    title = item.optString("title"),
+                    subtitle = item.optString("subtitle"),
+                    artwork = item.optString("artwork"),
+                    overview = item.optString("overview"),
+                    year = item.optInt("year"),
+                    source = if (section == WearLibrarySection.ADULT) item.optString("source") else "",
+                    pageUrl = item.optString("pageUrl"),
+                    directUrl = item.optString("directUrl"),
+                ),
+            )
+        }
+    }
+
+private fun parseVideoStreams(array: JSONArray?): List<WearVideoStream> =
+    buildList {
+        if (array == null) return@buildList
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val url = item.optString("url")
+            if (url.isBlank()) continue
+            add(
+                WearVideoStream(
+                    title = item.optString("title"),
+                    provider = item.optString("provider"),
+                    quality = item.optString("quality"),
+                    url = url,
+                    headers = parseHeaders(item.optJSONObject("headers")),
+                    mimeType = item.optString("mimeType"),
+                ),
+            )
+        }
+    }
+
+private fun parseHeaders(objectValue: JSONObject?): Map<String, String> =
+    buildMap {
+        if (objectValue == null) return@buildMap
+        val iterator = objectValue.keys()
+        while (iterator.hasNext()) {
+            val key = iterator.next()
+            val safe = key.equals("User-Agent", true) ||
+                key.equals("Referer", true) ||
+                key.equals("Origin", true) ||
+                key.equals("Accept", true) ||
+                key.equals("Accept-Language", true)
+            val value = objectValue.optString(key)
+            if (safe && value.isNotBlank()) put(key, value)
+        }
+    }
+
 private fun isWatchPlayableTrack(item: WatchMusicItem): Boolean =
     item.playable &&
         !item.browsable &&
@@ -814,3 +1072,4 @@ private fun isWatchPlayableTrackId(mediaId: String): Boolean =
 
 private const val MAX_WATCH_QUEUE_ITEMS = 100
 private const val WATCH_QUEUE_PREVIOUS_TRACKS = 10
+private const val VIDEO_REQUEST_TIMEOUT_MS = 90_000L

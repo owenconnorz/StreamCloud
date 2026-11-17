@@ -71,6 +71,9 @@ class WearMusicBridgeService : com.google.android.gms.wearable.WearableListenerS
     }
 
     private suspend fun handleRequest(request: JSONObject): JSONObject {
+        if (request.optString("operation") in VIDEO_OPERATIONS) {
+            return WearVideoBridgeHandler.handle(applicationContext, request)
+        }
         val browser = connectBrowser()
         try {
             return when (request.optString("operation")) {
@@ -373,6 +376,7 @@ class WearMusicBridgeService : com.google.android.gms.wearable.WearableListenerS
     }
 
     private companion object {
+        val VIDEO_OPERATIONS = setOf("movies", "movieStreams", "adultPage", "adultPlay")
         const val DEFAULT_PAGE_SIZE = 40
         const val MAX_PAGE_SIZE = 80
         const val QUEUE_PREVIOUS_ITEMS = 10
