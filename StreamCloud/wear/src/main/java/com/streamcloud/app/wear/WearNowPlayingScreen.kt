@@ -29,13 +29,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.wear.compose.material.Button
+import androidx.wear.compose.material.ButtonDefaults
 import androidx.wear.compose.material.CompactButton
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
@@ -44,9 +48,9 @@ import coil.compose.AsyncImage
 @Composable
 internal fun WearNowPlayingScreen(
     snapshot: WearPlaybackSnapshot,
-    outputLabel: String,
+    selectedOutput: PlaybackTarget,
     statusMessage: String,
-    onToggleOutput: () -> Unit,
+    onSelectOutput: (PlaybackTarget) -> Unit,
     onBrowse: () -> Unit,
     onTransport: (String, Long) -> Unit,
 ) {
@@ -182,8 +186,18 @@ internal fun WearNowPlayingScreen(
             }
         }
         item {
-            Button(onClick = onToggleOutput, modifier = Modifier.fillMaxWidth()) {
-                Text("Play new selection on $outputLabel")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PlaybackTarget.entries.forEach { target ->
+                    OutputDeviceOption(
+                        target = target,
+                        selected = target == selectedOutput,
+                        onSelect = onSelectOutput,
+                    )
+                }
             }
         }
         item {
@@ -200,6 +214,89 @@ internal fun WearNowPlayingScreen(
                     textAlign = TextAlign.Center,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun OutputDeviceOption(
+    target: PlaybackTarget,
+    selected: Boolean,
+    onSelect: (PlaybackTarget) -> Unit,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        CompactButton(
+            onClick = { onSelect(target) },
+            colors = if (selected) {
+                ButtonDefaults.primaryButtonColors()
+            } else {
+                ButtonDefaults.secondaryButtonColors()
+            },
+            modifier = Modifier.semantics {
+                contentDescription = "${target.label} audio output${if (selected) ", selected" else ""}"
+                role = Role.RadioButton
+            },
+        ) {
+            DeviceGlyph(isWatch = target == PlaybackTarget.WATCH)
+        }
+        Text(
+            text = target.label,
+            color = if (selected) Color.White else Color(0xFFB8C4D8),
+            style = MaterialTheme.typography.caption2,
+        )
+    }
+}
+
+@Composable
+private fun DeviceGlyph(isWatch: Boolean) {
+    Canvas(modifier = Modifier.size(22.dp)) {
+        val strokeWidth = 2.dp.toPx()
+        val white = Color.White
+        if (isWatch) {
+            drawRoundRect(
+                color = white,
+                topLeft = Offset(size.width * 0.36f, size.height * 0.02f),
+                size = Size(size.width * 0.28f, size.height * 0.23f),
+                cornerRadius = CornerRadius(strokeWidth),
+            )
+            drawRoundRect(
+                color = white,
+                topLeft = Offset(size.width * 0.36f, size.height * 0.75f),
+                size = Size(size.width * 0.28f, size.height * 0.23f),
+                cornerRadius = CornerRadius(strokeWidth),
+            )
+            drawRoundRect(
+                color = white,
+                topLeft = Offset(size.width * 0.19f, size.height * 0.19f),
+                size = Size(size.width * 0.62f, size.height * 0.62f),
+                cornerRadius = CornerRadius(size.width * 0.16f),
+                style = Stroke(strokeWidth),
+            )
+            drawCircle(
+                color = white,
+                radius = strokeWidth * 0.65f,
+                center = Offset(size.width * 0.5f, size.height * 0.5f),
+            )
+        } else {
+            drawRoundRect(
+                color = white,
+                topLeft = Offset(size.width * 0.25f, size.height * 0.05f),
+                size = Size(size.width * 0.5f, size.height * 0.9f),
+                cornerRadius = CornerRadius(size.width * 0.1f),
+                style = Stroke(strokeWidth),
+            )
+            drawLine(
+                color = white,
+                start = Offset(size.width * 0.4f, size.height * 0.16f),
+                end = Offset(size.width * 0.6f, size.height * 0.16f),
+                strokeWidth = strokeWidth,
+            )
+            drawLine(
+                color = white,
+                start = Offset(size.width * 0.43f, size.height * 0.84f),
+                end = Offset(size.width * 0.57f, size.height * 0.84f),
+                strokeWidth = strokeWidth,
+            )
         }
     }
 }

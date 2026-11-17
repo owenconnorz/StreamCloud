@@ -60,7 +60,7 @@ private data class WatchFolder(
     val parentId: String,
 )
 
-private enum class PlaybackTarget(val label: String) {
+internal enum class PlaybackTarget(val label: String) {
     PHONE("Phone"),
     WATCH("Watch"),
 }
@@ -349,15 +349,9 @@ private fun WearMusicApp() {
             if (showNowPlaying) {
                 WearNowPlayingScreen(
                     snapshot = activeSnapshot,
-                    outputLabel = target.label,
+                    selectedOutput = target,
                     statusMessage = message,
-                    onToggleOutput = {
-                        target = if (target == PlaybackTarget.PHONE) {
-                            PlaybackTarget.WATCH
-                        } else {
-                            PlaybackTarget.PHONE
-                        }
-                    },
+                    onSelectOutput = { target = it },
                     onBrowse = { showNowPlaying = false },
                     onTransport = { action, positionMs ->
                         scope.launch {
