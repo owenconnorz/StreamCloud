@@ -101,11 +101,16 @@ class WearMusicBridgeService : com.google.android.gms.wearable.WearableListenerS
     }
 
     private suspend fun connectBrowser(): MediaBrowser {
+        // This listener service can be torn down shortly after replying. Media3
+        // may defer unbinding until pending session commands finish, so bind with
+        // the application context rather than retaining a short-lived Service
+        // context for the controller's delayed release.
+        val appContext = applicationContext
         val token = SessionToken(
-            this,
-            ComponentName(this, MusicPlaybackService::class.java),
+            appContext,
+            ComponentName(appContext, MusicPlaybackService::class.java),
         )
-        return MediaBrowser.Builder(this, token).buildAsync().awaitValue()
+        return MediaBrowser.Builder(appContext, token).buildAsync().awaitValue()
     }
 
     private suspend fun browseRoot(browser: MediaBrowser): JSONObject {
