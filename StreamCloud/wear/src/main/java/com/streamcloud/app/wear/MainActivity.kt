@@ -77,12 +77,26 @@ private fun WearMusicApp() {
     var target by remember { mutableStateOf(PlaybackTarget.PHONE) }
     var loading by remember { mutableStateOf(true) }
     var message by remember { mutableStateOf("Connect StreamCloud on your phone to load music.") }
-    var phonePlaying by remember { mutableStateOf(false) }
-    var phoneTitle by remember { mutableStateOf("") }
-    var watchPlaying by remember { mutableStateOf(false) }
-    var watchTitle by remember { mutableStateOf("") }
+    var phoneSnapshot by remember { mutableStateOf(emptyWearSnapshot()) }
+    var watchSnapshot by remember { mutableStateOf(emptyWearSnapshot()) }
+    var showNowPlaying by remember { mutableStateOf(false) }
     var currentPage by remember { mutableStateOf(0) }
     var pageSize by remember { mutableStateOf(40) }
+
+    val activePlaybackTarget = when {
+        watchSnapshot.playing && !phoneSnapshot.playing -> PlaybackTarget.WATCH
+        phoneSnapshot.playing && !watchSnapshot.playing -> PlaybackTarget.PHONE
+        target == PlaybackTarget.WATCH && watchSnapshot.hasItem -> PlaybackTarget.WATCH
+        target == PlaybackTarget.PHONE && phoneSnapshot.hasItem -> PlaybackTarget.PHONE
+        watchSnapshot.hasItem -> PlaybackTarget.WATCH
+        phoneSnapshot.hasItem -> PlaybackTarget.PHONE
+        else -> target
+    }
+    val activeSnapshot = if (activePlaybackTarget == PlaybackTarget.WATCH) {
+        watchSnapshot
+    } else {
+        phoneSnapshot
+    }
 
     fun acceptItems(response: JSONObject) {
         items = parseItems(response.optJSONArray("items"), response.optString("parentId"))
@@ -191,6 +205,7 @@ private fun WearMusicApp() {
             }
             loading = false
             message = response.optString("message", "Phone playback updated.")
+            if (response.optBoolean("ok")) showNowPlaying = true
         }
     }
 
@@ -237,9 +252,17 @@ private fun WearMusicApp() {
                 )
             }.onSuccess {
                 loading = false
-                watchPlaying = true
-                watchTitle = item.title
+                watchSnapshot = WearPlaybackSnapshot(
+                    hasItem = true,
+                    playing = true,
+                    title = item.title,
+                    artist = item.artist,
+                    artwork = item.artwork,
+                    positionMs = 0L,
+                    durationMs = 0L,
+                )
                 message = "Playing on the watch."
+                showNowPlaying = true
             }.onFailure { error ->
                 loading = false
                 message = error.message ?: "Couldn't start watch playback."
@@ -288,18 +311,81 @@ private fun WearMusicApp() {
 
     LaunchedEffect(Unit) {
         loadRoot()
+        launch {
+            var firstWatchStateRead = true
+            while (true) {
+                val watchState = runCatching { WearWatchPlayback.snapshot(context) }.getOrNull()
+                if (watchState != null) {
+                    watchSnapshot = watchState
+                    if (firstWatchStateRead && watchState.hasItem) showNowPlaying = true
+                    firstWatchStateRead = false
+                }
+                delay(1_000L)
+            }
+        }
+        var firstPhoneStateRead = true
         while (true) {
             val state = runCatching { WearMusicBridge.request(context, "state") }.getOrNull()
             if (state?.optBoolean("ok") == true) {
-                phonePlaying = state.optBoolean("playing")
-                phoneTitle = state.optString("title")
+                val parsedState = WearPlaybackSnapshot(
+                    hasItem = state.optBoolean("hasItem"),
+                    playing = state.optBoolean("playing"),
+                    title = state.optString("title"),
+                    artist = state.optString("artist"),
+                    artwork = state.optString("artwork"),
+                    positionMs = state.optLong("positionMs").coerceAtLeast(0L),
+                    durationMs = state.optLong("durationMs").coerceAtLeast(0L),
+                )
+                phoneSnapshot = parsedState
+                if (firstPhoneStateRead && parsedState.hasItem) showNowPlaying = true
+                firstPhoneStateRead = false
             }
-            delay(5_000L)
+            delay(2_000L)
         }
     }
 
     MaterialTheme {
         Scaffold(timeText = { TimeText() }) {
+            if (showNowPlaying) {
+                WearNowPlayingScreen(
+                    snapshot = activeSnapshot,
+                    outputLabel = target.label,
+                    statusMessage = message,
+                    onToggleOutput = {
+                        target = if (target == PlaybackTarget.PHONE) {
+                            PlaybackTarget.WATCH
+                        } else {
+                            PlaybackTarget.PHONE
+                        }
+                    },
+                    onBrowse = { showNowPlaying = false },
+                    onTransport = { action, positionMs ->
+                        scope.launch {
+                            runCatching {
+                                if (activePlaybackTarget == PlaybackTarget.WATCH) {
+                                    WearWatchPlayback.transport(context, action, positionMs)
+                                } else {
+                                    WearMusicBridge.request(
+                                        context,
+                                        "transport",
+                                        JSONObject()
+                                            .put("action", action)
+                                            .put("positionMs", positionMs),
+                                    ).also { response ->
+                                        if (!response.optBoolean("ok")) {
+                                            error(response.optString("message", "Playback control failed."))
+                                        }
+                                    }
+                                }
+                            }.onSuccess {
+                                message = if (action == "seek") "" else "Playback updated."
+                            }.onFailure { error ->
+                                message = error.message ?: "Couldn't control playback."
+                            }
+                        }
+                    },
+                )
+            } else {
             ScalingLazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
@@ -313,6 +399,22 @@ private fun WearMusicApp() {
                         color = Color(0xFF1BC8E8),
                         style = MaterialTheme.typography.title3,
                     )
+                }
+                if (phoneSnapshot.hasItem || watchSnapshot.hasItem) {
+                    item {
+                        Chip(
+                            onClick = { showNowPlaying = true },
+                            label = { Text("Now Playing") },
+                            secondaryLabel = {
+                                Text(
+                                    activeSnapshot.title.ifBlank { "Open player" },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
                 item {
                     Text(
@@ -345,89 +447,6 @@ private fun WearMusicApp() {
                         secondaryLabel = { Text("Tap to switch") },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                }
-                if (phoneTitle.isNotBlank()) {
-                    item {
-                        Chip(
-                            onClick = {
-                                scope.launch {
-                                    val response = runCatching {
-                                        WearMusicBridge.request(
-                                            context,
-                                            "transport",
-                                            JSONObject().put("action", "previous"),
-                                        )
-                                    }.getOrNull()
-                                    message = response?.optString("message")
-                                        ?: "Couldn't skip to the previous track."
-                                }
-                            },
-                            label = { Text("Previous") },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    item {
-                        Chip(
-                            onClick = {
-                                scope.launch {
-                                    val response = runCatching {
-                                        WearMusicBridge.request(
-                                            context,
-                                            "transport",
-                                            JSONObject().put("action", if (phonePlaying) "pause" else "play"),
-                                        )
-                                    }.getOrNull()
-                                    message = response?.optString("message")
-                                        ?: "Couldn't control phone playback."
-                                }
-                            },
-                            label = { Text(if (phonePlaying) "Pause phone" else "Resume phone") },
-                            secondaryLabel = {
-                                Text(phoneTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    item {
-                        Chip(
-                            onClick = {
-                                scope.launch {
-                                    val response = runCatching {
-                                        WearMusicBridge.request(
-                                            context,
-                                            "transport",
-                                            JSONObject().put("action", "next"),
-                                        )
-                                    }.getOrNull()
-                                    message = response?.optString("message")
-                                        ?: "Couldn't skip to the next track."
-                                }
-                            },
-                            label = { Text("Next") },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-                if (watchTitle.isNotBlank()) {
-                    item {
-                        Chip(
-                            onClick = {
-                                scope.launch {
-                                    runCatching {
-                                        WearWatchPlayback.setPlaying(context, !watchPlaying)
-                                    }.onSuccess {
-                                        watchPlaying = !watchPlaying
-                                        message = if (watchPlaying) "Playing on the watch." else "Paused on the watch."
-                                    }.onFailure { error ->
-                                        message = error.message ?: "Couldn't control watch playback."
-                                    }
-                                }
-                            },
-                            label = { Text(if (watchPlaying) "Pause watch" else "Resume watch") },
-                            secondaryLabel = { Text(watchTitle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
                 }
                 if (loading) {
                     item { Text("Loading…", color = Color.LightGray) }
@@ -490,21 +509,21 @@ private fun WearMusicApp() {
                         )
                     }
                 }
-                if (watchTitle.isNotBlank()) {
-                    item {
-                        Text(
-                            "On watch: $watchTitle",
-                            color = Color(0xFF1BC8E8),
-                            style = MaterialTheme.typography.caption2,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
+            }
             }
         }
     }
 }
+
+private fun emptyWearSnapshot() = WearPlaybackSnapshot(
+    hasItem = false,
+    playing = false,
+    title = "",
+    artist = "",
+    artwork = "",
+    positionMs = 0L,
+    durationMs = 0L,
+)
 
 private fun parseItems(array: JSONArray?, parentId: String): List<WatchMusicItem> =
     buildList {

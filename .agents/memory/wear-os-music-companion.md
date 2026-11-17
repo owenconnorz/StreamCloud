@@ -26,3 +26,15 @@ Run phone-side Media3 `MediaBrowser` and `MediaController` operations, including
 **Why:** Media3 controllers are bound to their application looper; using them from the listener's IO coroutine throws a wrong-thread exception and can leave the watch waiting for a response.
 
 **How to apply:** When adding Wear bridge operations, marshal the full controller transaction to Main, then return to IO before sending the Wearable response.
+
+Create Media3 controllers from `applicationContext` when the caller is a short-lived service.
+
+**Why:** Media3 can defer unbinding while queued session commands finish, beyond the lifetime of the service context that created the controller.
+
+**How to apply:** Use the application context for both the `SessionToken` and controller/browser builder in listener services; let the controller own its binding cleanup.
+
+Give the watch a dedicated Now Playing screen with artwork, track details, playback progress, and grouped transport controls; keep library browsing as a separate view.
+
+**Why:** The user said a screen made only of skip and pause buttons is not a proper media screen.
+
+**How to apply:** When changing Wear music UI, prioritize the active track player and make browsing available without replacing the player with a list of transport chips.

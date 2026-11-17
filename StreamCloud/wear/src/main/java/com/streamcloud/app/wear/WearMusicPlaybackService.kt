@@ -168,6 +168,16 @@ internal data class WearWatchTrack(
     val artwork: String,
 )
 
+internal data class WearPlaybackSnapshot(
+    val hasItem: Boolean,
+    val playing: Boolean,
+    val title: String,
+    val artist: String,
+    val artwork: String,
+    val positionMs: Long,
+    val durationMs: Long,
+)
+
 internal object WearWatchPlayback {
     private var controller: MediaController? = null
     private val lock = Any()
@@ -205,9 +215,29 @@ internal object WearWatchPlayback {
         player.play()
     }
 
-    suspend fun setPlaying(context: Context, playing: Boolean) {
+    suspend fun transport(context: Context, action: String, positionMs: Long = 0L) {
         val player = getController(context)
-        if (playing) player.play() else player.pause()
+        when (action) {
+            "play" -> player.play()
+            "pause" -> player.pause()
+            "next" -> player.seekToNextMediaItem()
+            "previous" -> player.seekToPreviousMediaItem()
+            "seek" -> player.seekTo(positionMs.coerceAtLeast(0L))
+        }
+    }
+
+    suspend fun snapshot(context: Context): WearPlaybackSnapshot {
+        val player = getController(context)
+        val item = player.currentMediaItem
+        return WearPlaybackSnapshot(
+            hasItem = item != null,
+            playing = player.isPlaying,
+            title = item?.mediaMetadata?.title?.toString().orEmpty(),
+            artist = item?.mediaMetadata?.artist?.toString().orEmpty(),
+            artwork = item?.mediaMetadata?.artworkUri?.toString().orEmpty(),
+            positionMs = player.currentPosition.coerceAtLeast(0L),
+            durationMs = player.duration.takeIf { it > 0L } ?: 0L,
+        )
     }
 
     private suspend fun getController(context: Context): MediaController {

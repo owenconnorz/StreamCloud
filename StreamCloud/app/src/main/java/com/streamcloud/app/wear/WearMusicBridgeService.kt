@@ -85,7 +85,11 @@ class WearMusicBridgeService : com.google.android.gms.wearable.WearableListenerS
                     pageSize = request.optInt("pageSize", DEFAULT_PAGE_SIZE)
                         .coerceIn(1, MAX_PAGE_SIZE),
                 )
-                "transport" -> controlPhone(browser, request.optString("action"))
+                "transport" -> controlPhone(
+                    browser = browser,
+                    action = request.optString("action"),
+                    positionMs = request.optLong("positionMs"),
+                )
                 "state" -> phoneState(browser)
                 "resolveWatch" -> resolveForWatch(browser, request.optString("mediaId"))
                 "rejectWatchStream" -> rejectWatchStream(
@@ -182,12 +186,13 @@ class WearMusicBridgeService : com.google.android.gms.wearable.WearableListenerS
         return JSONObject().put("ok", true).put("message", "Playing on your phone.")
     }
 
-    private fun controlPhone(browser: MediaBrowser, action: String): JSONObject {
+    private fun controlPhone(browser: MediaBrowser, action: String, positionMs: Long): JSONObject {
         when (action) {
             "play" -> browser.play()
             "pause" -> browser.pause()
             "next" -> browser.seekToNextMediaItem()
             "previous" -> browser.seekToPreviousMediaItem()
+            "seek" -> browser.seekTo(positionMs.coerceAtLeast(0L))
             else -> error("That playback control isn't available.")
         }
         return JSONObject().put("ok", true).put("message", "Playback updated.")
@@ -195,11 +200,16 @@ class WearMusicBridgeService : com.google.android.gms.wearable.WearableListenerS
 
     private fun phoneState(browser: MediaBrowser): JSONObject {
         val item = browser.currentMediaItem
+        val duration = browser.duration.coerceAtLeast(0L)
         return JSONObject()
             .put("ok", true)
+            .put("hasItem", item != null)
             .put("playing", browser.isPlaying)
             .put("title", item?.mediaMetadata?.title?.toString().orEmpty())
             .put("artist", item?.mediaMetadata?.artist?.toString().orEmpty())
+            .put("artwork", item?.mediaMetadata?.artworkUri?.toString().orEmpty())
+            .put("positionMs", browser.currentPosition.coerceAtLeast(0L))
+            .put("durationMs", duration)
             .put("mediaId", item?.mediaId.orEmpty())
     }
 
