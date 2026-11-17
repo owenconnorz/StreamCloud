@@ -3,6 +3,8 @@ package com.streamcloud.app.wear
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -24,8 +26,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONObject
@@ -54,6 +58,13 @@ class WearMusicPlaybackService : MediaSessionService() {
         super.onCreate()
         val createdPlayer = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(resolvingDataSourceFactory))
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .build(),
+                true,
+            )
             .build()
         createdPlayer.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
@@ -176,6 +187,9 @@ internal data class WearPlaybackSnapshot(
     val artwork: String,
     val positionMs: Long,
     val durationMs: Long,
+    val mediaId: String = "",
+    val queue: List<WearWatchTrack> = emptyList(),
+    val currentIndex: Int = 0,
 )
 
 internal object WearWatchPlayback {
@@ -186,6 +200,8 @@ internal object WearWatchPlayback {
         context: Context,
         tracks: List<WearWatchTrack>,
         startIndex: Int,
+        startPositionMs: Long = 0L,
+        startPlaying: Boolean = true,
     ) {
         val player = getController(context)
         require(tracks.isNotEmpty()) { "This playlist has no watch-compatible tracks." }
@@ -210,9 +226,27 @@ internal object WearWatchPlayback {
                 )
                 .build()
         }
-        player.setMediaItems(mediaItems, startIndex, 0L)
+        player.setMediaItems(mediaItems, startIndex, startPositionMs.coerceAtLeast(0L))
         player.prepare()
-        player.play()
+        if (startPlaying) player.play() else player.pause()
+        try {
+            withTimeout(15_000L) {
+                while (player.playbackState != Player.STATE_READY && player.playerError == null) {
+                    delay(100L)
+                }
+            }
+            player.playerError?.let { error ->
+                throw IOException(error.message ?: "The watch couldn't start this track.", error)
+            }
+            if (startPlaying) {
+                withTimeout(3_000L) {
+                    while (!player.isPlaying && player.playerError == null) delay(100L)
+                }
+            }
+        } catch (error: Exception) {
+            player.pause()
+            throw error
+        }
     }
 
     suspend fun transport(context: Context, action: String, positionMs: Long = 0L) {
@@ -237,6 +271,18 @@ internal object WearWatchPlayback {
             artwork = item?.mediaMetadata?.artworkUri?.toString().orEmpty(),
             positionMs = player.currentPosition.coerceAtLeast(0L),
             durationMs = player.duration.takeIf { it > 0L } ?: 0L,
+            mediaId = item?.mediaId.orEmpty(),
+            queue = (0 until player.mediaItemCount).map { index ->
+                player.getMediaItemAt(index).let { queuedItem ->
+                    WearWatchTrack(
+                        mediaId = queuedItem.mediaId,
+                        title = queuedItem.mediaMetadata.title?.toString().orEmpty(),
+                        artist = queuedItem.mediaMetadata.artist?.toString().orEmpty(),
+                        artwork = queuedItem.mediaMetadata.artworkUri?.toString().orEmpty(),
+                    )
+                }
+            },
+            currentIndex = player.currentMediaItemIndex.coerceAtLeast(0),
         )
     }
 

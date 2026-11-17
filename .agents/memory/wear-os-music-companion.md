@@ -15,6 +15,12 @@ Direct watch streaming is limited to provider tracks whose audio URLs the phone 
 
 **How to apply:** Recheck provider support and session-header requirements before adding watch playback for another source; retain phone playback as the fallback.
 
+When switching an active track between phone and watch, transfer the supported queue and current position, pause the source while the destination prepares, and resume the source if the handoff fails.
+
+**Why:** Starting both players at once causes overlapping audio, while stopping the source before confirming the destination can lose playback.
+
+**How to apply:** Treat output switching as a recoverable handoff, and keep unsupported provider tracks on the phone with a clear explanation.
+
 Keep the phone-side `WearableListenerService` registered with `BIND_LISTENER` so it can receive watch requests while the app is not foregrounded. Android lint flags this legacy registration as deprecated; suppress only `WearableBindListener` on the specific action in both manifests rather than disabling release lint.
 
 **Why:** The bridge must receive background watch-to-phone messages, and release lint treats the old action as fatal even though the listener service still depends on it.

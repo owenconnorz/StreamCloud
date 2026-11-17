@@ -286,6 +286,170 @@ private fun WearMusicApp() {
         }
     }
 
+    fun selectOutput(destination: PlaybackTarget) {
+        if (loading) return
+        if (destination == activePlaybackTarget) {
+            target = destination
+            return
+        }
+
+        scope.launch {
+            loading = true
+            var destinationStarted = false
+            var sourcePaused = false
+            var sourceWasPlaying = false
+            try {
+                if (destination == PlaybackTarget.WATCH) {
+                    val current = phoneSnapshot
+                    if (!current.hasItem) {
+                        target = destination
+                        message = "Watch selected for the next track."
+                        return@launch
+                    }
+                    sourceWasPlaying = current.playing
+                    val pausedPhone = WearMusicBridge.request(
+                        context,
+                        "transport",
+                        JSONObject().put("action", "pause"),
+                    )
+                    if (!pausedPhone.optBoolean("ok")) {
+                        error(pausedPhone.optString("message", "Couldn't pause phone playback."))
+                    }
+                    sourcePaused = true
+                    val refreshedPhone = WearMusicBridge.request(context, "state")
+                    if (!refreshedPhone.optBoolean("ok")) {
+                        error(refreshedPhone.optString("message", "Couldn't read the current phone track."))
+                    }
+                    val transfer = parsePhoneSnapshot(refreshedPhone)
+                    require(transfer.hasItem) { "Phone playback ended before it could be transferred." }
+                    val phoneQueue = transfer.queue.ifEmpty {
+                        listOf(
+                            WearWatchTrack(
+                                mediaId = transfer.mediaId,
+                                title = transfer.title,
+                                artist = transfer.artist,
+                                artwork = transfer.artwork,
+                            ),
+                        )
+                    }
+                    val watchQueue = phoneQueue.filter { isWatchPlayableTrackId(it.mediaId) }
+                    val watchIndex = watchQueue.indexOfFirst { it.mediaId == transfer.mediaId }
+                    require(watchIndex >= 0) {
+                        "This track needs phone playback because it isn't supported on the watch."
+                    }
+                    WearWatchPlayback.playQueue(
+                        context = context,
+                        tracks = watchQueue,
+                        startIndex = watchIndex,
+                        startPositionMs = transfer.positionMs,
+                        startPlaying = sourceWasPlaying,
+                    )
+                    destinationStarted = true
+                    phoneSnapshot = transfer.copy(playing = false)
+                    watchSnapshot = WearWatchPlayback.snapshot(context)
+                    target = destination
+                    sourcePaused = false
+                    message = "Playback transferred to the watch."
+                } else {
+                    val current = watchSnapshot
+                    if (!current.hasItem) {
+                        target = destination
+                        message = "Phone selected for the next track."
+                        return@launch
+                    }
+                    sourceWasPlaying = current.playing
+                    WearWatchPlayback.transport(context, "pause")
+                    sourcePaused = true
+                    val transfer = WearWatchPlayback.snapshot(context)
+                    require(transfer.hasItem) { "Watch playback ended before it could be transferred." }
+                    val watchQueue = transfer.queue.ifEmpty {
+                        listOf(
+                            WearWatchTrack(
+                                mediaId = transfer.mediaId,
+                                title = transfer.title,
+                                artist = transfer.artist,
+                                artwork = transfer.artwork,
+                            ),
+                        )
+                    }
+                    require(watchQueue.any { it.mediaId == transfer.mediaId }) {
+                        "The current watch track can't be transferred to your phone."
+                    }
+                    val serializedQueue = JSONArray().apply {
+                        watchQueue.forEach { track ->
+                            put(
+                                JSONObject()
+                                    .put("mediaId", track.mediaId)
+                                    .put("title", track.title)
+                                    .put("artist", track.artist)
+                                    .put("artwork", track.artwork),
+                            )
+                        }
+                    }
+                    val startedPhone = WearMusicBridge.request(
+                        context,
+                        "playWatchQueue",
+                        JSONObject()
+                            .put("queue", serializedQueue)
+                            .put("mediaId", transfer.mediaId)
+                            .put("positionMs", transfer.positionMs)
+                            .put("playing", sourceWasPlaying),
+                    )
+                    if (!startedPhone.optBoolean("ok")) {
+                        error(startedPhone.optString("message", "Couldn't start phone playback."))
+                    }
+                    destinationStarted = true
+                    watchSnapshot = transfer.copy(playing = false)
+                    phoneSnapshot = WearPlaybackSnapshot(
+                        hasItem = true,
+                        playing = sourceWasPlaying,
+                        title = transfer.title,
+                        artist = transfer.artist,
+                        artwork = transfer.artwork,
+                        positionMs = transfer.positionMs,
+                        durationMs = transfer.durationMs,
+                        mediaId = transfer.mediaId,
+                        queue = watchQueue,
+                        currentIndex = transfer.currentIndex,
+                    )
+                    target = destination
+                    sourcePaused = false
+                    message = "Playback transferred to your phone."
+                }
+            } catch (error: Exception) {
+                if (destinationStarted) {
+                    runCatching {
+                        if (destination == PlaybackTarget.WATCH) {
+                            WearWatchPlayback.transport(context, "pause")
+                        } else {
+                            WearMusicBridge.request(
+                                context,
+                                "transport",
+                                JSONObject().put("action", "pause"),
+                            )
+                        }
+                    }
+                }
+                if (sourcePaused && sourceWasPlaying) {
+                    runCatching {
+                        if (destination == PlaybackTarget.WATCH) {
+                            WearMusicBridge.request(
+                                context,
+                                "transport",
+                                JSONObject().put("action", "play"),
+                            )
+                        } else {
+                            WearWatchPlayback.transport(context, "play")
+                        }
+                    }
+                }
+                message = error.message ?: "Couldn't switch playback output."
+            } finally {
+                loading = false
+            }
+        }
+    }
+
     fun loadMore() {
         if (loading || currentParent.isBlank()) return
         scope.launch {
@@ -381,15 +545,7 @@ private fun WearMusicApp() {
         while (true) {
             val state = runCatching { WearMusicBridge.request(context, "state") }.getOrNull()
             if (state?.optBoolean("ok") == true) {
-                val parsedState = WearPlaybackSnapshot(
-                    hasItem = state.optBoolean("hasItem"),
-                    playing = state.optBoolean("playing"),
-                    title = state.optString("title"),
-                    artist = state.optString("artist"),
-                    artwork = state.optString("artwork"),
-                    positionMs = state.optLong("positionMs").coerceAtLeast(0L),
-                    durationMs = state.optLong("durationMs").coerceAtLeast(0L),
-                )
+                val parsedState = parsePhoneSnapshot(state)
                 phoneSnapshot = parsedState
                 if (firstPhoneStateRead && parsedState.hasItem) showNowPlaying = true
                 firstPhoneStateRead = false
@@ -408,7 +564,7 @@ private fun WearMusicApp() {
                     updateTitle = if (availableUpdate != null) updateChipTitle else null,
                     updateDetails = updateChipDetails,
                     updateEnabled = !downloadingUpdate,
-                    onSelectOutput = { target = it },
+                    onSelectOutput = ::selectOutput,
                     onUpdate = ::installLatestUpdate,
                     onBrowse = { showNowPlaying = false },
                     onTransport = { action, positionMs ->
@@ -587,6 +743,19 @@ private fun emptyWearSnapshot() = WearPlaybackSnapshot(
     durationMs = 0L,
 )
 
+private fun parsePhoneSnapshot(state: JSONObject) = WearPlaybackSnapshot(
+    hasItem = state.optBoolean("hasItem"),
+    playing = state.optBoolean("playing"),
+    title = state.optString("title"),
+    artist = state.optString("artist"),
+    artwork = state.optString("artwork"),
+    positionMs = state.optLong("positionMs").coerceAtLeast(0L),
+    durationMs = state.optLong("durationMs").coerceAtLeast(0L),
+    mediaId = state.optString("mediaId"),
+    queue = parsePlaybackQueue(state.optJSONArray("queue")),
+    currentIndex = state.optInt("currentIndex").coerceAtLeast(0),
+)
+
 private fun formatUpdateSize(bytes: Long): String =
     if (bytes >= 1024L * 1024L) {
         "${"%.1f".format(bytes / (1024f * 1024f))} MB"
@@ -616,11 +785,32 @@ private fun parseItems(array: JSONArray?, parentId: String): List<WatchMusicItem
         }
     }
 
+private fun parsePlaybackQueue(array: JSONArray?): List<WearWatchTrack> =
+    buildList {
+        if (array == null) return@buildList
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val mediaId = item.optString("mediaId")
+            if (mediaId.isBlank()) continue
+            add(
+                WearWatchTrack(
+                    mediaId = mediaId,
+                    title = item.optString("title"),
+                    artist = item.optString("artist"),
+                    artwork = item.optString("artwork"),
+                ),
+            )
+        }
+    }
+
 private fun isWatchPlayableTrack(item: WatchMusicItem): Boolean =
     item.playable &&
         !item.browsable &&
-        (item.id.startsWith("https://music.youtube.com/watch?v=") ||
-            item.id.startsWith("https://www.youtube.com/watch?v="))
+        isWatchPlayableTrackId(item.id)
+
+private fun isWatchPlayableTrackId(mediaId: String): Boolean =
+    mediaId.startsWith("https://music.youtube.com/watch?v=") ||
+        mediaId.startsWith("https://www.youtube.com/watch?v=")
 
 private const val MAX_WATCH_QUEUE_ITEMS = 100
 private const val WATCH_QUEUE_PREVIOUS_TRACKS = 10

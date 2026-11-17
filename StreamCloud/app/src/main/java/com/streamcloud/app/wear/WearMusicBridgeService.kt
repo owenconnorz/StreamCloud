@@ -1,8 +1,11 @@
 package com.streamcloud.app.wear
 
 import android.content.ComponentName
+import android.net.Uri
 import android.os.Bundle
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaBrowser
 import androidx.media3.session.SessionCommand
@@ -19,8 +22,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -91,6 +96,7 @@ class WearMusicBridgeService : com.google.android.gms.wearable.WearableListenerS
                     positionMs = request.optLong("positionMs"),
                 )
                 "state" -> phoneState(browser)
+                "playWatchQueue" -> playWatchQueueOnPhone(browser, request)
                 "resolveWatch" -> resolveForWatch(browser, request.optString("mediaId"))
                 "rejectWatchStream" -> rejectWatchStream(
                     browser = browser,
@@ -186,6 +192,64 @@ class WearMusicBridgeService : com.google.android.gms.wearable.WearableListenerS
         return JSONObject().put("ok", true).put("message", "Playing on your phone.")
     }
 
+    private suspend fun playWatchQueueOnPhone(browser: MediaBrowser, request: JSONObject): JSONObject {
+        val serializedQueue = request.optJSONArray("queue")
+            ?: error("The watch didn't provide a track to transfer.")
+        val queue = buildList {
+            for (index in 0 until serializedQueue.length()) {
+                val entry = serializedQueue.optJSONObject(index) ?: continue
+                val mediaId = entry.optString("mediaId")
+                if (!isYouTubeTrack(mediaId)) continue
+                val uri = Uri.parse(mediaId)
+                add(
+                    MediaItem.Builder()
+                        .setMediaId(mediaId)
+                        .setUri(uri)
+                        .setMediaMetadata(
+                            MediaMetadata.Builder()
+                                .setTitle(entry.optString("title"))
+                                .setArtist(entry.optString("artist"))
+                                .setArtworkUri(entry.optString("artwork").takeIf(String::isNotBlank)?.let(Uri::parse))
+                                .setIsPlayable(true)
+                                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                                .build(),
+                        )
+                        .build(),
+                )
+            }
+        }
+        require(queue.isNotEmpty()) { "This watch track can't be played on the phone." }
+        val requestedMediaId = request.optString("mediaId")
+        val currentIndex = queue.indexOfFirst { it.mediaId == requestedMediaId }
+        require(currentIndex >= 0) { "The current watch track isn't in the transferable queue." }
+        browser.setMediaItems(
+            queue,
+            currentIndex,
+            request.optLong("positionMs").coerceAtLeast(0L),
+        )
+        browser.prepare()
+        if (request.optBoolean("playing", true)) browser.play() else browser.pause()
+        try {
+            withTimeout(10_000L) {
+                while (browser.playbackState != Player.STATE_READY && browser.playerError == null) {
+                    delay(100L)
+                }
+            }
+            browser.playerError?.let { error ->
+                throw IllegalStateException(error.message ?: "The phone couldn't start this track.", error)
+            }
+            if (request.optBoolean("playing", true)) {
+                withTimeout(3_000L) {
+                    while (!browser.isPlaying && browser.playerError == null) delay(100L)
+                }
+            }
+        } catch (error: Exception) {
+            browser.pause()
+            throw error
+        }
+        return JSONObject().put("ok", true).put("message", "Playback transferred to your phone.")
+    }
+
     private fun controlPhone(browser: MediaBrowser, action: String, positionMs: Long): JSONObject {
         when (action) {
             "play" -> browser.play()
@@ -201,6 +265,21 @@ class WearMusicBridgeService : com.google.android.gms.wearable.WearableListenerS
     private fun phoneState(browser: MediaBrowser): JSONObject {
         val item = browser.currentMediaItem
         val duration = browser.duration.coerceAtLeast(0L)
+        val queueStart = (browser.currentMediaItemIndex - QUEUE_PREVIOUS_ITEMS).coerceAtLeast(0)
+        val queueEnd = minOf(browser.mediaItemCount, queueStart + MAX_TRANSFER_QUEUE_ITEMS)
+        val queue = JSONArray().apply {
+            for (index in queueStart until queueEnd) {
+                val queuedItem = browser.getMediaItemAt(index)
+                val metadata = queuedItem.mediaMetadata
+                put(
+                    JSONObject()
+                        .put("mediaId", queuedItem.mediaId)
+                        .put("title", metadata.title?.toString().orEmpty())
+                        .put("artist", metadata.artist?.toString().orEmpty())
+                        .put("artwork", metadata.artworkUri?.toString().orEmpty()),
+                )
+            }
+        }
         return JSONObject()
             .put("ok", true)
             .put("hasItem", item != null)
@@ -211,7 +290,13 @@ class WearMusicBridgeService : com.google.android.gms.wearable.WearableListenerS
             .put("positionMs", browser.currentPosition.coerceAtLeast(0L))
             .put("durationMs", duration)
             .put("mediaId", item?.mediaId.orEmpty())
+            .put("currentIndex", (browser.currentMediaItemIndex - queueStart).coerceAtLeast(0))
+            .put("queue", queue)
     }
+
+    private fun isYouTubeTrack(mediaId: String): Boolean =
+        mediaId.startsWith("https://music.youtube.com/watch?v=") ||
+            mediaId.startsWith("https://www.youtube.com/watch?v=")
 
     private suspend fun resolveForWatch(
         browser: MediaBrowser,
@@ -290,6 +375,8 @@ class WearMusicBridgeService : com.google.android.gms.wearable.WearableListenerS
     private companion object {
         const val DEFAULT_PAGE_SIZE = 40
         const val MAX_PAGE_SIZE = 80
+        const val QUEUE_PREVIOUS_ITEMS = 10
+        const val MAX_TRANSFER_QUEUE_ITEMS = 30
     }
 }
 

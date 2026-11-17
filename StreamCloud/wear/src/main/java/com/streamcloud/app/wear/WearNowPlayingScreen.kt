@@ -5,12 +5,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -25,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -74,43 +76,98 @@ internal fun WearNowPlayingScreen(
         }
     }
 
-    androidx.wear.compose.material.ScalingLazyColumn(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF101827))
-            .padding(horizontal = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(7.dp),
+            .background(Color(0xFF101827)),
     ) {
-        item {
-            Text(
-                text = "NOW PLAYING",
-                color = Color(0xFF94A3B8),
-                style = MaterialTheme.typography.caption2,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-        item {
-            Box(
-                modifier = Modifier
-                    .size(164.dp)
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(Color(0xFF1E293B)),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (snapshot.artwork.isNotBlank()) {
-                    AsyncImage(
-                        model = snapshot.artwork,
-                        contentDescription = "Album artwork",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
-                } else {
-                    Text("♪", color = Color(0xFF1BC8E8), style = MaterialTheme.typography.display1)
-                }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        listOf(Color(0xFF395B7B), Color(0xFF101827)),
+                    ),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("♪", color = Color(0xFF9CCCE0), style = MaterialTheme.typography.display1)
+            if (snapshot.artwork.isNotBlank()) {
+                AsyncImage(
+                    model = snapshot.artwork,
+                    contentDescription = "Album artwork",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
             }
         }
-        item {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xC5101724),
+                            Color(0x33101724),
+                            Color(0xD9101724),
+                            Color(0xF2101724),
+                        ),
+                    ),
+                ),
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 20.dp, end = 20.dp, top = 34.dp, bottom = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CompactButton(
+                    onClick = { onTransport("previous", 0L) },
+                    enabled = snapshot.hasItem,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Previous track"
+                    },
+                ) {
+                    Text("‹‹", style = MaterialTheme.typography.title3)
+                }
+                Button(
+                    onClick = { onTransport(if (snapshot.playing) "pause" else "play", 0L) },
+                    enabled = snapshot.hasItem,
+                    modifier = Modifier.semantics {
+                        contentDescription = if (snapshot.playing) "Pause playback" else "Start playback"
+                    },
+                ) {
+                    Text(if (snapshot.playing) "Ⅱ" else "▶", style = MaterialTheme.typography.title3)
+                }
+                CompactButton(
+                    onClick = { onTransport("next", 0L) },
+                    enabled = snapshot.hasItem,
+                    modifier = Modifier.semantics {
+                        contentDescription = "Next track"
+                    },
+                ) {
+                    Text("››", style = MaterialTheme.typography.title3)
+                }
+                if (updateTitle != null) {
+                    CompactButton(
+                        onClick = onUpdate,
+                        enabled = updateEnabled,
+                        modifier = Modifier.semantics {
+                            contentDescription = "$updateTitle. $updateDetails"
+                        },
+                    ) {
+                        Text(if (updateEnabled) "↑" else "…", style = MaterialTheme.typography.title3)
+                    }
+                }
+            }
+            Spacer(Modifier.weight(1f))
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -129,15 +186,13 @@ internal fun WearNowPlayingScreen(
                     text = snapshot.artist.ifBlank {
                         if (snapshot.hasItem) "StreamCloud Music" else "Choose a track from your library"
                     },
-                    color = Color(0xFFB8C4D8),
+                    color = Color(0xFFE0E7EF),
                     style = MaterialTheme.typography.caption1,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
                 )
             }
-        }
-        item {
             Column(modifier = Modifier.fillMaxWidth()) {
                 WatchSeekBar(
                     positionMs = scrubPosition.toLong(),
@@ -161,38 +216,10 @@ internal fun WearNowPlayingScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text(formatTime(scrubPosition.toLong()), color = Color.LightGray, style = MaterialTheme.typography.caption2)
-                    Text(formatTime(duration), color = Color.LightGray, style = MaterialTheme.typography.caption2)
+                    Text(formatTime(scrubPosition.toLong()), color = Color.White, style = MaterialTheme.typography.caption2)
+                    Text(formatTime(duration), color = Color.White, style = MaterialTheme.typography.caption2)
                 }
             }
-        }
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceEvenly,
-            ) {
-                CompactButton(
-                    onClick = { onTransport("previous", 0L) },
-                    enabled = snapshot.hasItem,
-                ) {
-                    Text("Prev", style = MaterialTheme.typography.caption2)
-                }
-                Button(
-                    onClick = { onTransport(if (snapshot.playing) "pause" else "play", 0L) },
-                    enabled = snapshot.hasItem,
-                ) {
-                    Text(if (snapshot.playing) "Pause" else "Play")
-                }
-                CompactButton(
-                    onClick = { onTransport("next", 0L) },
-                    enabled = snapshot.hasItem,
-                ) {
-                    Text("Next", style = MaterialTheme.typography.caption2)
-                }
-            }
-        }
-        item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -206,28 +233,19 @@ internal fun WearNowPlayingScreen(
                     )
                 }
             }
-        }
-        if (updateTitle != null) {
-            item {
-                WearUpdateChip(
-                    title = updateTitle,
-                    details = updateDetails,
-                    enabled = updateEnabled,
-                    onClick = onUpdate,
-                )
+            Button(
+                onClick = onBrowse,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Library", style = MaterialTheme.typography.caption1)
             }
-        }
-        item {
-            Button(onClick = onBrowse, modifier = Modifier.fillMaxWidth()) {
-                Text("Browse music")
-            }
-        }
-        if (statusMessage.isNotBlank()) {
-            item {
+            if (statusMessage.isNotBlank()) {
                 Text(
                     statusMessage,
-                    color = Color(0xFFB8C4D8),
+                    color = Color.White,
                     style = MaterialTheme.typography.caption2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
                 )
             }
