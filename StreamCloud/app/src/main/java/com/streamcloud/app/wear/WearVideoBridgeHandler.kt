@@ -29,6 +29,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
@@ -42,6 +44,10 @@ import java.net.URI
  * are returned for the current watch playback session.
  */
 internal object WearVideoBridgeHandler {
+    private const val MAX_CONCURRENT_PROVIDER_REQUESTS = 3
+    private const val MAX_MOVIE_STREAMS = 15
+    private const val MAX_STREAMS_PER_PROVIDER = 5
+
     suspend fun handle(context: Context, request: JSONObject): JSONObject {
         val services = ServiceLocator.get(context.applicationContext)
         return when (request.optString("operation")) {
@@ -118,22 +124,29 @@ internal object WearVideoBridgeHandler {
         val imdbId = runCatching {
             services.tmdb.externalIds(tmdbId, services.tmdbApiKey).imdbId
         }.getOrNull()
+        val providerRequestGate = Semaphore(MAX_CONCURRENT_PROVIDER_REQUESTS)
         val streams = coroutineScope {
             val stremioJob = async {
                 val addons = services.stremio.addons.first()
-                collectStremioStreams(services, addons, imdbId, tmdbId)
+                collectStremioStreams(services, addons, imdbId, tmdbId, providerRequestGate)
             }
             val nuvioJob = async {
                 val providers = services.nuvio.installed.first()
-                collectNuvioStreams(services, providers, tmdbId, imdbId)
+                collectNuvioStreams(services, providers, tmdbId, imdbId, providerRequestGate)
             }
             val pluginJob = async {
                 val plugins = services.plugins.installed.first().filterNot(InstalledPlugin::isAdultPlugin)
-                collectPluginStreams(context, plugins, title.ifBlank { details.displayTitle }, year)
+                collectPluginStreams(
+                    context,
+                    plugins,
+                    title.ifBlank { details.displayTitle },
+                    year,
+                    providerRequestGate,
+                )
             }
             awaitAll(stremioJob, nuvioJob, pluginJob).flatten()
                 .distinctBy { it.optString("url") }
-            .take(15)
+                .take(MAX_MOVIE_STREAMS)
         }
         return JSONObject()
             .put("ok", true)
@@ -156,6 +169,7 @@ internal object WearVideoBridgeHandler {
         addons: List<InstalledStremioAddon>,
         imdbId: String?,
         tmdbId: Long,
+        requestGate: Semaphore,
     ): List<JSONObject> = coroutineScope {
         addons.map { addon ->
             async {
@@ -165,10 +179,15 @@ internal object WearVideoBridgeHandler {
                 }.distinct()
                 ids.flatMap { id ->
                     withTimeoutOrNull(20_000L) {
-                        runCatching {
-                            services.stremio.fetchStreams(addon, "movie", id)
-                                .mapNotNull { it.toWearStream(addon.name) }
-                        }.getOrDefault(emptyList())
+                        requestGate.withPermit {
+                            runCatching {
+                                services.stremio.fetchStreams(addon, "movie", id)
+                                    .asSequence()
+                                    .mapNotNull { it.toWearStream(addon.name) }
+                                    .take(MAX_STREAMS_PER_PROVIDER)
+                                    .toList()
+                            }.getOrDefault(emptyList())
+                        }
                     }.orEmpty()
                 }
             }
@@ -180,20 +199,27 @@ internal object WearVideoBridgeHandler {
         providers: List<InstalledNuvioProvider>,
         tmdbId: Long,
         imdbId: String?,
+        requestGate: Semaphore,
     ): List<JSONObject> = coroutineScope {
         providers.map { provider ->
             async {
                 withTimeoutOrNull(30_000L) {
-                    runCatching {
-                        services.nuvio.resolveSingle(
-                            provider = provider,
-                            tmdbId = tmdbId.toString(),
-                            mediaType = "movie",
-                            season = null,
-                            episode = null,
-                            imdbId = imdbId,
-                        ).mapNotNull { it.toWearStream(provider.name) }
-                    }.getOrDefault(emptyList())
+                    requestGate.withPermit {
+                        runCatching {
+                            services.nuvio.resolveSingle(
+                                provider = provider,
+                                tmdbId = tmdbId.toString(),
+                                mediaType = "movie",
+                                season = null,
+                                episode = null,
+                                imdbId = imdbId,
+                            )
+                                .asSequence()
+                                .mapNotNull { it.toWearStream(provider.name) }
+                                .take(MAX_STREAMS_PER_PROVIDER)
+                                .toList()
+                        }.getOrDefault(emptyList())
+                    }
                 }.orEmpty()
             }
         }.awaitAll().flatten()
@@ -204,50 +230,56 @@ internal object WearVideoBridgeHandler {
         plugins: List<InstalledPlugin>,
         title: String,
         year: Int?,
+        requestGate: Semaphore,
     ): List<JSONObject> = coroutineScope {
         if (title.isBlank()) return@coroutineScope emptyList()
         plugins.map { plugin ->
             async {
                 withTimeoutOrNull(30_000L) {
-                    runCatching {
-                        val results = PluginRuntime.search(context, plugin.filePath, title)
-                        val cleanTitle = title.normalizedTitle()
-                        val best = results.maxByOrNull { result ->
-                            val candidate = result.name.normalizedTitle()
-                            when {
-                                candidate == cleanTitle -> 3
-                                candidate.contains(cleanTitle) || cleanTitle.contains(candidate) -> 2
-                                else -> 0
-                            }
-                        }?.takeIf { result ->
-                            val candidate = result.name.normalizedTitle()
-                            candidate == cleanTitle ||
-                                candidate.contains(cleanTitle) ||
-                                cleanTitle.contains(candidate)
-                        } ?: return@runCatching emptyList()
-                        val detail = PluginRuntime.loadDetail(context, plugin.filePath, best.url)
-                            ?: return@runCatching emptyList()
-                        val data = when (detail) {
-                            is MovieLoadResponse -> detail.dataUrl
-                            is TvSeriesLoadResponse -> detail.episodes.singleOrNull()?.data
-                            is AnimeLoadResponse -> detail.episodes.values.flatten().singleOrNull()?.data
-                            else -> null
-                        } ?: return@runCatching emptyList()
-                        PluginRuntime.loadLinks(context, plugin.filePath, data, isCasting = false)
-                            .first
-                            .filterNot { it.url.startsWith("magnet:", ignoreCase = true) }
-                            .mapNotNull { link ->
-                                val url = safeHttpUrl(link.url) ?: return@mapNotNull null
-                                val headers = link.headers.toMutableMap()
-                                if (link.referer.isNotBlank()) headers["Referer"] = link.referer
-                                JSONObject()
-                                    .put("title", link.name.ifBlank { link.source.ifBlank { plugin.name } })
-                                    .put("provider", plugin.name)
-                                    .put("quality", link.quality.takeIf { it > 0 }?.let { "${it}p" }.orEmpty())
-                                    .put("url", url)
-                                    .put("headers", JSONObject(headers.filterKeys(::isSafeWatchHeader)))
-                            }
-                    }.getOrDefault(emptyList())
+                    requestGate.withPermit {
+                        runCatching {
+                            val results = PluginRuntime.search(context, plugin.filePath, title)
+                            val cleanTitle = title.normalizedTitle()
+                            val best = results.maxByOrNull { result ->
+                                val candidate = result.name.normalizedTitle()
+                                when {
+                                    candidate == cleanTitle -> 3
+                                    candidate.contains(cleanTitle) || cleanTitle.contains(candidate) -> 2
+                                    else -> 0
+                                }
+                            }?.takeIf { result ->
+                                val candidate = result.name.normalizedTitle()
+                                candidate == cleanTitle ||
+                                    candidate.contains(cleanTitle) ||
+                                    cleanTitle.contains(candidate)
+                            } ?: return@runCatching emptyList()
+                            val detail = PluginRuntime.loadDetail(context, plugin.filePath, best.url)
+                                ?: return@runCatching emptyList()
+                            val data = when (detail) {
+                                is MovieLoadResponse -> detail.dataUrl
+                                is TvSeriesLoadResponse -> detail.episodes.singleOrNull()?.data
+                                is AnimeLoadResponse -> detail.episodes.values.flatten().singleOrNull()?.data
+                                else -> null
+                            } ?: return@runCatching emptyList()
+                            PluginRuntime.loadLinks(context, plugin.filePath, data, isCasting = false)
+                                .first
+                                .asSequence()
+                                .filterNot { it.url.startsWith("magnet:", ignoreCase = true) }
+                                .mapNotNull { link ->
+                                    val url = safeHttpUrl(link.url) ?: return@mapNotNull null
+                                    val headers = link.headers.toMutableMap()
+                                    if (link.referer.isNotBlank()) headers["Referer"] = link.referer
+                                    JSONObject()
+                                        .put("title", link.name.ifBlank { link.source.ifBlank { plugin.name } })
+                                        .put("provider", plugin.name)
+                                        .put("quality", link.quality.takeIf { it > 0 }?.let { "${it}p" }.orEmpty())
+                                        .put("url", url)
+                                        .put("headers", JSONObject(headers.filterKeys(::isSafeWatchHeader)))
+                                }
+                                .take(MAX_STREAMS_PER_PROVIDER)
+                                .toList()
+                        }.getOrDefault(emptyList())
+                    }
                 }.orEmpty()
             }
         }.awaitAll().flatten()

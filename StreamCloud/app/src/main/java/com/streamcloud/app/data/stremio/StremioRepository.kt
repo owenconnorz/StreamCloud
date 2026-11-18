@@ -37,6 +37,9 @@ import com.streamcloud.app.data.network.BrowserHeaders
 import com.streamcloud.app.data.network.CloudflareKiller
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.ResponseBody
+import okio.Buffer
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
@@ -647,7 +650,7 @@ class StremioRepository(
         id: String,
     ): List<StremioStream> = withContext(Dispatchers.IO) {
         val url = "${addon.baseUrl}/stream/$type/$id.json"
-        val body = httpGet(url)
+        val body = httpGet(url, MAX_STREAM_RESPONSE_BYTES)
         Net.json.decodeFromString(StremioStreamResponse.serializer(), body).streams
     }
 
@@ -663,7 +666,7 @@ class StremioRepository(
         }.getOrNull()
     }
 
-    private suspend fun httpGet(url: String): String {
+    private suspend fun httpGet(url: String, maxResponseBytes: Long? = null): String {
         val req = Request.Builder().url(url)
             .header("User-Agent", BrowserHeaders.USER_AGENT)
             .header("Accept", BrowserHeaders.ACCEPT_JSON)
@@ -674,7 +677,7 @@ class StremioRepository(
         var hdrs: Map<String, List<String>>
         http.newCall(req).execute().use { resp ->
             code = resp.code
-            body = resp.body?.string().orEmpty()
+            body = resp.body?.readResponseText(maxResponseBytes).orEmpty()
             hdrs = resp.headers.toMultimap()
         }
         if (CloudflareKiller.isCfChallenge(code, hdrs, body)) {
@@ -682,13 +685,35 @@ class StremioRepository(
             if (bypassed) {
                 http.newCall(req).execute().use { r ->
                     if (!r.isSuccessful) error("HTTP ${r.code} from $url (after CF bypass)")
-                    return r.body?.string().orEmpty()
+                    return r.body?.readResponseText(maxResponseBytes).orEmpty()
                 }
             }
             error("Cloudflare challenge unresolved for $url")
         }
         if (code !in 200..299) error("HTTP $code from $url")
         return body
+    }
+
+    private fun ResponseBody.readResponseText(maxBytes: Long?): String {
+        if (maxBytes == null) return string()
+        if (contentLength() > maxBytes) {
+            throw IOException("Stream provider response exceeded the 2 MB limit.")
+        }
+        val buffer = Buffer()
+        val responseSource = source()
+        while (true) {
+            val remainingWithLimitCheck = maxBytes - buffer.size + 1L
+            val read = responseSource.read(buffer, minOf(remainingWithLimitCheck, 8_192L))
+            if (read == -1L) break
+            if (buffer.size > maxBytes) {
+                throw IOException("Stream provider response exceeded the 2 MB limit.")
+            }
+        }
+        return buffer.readUtf8()
+    }
+
+    private companion object {
+        const val MAX_STREAM_RESPONSE_BYTES = 2L * 1024L * 1024L
     }
 
     private fun normalize(input: String): String = normalizeStremioManifestUrl(input)
