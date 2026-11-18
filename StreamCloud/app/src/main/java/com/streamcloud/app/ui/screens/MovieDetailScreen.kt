@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
@@ -190,6 +191,9 @@ private fun TvDetailRatingCastPanel(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(6.dp))
+                    // Keep the compact hero cast summary out of D-pad traversal;
+                    // the full cast rail below remains focusable on TV.
+                    .focusProperties { canFocus = false }
                     .tvFocusBorder(RoundedCornerShape(6.dp))
                     .clickable { onPersonClick(person.id, person.name) },
                 verticalAlignment = Alignment.CenterVertically,
@@ -292,6 +296,12 @@ fun MovieDetailScreen(
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val playBtnFocus = remember { FocusRequester() }
     val primaryPlayActionHasFocus = remember(movieId, mediaType) { mutableStateOf(false) }
+    val trailerBtnFocus = remember { FocusRequester() }
+    val trailerActionHasFocus = remember(movieId, mediaType) { mutableStateOf(false) }
+    val initialTvActionFocusApplied = remember(movieId, mediaType) { mutableStateOf(false) }
+    val handledTvNavFocusHandoffVersion = remember(movieId, mediaType) {
+        mutableStateOf<Int?>(null)
+    }
     val primaryPlayActionFocusModifier = Modifier.onFocusChanged {
         primaryPlayActionHasFocus.value = it.isFocused
     }
@@ -488,11 +498,41 @@ fun MovieDetailScreen(
         if (!isTv || movie == null || openSourcePickerOnStart) {
             return@LaunchedEffect
         }
+
+        val isNewNavFocusHandoff =
+            handledTvNavFocusHandoffVersion.value != tvNavDownFocusHandoffVersion
+        if (initialTvActionFocusApplied.value && !isNewNavFocusHandoff) {
+            return@LaunchedEffect
+        }
+
+        val focusPlayAction = primaryPlayActionReady
+        val targetFocusRequester = if (focusPlayAction) playBtnFocus else trailerBtnFocus
         repeat(20) {
-            runCatching { playBtnFocus.requestFocus() }
+            runCatching { targetFocusRequester.requestFocus() }
             delay(80L)
-            if (primaryPlayActionHasFocus.value) {
+            val targetHasFocus = if (focusPlayAction) {
+                primaryPlayActionHasFocus.value
+            } else {
+                trailerActionHasFocus.value
+            }
+            if (targetHasFocus) {
+                initialTvActionFocusApplied.value = true
+                handledTvNavFocusHandoffVersion.value = tvNavDownFocusHandoffVersion
                 return@LaunchedEffect
+            }
+        }
+
+        // If Play is enabled but not attached yet, land on the always-available
+        // Trailer action rather than letting focus fall into the hero cast list.
+        if (focusPlayAction) {
+            repeat(10) {
+                runCatching { trailerBtnFocus.requestFocus() }
+                delay(80L)
+                if (trailerActionHasFocus.value) {
+                    initialTvActionFocusApplied.value = true
+                    handledTvNavFocusHandoffVersion.value = tvNavDownFocusHandoffVersion
+                    return@LaunchedEffect
+                }
             }
         }
     }
@@ -777,6 +817,9 @@ fun MovieDetailScreen(
     val scrollState = rememberScrollState()
     val scrollScope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(movieId, mediaType, isTv) {
+        if (isTv) scrollState.scrollTo(0)
+    }
     LaunchedEffect(Unit) {
         if (!isTv) try { focusRequester.requestFocus() } catch (_: Exception) {}
     }
@@ -994,7 +1037,10 @@ fun MovieDetailScreen(
                 TrailerBannerToggle(
                     enabled = movie != null,
                     isTv = true,
-                    modifier = Modifier.weight(0.92f),
+                    modifier = Modifier
+                        .weight(0.92f)
+                        .focusRequester(trailerBtnFocus)
+                        .onFocusChanged { trailerActionHasFocus.value = it.isFocused },
                     onClick = { showTrailerFullscreen = true },
                 )
                 MovieActionCircle(
@@ -1122,6 +1168,13 @@ fun MovieDetailScreen(
                 TrailerBannerToggle(
                     enabled = movie != null,
                     isTv = isTv,
+                    modifier = if (isTv) {
+                        Modifier
+                            .focusRequester(trailerBtnFocus)
+                            .onFocusChanged { trailerActionHasFocus.value = it.isFocused }
+                    } else {
+                        Modifier
+                    },
                     onClick = { showTrailerFullscreen = true },
                 )
                 if (isTv) {
@@ -1249,7 +1302,7 @@ fun MovieDetailScreen(
         val compactTvHero = isTv && viewportWidth < 1000.dp
         // Details no longer show the TV navigation rail, so start the hero at
         // the top edge instead of leaving an empty navigation-safe strip.
-        val artworkHeroTopClearance = if (isTv) 0.dp else 32.dp
+        val artworkHeroTopClearance = if (isTv) 24.dp else 32.dp
         val availableHeroHeight =
             (viewportHeight - artworkHeroTopClearance).coerceAtLeast(1.dp)
         val artworkHeroHeight = if (isTv) {
