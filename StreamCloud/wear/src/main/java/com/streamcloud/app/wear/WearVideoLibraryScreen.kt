@@ -11,8 +11,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -24,11 +29,58 @@ import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.ScalingLazyColumn
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.items
+import androidx.wear.compose.material.rememberScalingLazyListState
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.collect
 
 internal enum class WearLibrarySection(val label: String) {
     MUSIC("Music"),
     MOVIES("Movies"),
     ADULT("Adult"),
+}
+
+private val WearLibrarySection.iconLabel: String
+    get() = when (this) {
+        WearLibrarySection.MUSIC -> "♫"
+        WearLibrarySection.MOVIES -> "▶"
+        WearLibrarySection.ADULT -> "18+"
+    }
+
+@Composable
+internal fun WearLibraryNavigation(
+    selectedSection: WearLibrarySection,
+    onSelectSection: (WearLibrarySection) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        WearLibrarySection.entries.forEach { section ->
+            Chip(
+                onClick = { onSelectSection(section) },
+                label = {
+                    Text(
+                        section.iconLabel,
+                        color = if (section == selectedSection) Color(0xFF1BC8E8) else Color.White,
+                        style = if (section == WearLibrarySection.ADULT) {
+                            MaterialTheme.typography.caption2
+                        } else {
+                            MaterialTheme.typography.title3
+                        },
+                        maxLines = 1,
+                    )
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics {
+                        contentDescription = section.label
+                        selected = section == selectedSection
+                    },
+            )
+        }
+    }
 }
 
 internal data class WearVideoItem(
@@ -61,16 +113,35 @@ internal fun WearVideoLibraryScreen(
     query: String,
     adultPin: String,
     loading: Boolean,
+    hasMore: Boolean,
     message: String,
     onQueryChange: (String) -> Unit,
     onPinChange: (String) -> Unit,
     onSearch: () -> Unit,
+    onLoadMore: () -> Unit,
     onSelectSection: (WearLibrarySection) -> Unit,
     onSelectItem: (WearVideoItem) -> Unit,
     onSelectStream: (WearVideoStream) -> Unit,
     onBackToItems: () -> Unit,
 ) {
+    val listState = rememberScalingLazyListState()
+
+    LaunchedEffect(listState, items.size, hasMore, loading, selectedMovie) {
+        snapshotFlow {
+            val layout = listState.layoutInfo
+            val lastVisibleIndex = layout.visibleItemsInfo.lastOrNull()?.index ?: -1
+            lastVisibleIndex to layout.totalItemsCount
+        }
+            .map { (lastVisibleIndex, totalItems) ->
+                totalItems > 0 && lastVisibleIndex >= totalItems - 2
+            }
+            .distinctUntilChanged()
+            .filter { nearEnd -> nearEnd && hasMore && !loading && selectedMovie == null }
+            .collect { onLoadMore() }
+    }
+
     ScalingLazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF101827))
@@ -84,20 +155,7 @@ internal fun WearVideoLibraryScreen(
                 style = MaterialTheme.typography.title3,
             )
         }
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                WearLibrarySection.entries.forEach { sectionOption ->
-                    Chip(
-                        onClick = { onSelectSection(sectionOption) },
-                        label = { Text(sectionOption.label, maxLines = 1) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-            }
-        }
+        item { WearLibraryNavigation(section, onSelectSection) }
         item {
             Column(
                 modifier = Modifier
@@ -162,7 +220,7 @@ internal fun WearVideoLibraryScreen(
         item {
             Chip(
                 onClick = onSearch,
-                label = { Text(if (section == WearLibrarySection.ADULT) "Search provider" else "Search / refresh") },
+                label = { Text("Browse / search") },
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -190,7 +248,9 @@ internal fun WearVideoLibraryScreen(
             item {
                 Chip(
                     onClick = onBackToItems,
-                    label = { Text("Back to movies") },
+                    label = {
+                        Text(if (section == WearLibrarySection.ADULT) "Back to videos" else "Back to movies")
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -275,6 +335,15 @@ internal fun WearVideoLibraryScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+            if (hasMore && !loading) {
+                item {
+                    Text(
+                        "Keep scrolling for more",
+                        color = Color(0xFF97A9BE),
+                        style = MaterialTheme.typography.caption2,
+                    )
+                }
             }
         }
     }

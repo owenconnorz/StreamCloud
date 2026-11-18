@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -93,6 +94,11 @@ private fun WearMusicApp() {
     var pageSize by remember { mutableStateOf(40) }
     var librarySection by remember { mutableStateOf(WearLibrarySection.MUSIC) }
     var videoItems by remember { mutableStateOf<List<WearVideoItem>>(emptyList()) }
+    var videoPage by remember { mutableIntStateOf(1) }
+    var videoHasMore by remember { mutableStateOf(false) }
+    var videoLoading by remember { mutableStateOf(false) }
+    var adultAfter by remember { mutableStateOf("") }
+    var videoRequestGeneration by remember { mutableIntStateOf(0) }
     var selectedMovie by remember { mutableStateOf<WearVideoItem?>(null) }
     var videoStreams by remember { mutableStateOf<List<WearVideoStream>>(emptyList()) }
     var videoQuery by remember { mutableStateOf("") }
@@ -494,18 +500,30 @@ private fun WearMusicApp() {
         }
     }
 
-    fun loadVideoLibrary(section: WearLibrarySection, query: String = videoQuery) {
+    fun loadVideoLibrary(
+        section: WearLibrarySection,
+        query: String = videoQuery,
+        page: Int = 1,
+        append: Boolean = false,
+    ) {
         if (section == WearLibrarySection.MUSIC) return
+        val requestGeneration = ++videoRequestGeneration
         scope.launch {
-            loading = true
-            message = ""
-            selectedMovie = null
-            videoStreams = emptyList()
+            videoLoading = true
+            if (!append) {
+                message = ""
+                selectedMovie = null
+                videoStreams = emptyList()
+                if (section == WearLibrarySection.ADULT) adultAfter = ""
+            }
             val response = runCatching {
                 val operation = if (section == WearLibrarySection.MOVIES) "movies" else "adultPage"
-                val request = JSONObject().put("query", query)
+                val request = JSONObject()
+                    .put("query", query)
+                    .put("page", page)
                 if (section == WearLibrarySection.ADULT) {
-                    request.put("pin", adultPin).put("page", 1)
+                    request.put("pin", adultPin)
+                    if (append && adultAfter.isNotBlank()) request.put("after", adultAfter)
                 }
                 WearMusicBridge.request(
                     context = context,
@@ -514,22 +532,36 @@ private fun WearMusicApp() {
                     timeoutMs = VIDEO_REQUEST_TIMEOUT_MS,
                 )
             }.getOrElse { error ->
-                loading = false
+                if (requestGeneration != videoRequestGeneration) return@launch
+                videoLoading = false
+                videoHasMore = false
                 message = error.message ?: "Couldn't load videos."
                 return@launch
             }
-            loading = false
+            if (requestGeneration != videoRequestGeneration) return@launch
+            videoLoading = false
             if (!response.optBoolean("ok")) {
-                videoItems = emptyList()
+                videoHasMore = false
+                if (!append) videoItems = emptyList()
                 message = response.optString("message", "Couldn't load videos.")
                 return@launch
             }
-            videoItems = parseVideoItems(response.optJSONArray("items"), section)
+            val receivedItems = parseVideoItems(response.optJSONArray("items"), section)
+            videoItems = if (append) {
+                (videoItems + receivedItems).distinctBy(WearVideoItem::id)
+            } else {
+                receivedItems
+            }
+            videoPage = page
+            videoHasMore = response.optBoolean("hasMore") && receivedItems.isNotEmpty()
+            if (section == WearLibrarySection.ADULT) {
+                adultAfter = response.optString("nextCursor")
+            }
             message = response.optString("message")
             if (section == WearLibrarySection.ADULT) {
                 val provider = response.optString("source")
                 if (provider.isNotBlank() && videoItems.isNotEmpty()) {
-                    message = "$provider · select a video"
+                    message = "$provider · ${videoItems.size} videos"
                 }
             } else if (videoItems.isEmpty()) {
                 message = "No movies found."
@@ -538,6 +570,8 @@ private fun WearMusicApp() {
     }
 
     fun openVideoItem(item: WearVideoItem) {
+        videoRequestGeneration++
+        videoLoading = false
         scope.launch {
             loading = true
             message = if (item.source.isBlank()) "Finding watch-ready streams…" else "Preparing video…"
@@ -749,11 +783,25 @@ private fun WearMusicApp() {
                     streams = videoStreams,
                     query = videoQuery,
                     adultPin = adultPin,
-                    loading = loading,
+                    loading = videoLoading || (selectedMovie != null && loading),
+                    hasMore = videoHasMore,
                     message = message,
-                    onQueryChange = { videoQuery = it },
+                    onQueryChange = {
+                        videoQuery = it
+                        videoHasMore = false
+                    },
                     onPinChange = { adultPin = it },
                     onSearch = { loadVideoLibrary(librarySection, videoQuery) },
+                    onLoadMore = {
+                        if (videoHasMore && !videoLoading) {
+                            loadVideoLibrary(
+                                section = librarySection,
+                                query = videoQuery,
+                                page = videoPage + 1,
+                                append = true,
+                            )
+                        }
+                    },
                     onSelectSection = { section ->
                         librarySection = section
                         if (section != WearLibrarySection.ADULT) adultPin = ""
@@ -786,25 +834,17 @@ private fun WearMusicApp() {
                     )
                 }
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        WearLibrarySection.entries.forEach { section ->
-                            Chip(
-                                onClick = {
-                                    librarySection = section
-                                    if (section != WearLibrarySection.ADULT) adultPin = ""
-                                    if (section != WearLibrarySection.MUSIC) {
-                                        videoQuery = ""
-                                        loadVideoLibrary(section, "")
-                                    }
-                                },
-                                label = { Text(section.label, maxLines = 1) },
-                                modifier = Modifier.weight(1f),
-                            )
+                    WearLibraryNavigation(
+                        selectedSection = librarySection,
+                        onSelectSection = { section ->
+                            librarySection = section
+                            if (section != WearLibrarySection.ADULT) adultPin = ""
+                            if (section != WearLibrarySection.MUSIC) {
+                                videoQuery = ""
+                                loadVideoLibrary(section, "")
+                            }
                         }
-                    }
+                    )
                 }
                 if (availableUpdate != null) {
                     item {

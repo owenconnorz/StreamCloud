@@ -45,7 +45,11 @@ internal object WearVideoBridgeHandler {
     suspend fun handle(context: Context, request: JSONObject): JSONObject {
         val services = ServiceLocator.get(context.applicationContext)
         return when (request.optString("operation")) {
-            "movies" -> moviePage(services, request.optString("query").trim())
+            "movies" -> moviePage(
+                services = services,
+                query = request.optString("query").trim(),
+                page = request.optInt("page", 1).coerceAtLeast(1),
+            )
             "movieStreams" -> movieStreams(
                 context = context.applicationContext,
                 services = services,
@@ -58,6 +62,7 @@ internal object WearVideoBridgeHandler {
                 query = request.optString("query").trim(),
                 page = request.optInt("page", 1).coerceAtLeast(1),
                 pin = request.optString("pin"),
+                after = request.optString("after").takeIf(String::isNotBlank),
             )
             "adultPlay" -> adultPlay(
                 context = context.applicationContext,
@@ -75,11 +80,12 @@ internal object WearVideoBridgeHandler {
     private suspend fun moviePage(
         services: ServiceLocator,
         query: String,
+        page: Int,
     ): JSONObject {
         val response = if (query.isBlank()) {
-            services.tmdb.popular(services.tmdbApiKey)
+            services.tmdb.popular(services.tmdbApiKey, page)
         } else {
-            services.tmdb.search(services.tmdbApiKey, query)
+            services.tmdb.search(services.tmdbApiKey, query, page)
         }
         val movies = JSONArray()
         response.results.take(30).forEach { movie ->
@@ -93,7 +99,11 @@ internal object WearVideoBridgeHandler {
                     .put("year", movie.displayReleaseInfo()?.take(4)?.toIntOrNull() ?: 0),
             )
         }
-        return JSONObject().put("ok", true).put("items", movies)
+        return JSONObject()
+            .put("ok", true)
+            .put("items", movies)
+            .put("page", response.page)
+            .put("hasMore", response.page < response.totalPages)
     }
 
     private suspend fun movieStreams(
@@ -248,13 +258,16 @@ internal object WearVideoBridgeHandler {
         query: String,
         page: Int,
         pin: String,
+        after: String?,
     ): JSONObject {
         requireAdultAuthorization(services, pin)
         val source = AdultSource.valueOf(services.settings.adultSource.first())
-        val items = when (source) {
+        var nextCursor: String? = null
+        val (items, hasMore) = when (source) {
             AdultSource.Eporner -> {
                 val api = Net.retrofit("https://www.eporner.com/").create(EpornerApi::class.java)
-                api.search(query, perPage = 24, page = page).videos.map { video ->
+                val result = api.search(query, perPage = 24, page = page)
+                result.videos.map { video ->
                     AdultItem(
                         id = video.id,
                         title = video.title,
@@ -266,32 +279,37 @@ internal object WearVideoBridgeHandler {
                         embedUrl = video.embed,
                         views = video.views.toString(),
                     )
-                }
+                } to (result.total_count > page * result.per_page || result.videos.size >= result.per_page)
             }
-            AdultSource.Pornhub -> PornhubRepository.fetch(query, page).items
+            AdultSource.Pornhub -> PornhubRepository.fetch(query, page).let { it.items to it.hasMore }
             AdultSource.XHamster -> XHamsterRepository.fetch(
                 query = query,
                 page = page,
                 orientation = com.streamcloud.app.data.api.XHamsterOrientation.fromPreference(
                     services.settings.xhamsterOrientation.first(),
                 ),
-            ).items
-            AdultSource.XFree -> XFreeRepository.fetch(query, page).items
-            AdultSource.PornMz -> PornMzRepository.fetchPage(query, page).items
-            AdultSource.Beeg -> BeegRepository.fetchPage(query, page).items
-            AdultSource.Xnxx -> XnxxRepository.fetchPage(query, page).items
+            ).let { it.items to it.hasMore }
+            AdultSource.XFree -> XFreeRepository.fetch(query, page).let { it.items to it.hasMore }
+            AdultSource.PornMz -> PornMzRepository.fetchPage(query, page).let { it.items to it.hasMore }
+            AdultSource.Beeg -> BeegRepository.fetchPage(query, page).let { it.items to it.hasMore }
+            AdultSource.Xnxx -> XnxxRepository.fetchPage(query, page).let { it.items to it.hasMore }
             AdultSource.Porn4Days, AdultSource.PornHd3x, AdultSource.PornSlash ->
-                AdultWebsiteRepository.fetchPage(source, query, page).items
+                AdultWebsiteRepository.fetchPage(source, query, page).let { it.items to it.hasMore }
             AdultSource.Reddit -> {
                 val subreddit = services.settings.adultRedditSubsCsv.first()
                     .split(',', '\n').firstOrNull(String::isNotBlank)?.trim()
                     ?: "nsfw"
-                RedditAdultRepository.fetch(subreddit = subreddit).first
+                val (videos, cursor) = RedditAdultRepository.fetch(
+                    subreddit = subreddit,
+                    after = after,
+                )
+                nextCursor = cursor
+                videos to (cursor != null)
             }
-            AdultSource.RedGifs -> RedGifsRepository.fetchTrending(page = page, count = 24).first
+            AdultSource.RedGifs -> RedGifsRepository.fetchTrending(page = page, count = 24)
         }
         val serialized = JSONArray()
-        items.take(18).forEach { item ->
+        items.take(if (source == AdultSource.Reddit) 50 else 18).forEach { item ->
             serialized.put(
                 JSONObject()
                     .put("id", item.id)
@@ -315,6 +333,9 @@ internal object WearVideoBridgeHandler {
             .put("ok", true)
             .put("source", source.label)
             .put("items", serialized)
+            .put("page", page)
+            .put("hasMore", hasMore)
+            .put("nextCursor", nextCursor.orEmpty())
             .put("message", if (items.isEmpty()) "No videos found for this provider." else "")
     }
 
