@@ -62,6 +62,9 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE local_path IS NOT NULL ORDER BY title ASC")
     fun downloaded(): Flow<List<TrackEntity>>
 
+    @Query("SELECT * FROM tracks WHERE local_path IS NOT NULL ORDER BY title ASC LIMIT 30")
+    suspend fun downloadedForWear(): List<TrackEntity>
+
     @Query(
         "SELECT * FROM tracks WHERE title LIKE :pattern ESCAPE '\\' OR artist LIKE :pattern ESCAPE '\\' " +
             "ORDER BY title ASC LIMIT :limit",
@@ -683,6 +686,9 @@ interface MovieDownloadDao {
 
     @Query("SELECT * FROM movie_downloads ORDER BY created_at DESC")
     fun all(): Flow<List<MovieDownloadEntity>>
+
+    @Query("SELECT * FROM movie_downloads ORDER BY created_at DESC LIMIT 30")
+    suspend fun latestForWear(): List<MovieDownloadEntity>
 }
 
 // ── Followed Artists ─────────────────────────────────────────────────────────

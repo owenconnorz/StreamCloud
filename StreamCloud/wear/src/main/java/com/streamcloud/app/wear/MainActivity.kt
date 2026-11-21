@@ -3,13 +3,16 @@ package com.streamcloud.app.wear
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -20,9 +23,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material.Chip
@@ -32,6 +38,7 @@ import androidx.wear.compose.material.ScalingLazyColumn
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
 import androidx.wear.compose.material.items
+import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -82,6 +89,7 @@ private fun WearMusicApp() {
     var target by remember { mutableStateOf(PlaybackTarget.PHONE) }
     var loading by remember { mutableStateOf(true) }
     var message by remember { mutableStateOf("Connect StreamCloud on your phone to load music.") }
+    var phoneConnected by remember { mutableStateOf(false) }
     var phoneSnapshot by remember { mutableStateOf(emptyWearSnapshot()) }
     var watchSnapshot by remember { mutableStateOf(emptyWearSnapshot()) }
     var showNowPlaying by remember { mutableStateOf(false) }
@@ -92,8 +100,10 @@ private fun WearMusicApp() {
     var downloadingUpdate by remember { mutableStateOf(false) }
     var currentPage by remember { mutableStateOf(0) }
     var pageSize by remember { mutableStateOf(40) }
+    var musicRequestGeneration by remember { mutableIntStateOf(0) }
     var librarySection by remember { mutableStateOf(WearLibrarySection.MUSIC) }
     var videoItems by remember { mutableStateOf<List<WearVideoItem>>(emptyList()) }
+    var similarMovies by remember { mutableStateOf<List<WearVideoItem>>(emptyList()) }
     var videoPage by remember { mutableIntStateOf(1) }
     var videoHasMore by remember { mutableStateOf(false) }
     var videoLoading by remember { mutableStateOf(false) }
@@ -108,6 +118,10 @@ private fun WearMusicApp() {
     var videoHeaders by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var videoMimeType by remember { mutableStateOf("") }
     var showVideoPlayer by remember { mutableStateOf(false) }
+    var destination by remember { mutableStateOf(WearDestination.HOME) }
+    var selectedMovieGenre by remember { mutableStateOf<WearMovieGenre?>(null) }
+    var selectedAdultCategory by remember { mutableStateOf<String?>(null) }
+    var catalogReturnDestination by remember { mutableStateOf(WearDestination.MOVIES) }
 
     val activePlaybackTarget = when {
         watchSnapshot.playing && !phoneSnapshot.playing -> PlaybackTarget.WATCH
@@ -141,6 +155,7 @@ private fun WearMusicApp() {
     }
 
     fun loadRoot() {
+        val requestGeneration = ++musicRequestGeneration
         scope.launch {
             loading = true
             val response = runCatching {
@@ -150,6 +165,7 @@ private fun WearMusicApp() {
                 message = error.message ?: "Couldn't connect to your phone."
                 return@launch
             }
+            if (requestGeneration != musicRequestGeneration) return@launch
             if (!response.optBoolean("ok")) {
                 loading = false
                 message = response.optString("message", "Couldn't load music.")
@@ -157,9 +173,83 @@ private fun WearMusicApp() {
             }
             folders.clear()
             rootId = response.optString("rootId")
-            currentParent = rootId
+            librarySection = WearLibrarySection.MUSIC
+            val home = runCatching {
+                WearMusicBridge.request(
+                    context,
+                    "children",
+                    JSONObject()
+                        .put("parentId", WATCH_MUSIC_HOME_ID)
+                        .put("page", 0)
+                        .put("pageSize", pageSize),
+                )
+            }.getOrElse { error ->
+                loading = false
+                message = error.message ?: "Couldn't load Music."
+                return@launch
+            }
+            if (requestGeneration != musicRequestGeneration) return@launch
+            if (!home.optBoolean("ok")) {
+                loading = false
+                message = home.optString("message", "Couldn't load Music.")
+                return@launch
+            }
+            currentParent = WATCH_MUSIC_HOME_ID
             title = "Music"
-            acceptItems(response.put("parentId", rootId))
+            acceptItems(home.put("parentId", WATCH_MUSIC_HOME_ID))
+        }
+    }
+
+    fun loadMusicSection(section: WearLibrarySection) {
+        if (section != WearLibrarySection.MUSIC && section != WearLibrarySection.LIBRARY) return
+        librarySection = section
+        destination = WearDestination.MUSIC
+        val requestGeneration = ++musicRequestGeneration
+        videoRequestGeneration++
+        videoItems = emptyList()
+        videoHasMore = false
+        videoLoading = false
+        selectedMovie = null
+        videoStreams = emptyList()
+        videoQuery = ""
+        adultPin = ""
+        folders.clear()
+        val parentId = if (section == WearLibrarySection.LIBRARY) {
+            WATCH_LIBRARY_ID
+        } else {
+            WATCH_MUSIC_HOME_ID
+        }
+        val sectionTitle = if (section == WearLibrarySection.LIBRARY) "Your Library" else "Music"
+        items = emptyList()
+        currentParent = parentId
+        title = sectionTitle
+        scope.launch {
+            loading = true
+            message = ""
+            val response = runCatching {
+                WearMusicBridge.request(
+                    context,
+                    "children",
+                    JSONObject()
+                        .put("parentId", parentId)
+                        .put("page", 0)
+                        .put("pageSize", pageSize),
+                )
+            }.getOrElse { error ->
+                if (requestGeneration != musicRequestGeneration) return@launch
+                loading = false
+                message = error.message ?: "Couldn't load $sectionTitle."
+                return@launch
+            }
+            if (requestGeneration != musicRequestGeneration) return@launch
+            if (!response.optBoolean("ok")) {
+                loading = false
+                message = response.optString("message", "Couldn't load $sectionTitle.")
+                return@launch
+            }
+            currentParent = parentId
+            title = sectionTitle
+            acceptItems(response.put("parentId", parentId))
         }
     }
 
@@ -191,7 +281,7 @@ private fun WearMusicApp() {
 
     fun goBack() {
         if (folders.isEmpty()) {
-            loadRoot()
+            loadMusicSection(librarySection)
             return
         }
         val folder = folders.removeAt(folders.lastIndex)
@@ -506,7 +596,10 @@ private fun WearMusicApp() {
         page: Int = 1,
         append: Boolean = false,
     ) {
-        if (section == WearLibrarySection.MUSIC) return
+        if (section != WearLibrarySection.MOVIES && section != WearLibrarySection.ADULT) return
+        if (section == WearLibrarySection.MOVIES) selectedMovieGenre = null
+        destination = if (section == WearLibrarySection.MOVIES) WearDestination.MOVIES else WearDestination.ADULT
+        musicRequestGeneration++
         val requestGeneration = ++videoRequestGeneration
         scope.launch {
             videoLoading = true
@@ -569,15 +662,157 @@ private fun WearMusicApp() {
         }
     }
 
+    fun loadMovieBrowse(
+        category: String,
+        genre: WearMovieGenre? = null,
+        page: Int = 1,
+        append: Boolean = false,
+    ) {
+        librarySection = WearLibrarySection.MOVIES
+        val returnToGenreList = category == "genre" && destination == WearDestination.MOVIE_GENRES
+        selectedMovieGenre = genre
+        videoQuery = ""
+        catalogReturnDestination = when (category) {
+            "genre" -> WearDestination.MOVIE_GENRES
+            "popular" -> WearDestination.POPULAR
+            else -> WearDestination.MOVIES
+        }
+        destination = if (returnToGenreList) WearDestination.MOVIE_GENRES else WearDestination.POPULAR
+        musicRequestGeneration++
+        val requestGeneration = ++videoRequestGeneration
+        scope.launch {
+            videoLoading = true
+            if (!append) {
+                videoItems = emptyList()
+                selectedMovie = null
+                videoStreams = emptyList()
+                message = ""
+            }
+            val response = runCatching {
+                WearMusicBridge.request(
+                    context,
+                    "movieBrowse",
+                    JSONObject()
+                        .put("category", category)
+                        .put("genreId", genre?.id ?: 0)
+                        .put("page", page),
+                    timeoutMs = VIDEO_REQUEST_TIMEOUT_MS,
+                )
+            }.getOrElse { error ->
+                if (requestGeneration != videoRequestGeneration) return@launch
+                videoLoading = false
+                message = error.message ?: "Couldn't load movies."
+                return@launch
+            }
+            if (requestGeneration != videoRequestGeneration) return@launch
+            videoLoading = false
+            if (!response.optBoolean("ok")) {
+                message = response.optString("message", "Couldn't load movies.")
+                if (!append) videoItems = emptyList()
+                return@launch
+            }
+            val received = parseVideoItems(response.optJSONArray("items"), WearLibrarySection.MOVIES)
+            videoItems = if (append) (videoItems + received).distinctBy(WearVideoItem::id) else received
+            videoPage = response.optInt("page", page)
+            videoHasMore = response.optBoolean("hasMore") && received.isNotEmpty()
+            message = if (videoItems.isEmpty()) "No movies found." else ""
+        }
+    }
+
+    fun loadPhoneCollection(operation: String, targetDestination: WearDestination) {
+        destination = targetDestination
+        if (targetDestination == WearDestination.CONTINUE_WATCHING) {
+            librarySection = WearLibrarySection.MOVIES
+            catalogReturnDestination = WearDestination.CONTINUE_WATCHING
+        }
+        selectedMovie = null
+        videoStreams = emptyList()
+        val requestGeneration = ++videoRequestGeneration
+        musicRequestGeneration++
+        scope.launch {
+            videoLoading = true
+            message = ""
+            val response = runCatching {
+                WearMusicBridge.request(context, operation, timeoutMs = VIDEO_REQUEST_TIMEOUT_MS)
+            }.getOrElse { error ->
+                if (requestGeneration != videoRequestGeneration) return@launch
+                videoLoading = false
+                message = error.message ?: "Couldn't load ${targetDestination.label.lowercase()}."
+                videoItems = emptyList()
+                return@launch
+            }
+            if (requestGeneration != videoRequestGeneration) return@launch
+            videoLoading = false
+            if (!response.optBoolean("ok")) {
+                videoItems = emptyList()
+                message = response.optString("message", "Couldn't load ${targetDestination.label.lowercase()}.")
+                return@launch
+            }
+            videoItems = parseVideoItems(response.optJSONArray("items"), WearLibrarySection.MOVIES)
+            videoHasMore = false
+            message = if (videoItems.isEmpty()) {
+                if (targetDestination == WearDestination.CONTINUE_WATCHING) "Nothing to resume yet." else "No phone downloads found."
+            } else {
+                ""
+            }
+        }
+    }
+
+    fun loadAdultCategory(label: String, query: String) {
+        selectedAdultCategory = label
+        librarySection = WearLibrarySection.ADULT
+        destination = WearDestination.ADULT_CATEGORIES
+        loadVideoLibrary(WearLibrarySection.ADULT, query)
+        destination = WearDestination.ADULT_CATEGORIES
+    }
+
+    fun selectLibrarySection(section: WearLibrarySection) {
+        when (section) {
+            WearLibrarySection.MUSIC,
+            WearLibrarySection.LIBRARY -> loadMusicSection(section)
+            WearLibrarySection.MOVIES,
+            WearLibrarySection.ADULT -> {
+                destination = if (section == WearLibrarySection.MOVIES) WearDestination.MOVIES else WearDestination.ADULT
+                librarySection = section
+                if (section != WearLibrarySection.ADULT) adultPin = ""
+                videoQuery = ""
+                loadVideoLibrary(section, "")
+            }
+        }
+    }
+
     fun openVideoItem(item: WearVideoItem) {
+        if (destination == WearDestination.CONTINUE_WATCHING) {
+            catalogReturnDestination = WearDestination.CONTINUE_WATCHING
+        } else if (destination == WearDestination.ADULT_CATEGORIES && selectedAdultCategory != null) {
+            catalogReturnDestination = WearDestination.ADULT_CATEGORIES
+        }
+        destination = if (librarySection == WearLibrarySection.ADULT) {
+            WearDestination.ADULT
+        } else {
+            WearDestination.MOVIE_DETAILS
+        }
         videoRequestGeneration++
         videoLoading = false
+        similarMovies = emptyList()
         scope.launch {
             loading = true
             message = if (item.source.isBlank()) "Finding watch-ready streams…" else "Preparing video…"
             if (item.source.isBlank()) {
                 selectedMovie = item
                 videoStreams = emptyList()
+                if (!item.watchSupported) {
+                    loading = false
+                    message = "This title can resume on your phone, but this watch build cannot stream it directly."
+                    return@launch
+                }
+                val details = runCatching {
+                    WearMusicBridge.request(
+                        context = context,
+                        operation = "movieDetails",
+                        values = JSONObject().put("tmdbId", item.id.toLongOrNull() ?: 0L),
+                    )
+                }.getOrNull()
                 val response = runCatching {
                     WearMusicBridge.request(
                         context = context,
@@ -598,9 +833,32 @@ private fun WearMusicApp() {
                     message = response.optString("message", "Couldn't find a movie stream.")
                     return@launch
                 }
+                val genres = details?.optJSONArray("genres")
+                val cast = details?.optJSONArray("cast")
+                similarMovies = parseVideoItems(
+                    details?.optJSONArray("similar"),
+                    WearLibrarySection.MOVIES,
+                )
+                val detailLines = buildList {
+                    details?.optString("runtime")?.takeIf(String::isNotBlank)?.let(::add)
+                    details?.optDouble("rating", 0.0)?.takeIf { it > 0.0 }?.let { add("★ ${"%.1f".format(it)}") }
+                    if (genres != null) {
+                        val labels = (0 until genres.length()).mapNotNull { genres.optString(it).takeIf(String::isNotBlank) }
+                        if (labels.isNotEmpty()) add(labels.joinToString(" · "))
+                    }
+                    details?.optString("director")?.takeIf(String::isNotBlank)?.let { add("Director: $it") }
+                    if (cast != null && cast.length() > 0) {
+                        val names = (0 until minOf(cast.length(), 4))
+                            .mapNotNull { cast.optJSONObject(it)?.optString("name")?.takeIf(String::isNotBlank) }
+                        if (names.isNotEmpty()) add("Cast: ${names.joinToString(", ")}")
+                    }
+                }
                 selectedMovie = item.copy(
-                    overview = response.optString("overview", item.overview),
-                    artwork = response.optString("artwork", item.artwork),
+                    overview = details?.optString("overview")?.takeIf(String::isNotBlank)
+                        ?: response.optString("overview", item.overview),
+                    artwork = details?.optString("artwork")?.takeIf(String::isNotBlank)
+                        ?: response.optString("artwork", item.artwork),
+                    details = detailLines.joinToString("\n"),
                 )
                 videoStreams = parseVideoStreams(response.optJSONArray("streams"))
                 message = response.optString("message")
@@ -639,6 +897,7 @@ private fun WearMusicApp() {
                 } else {
                     showNowPlaying = false
                     showVideoPlayer = true
+                    destination = WearDestination.ADULT_PLAYER
                     message = ""
                 }
             }
@@ -654,6 +913,11 @@ private fun WearMusicApp() {
         }
         showNowPlaying = false
         showVideoPlayer = true
+        destination = if (librarySection == WearLibrarySection.ADULT) {
+            WearDestination.ADULT_PLAYER
+        } else {
+            WearDestination.MOVIE_PLAYER
+        }
     }
 
     fun installLatestUpdate() {
@@ -704,31 +968,57 @@ private fun WearMusicApp() {
             availableUpdate = runCatching { updateChecker.fetchLatest() }.getOrNull()
         }
         launch {
-            var firstWatchStateRead = true
             while (true) {
                 val watchState = runCatching { WearWatchPlayback.snapshot(context) }.getOrNull()
                 if (watchState != null) {
                     watchSnapshot = watchState
-                    if (firstWatchStateRead && watchState.hasItem) showNowPlaying = true
-                    firstWatchStateRead = false
                 }
                 delay(1_000L)
             }
         }
-        var firstPhoneStateRead = true
         while (true) {
             val state = runCatching { WearMusicBridge.request(context, "state") }.getOrNull()
+            phoneConnected = state?.optBoolean("ok") == true
             if (state?.optBoolean("ok") == true) {
                 val parsedState = parsePhoneSnapshot(state)
                 phoneSnapshot = parsedState
-                if (firstPhoneStateRead && parsedState.hasItem) showNowPlaying = true
-                firstPhoneStateRead = false
             }
             delay(2_000L)
         }
     }
 
-    MaterialTheme {
+    val wearColors = androidx.wear.compose.material.Colors(
+        primary = Color(0xFFE34DFF),
+        primaryVariant = Color(0xFF9E38B6),
+        secondary = Color(0xFFFF4EA8),
+        secondaryVariant = Color(0xFFC73582),
+        background = Color(0xFF08070D),
+        surface = Color(0xFF18121F),
+        error = Color(0xFFFF667A),
+        onPrimary = Color(0xFF16091A),
+        onSecondary = Color(0xFF1C0711),
+        onBackground = Color(0xFFF7F0F8),
+        onSurface = Color(0xFFF7F0F8),
+        onError = Color(0xFF16070A),
+    )
+    BackHandler(enabled = !showVideoPlayer && destination != WearDestination.HOME) {
+        if (showNowPlaying) {
+            showNowPlaying = false
+            destination = WearDestination.HOME
+        } else if (destination == WearDestination.MOVIE_DETAILS) {
+            selectedMovie = null
+            videoStreams = emptyList()
+            destination = catalogReturnDestination
+        } else if (destination == WearDestination.POPULAR && selectedMovieGenre != null) {
+            destination = WearDestination.MOVIE_GENRES
+        } else if (destination == WearDestination.ADULT_CATEGORIES && selectedAdultCategory != null) {
+            selectedAdultCategory = null
+            destination = WearDestination.ADULT_CATEGORIES
+        } else {
+            destination = WearDestination.HOME
+        }
+    }
+    MaterialTheme(colors = wearColors) {
         Scaffold(timeText = { TimeText() }) {
             if (showVideoPlayer) {
                 WearVideoPlayerScreen(
@@ -736,7 +1026,17 @@ private fun WearMusicApp() {
                     streamUrl = videoUrl,
                     headers = videoHeaders,
                     mimeType = videoMimeType,
-                    onBack = { showVideoPlayer = false },
+                    startPositionMs = selectedMovie?.positionMs ?: 0L,
+                    onBack = {
+                        showVideoPlayer = false
+                        destination = if (librarySection == WearLibrarySection.ADULT && selectedAdultCategory != null) {
+                            WearDestination.ADULT_CATEGORIES
+                        } else if (librarySection == WearLibrarySection.ADULT) {
+                            WearDestination.ADULT
+                        } else {
+                            catalogReturnDestination
+                        }
+                    },
                 )
             } else if (showNowPlaying) {
                 WearNowPlayingScreen(
@@ -748,7 +1048,10 @@ private fun WearMusicApp() {
                     updateEnabled = !downloadingUpdate,
                     onSelectOutput = ::selectOutput,
                     onUpdate = ::installLatestUpdate,
-                    onBrowse = { showNowPlaying = false },
+                    onBrowse = {
+                        showNowPlaying = false
+                        loadMusicSection(WearLibrarySection.LIBRARY)
+                    },
                     onTransport = { action, positionMs ->
                         scope.launch {
                             runCatching {
@@ -775,12 +1078,184 @@ private fun WearMusicApp() {
                         }
                     },
                 )
-            } else if (librarySection != WearLibrarySection.MUSIC) {
+            } else if (destination == WearDestination.HOME) {
+                WearHomeScreen(
+                    snapshot = activeSnapshot.takeIf { it.hasItem } ?: emptyWearSnapshot(),
+                    onNavigate = { next ->
+                        when (next) {
+                            WearDestination.HOME -> destination = WearDestination.HOME
+                            WearDestination.MUSIC -> loadMusicSection(WearLibrarySection.MUSIC)
+                            WearDestination.MUSIC_PLAYER -> {
+                                destination = next
+                                showNowPlaying = true
+                            }
+                            WearDestination.MOVIES -> {
+                                librarySection = WearLibrarySection.MOVIES
+                                selectedMovieGenre = null
+                                catalogReturnDestination = WearDestination.MOVIES
+                                videoQuery = ""
+                                loadVideoLibrary(WearLibrarySection.MOVIES, "")
+                            }
+                            WearDestination.POPULAR -> loadMovieBrowse("popular")
+                            WearDestination.MOVIE_GENRES -> {
+                                selectedMovieGenre = null
+                                videoItems = emptyList()
+                                message = ""
+                                destination = WearDestination.MOVIE_GENRES
+                            }
+                            WearDestination.ADULT -> {
+                                librarySection = WearLibrarySection.ADULT
+                                selectedAdultCategory = null
+                                videoQuery = ""
+                                loadVideoLibrary(WearLibrarySection.ADULT, "")
+                            }
+                            WearDestination.ADULT_CATEGORIES -> {
+                                selectedAdultCategory = null
+                                videoItems = emptyList()
+                                message = ""
+                                librarySection = WearLibrarySection.ADULT
+                                destination = WearDestination.ADULT_CATEGORIES
+                            }
+                            WearDestination.ADULT_TRENDING -> {
+                                librarySection = WearLibrarySection.ADULT
+                                selectedAdultCategory = "Trending"
+                                loadVideoLibrary(WearLibrarySection.ADULT, "")
+                                destination = WearDestination.ADULT_TRENDING
+                            }
+                            WearDestination.CONTINUE_WATCHING ->
+                                loadPhoneCollection("continueWatching", WearDestination.CONTINUE_WATCHING)
+                            WearDestination.DOWNLOADS -> loadPhoneCollection("downloads", WearDestination.DOWNLOADS)
+                            WearDestination.SETTINGS -> destination = WearDestination.SETTINGS
+                            WearDestination.MOVIE_PLAYER -> {
+                                if (videoUrl.isNotBlank()) showVideoPlayer = true
+                                else selectLibrarySection(WearLibrarySection.MOVIES)
+                            }
+                            WearDestination.ADULT_PLAYER -> {
+                                if (videoUrl.isNotBlank()) showVideoPlayer = true
+                                else selectLibrarySection(WearLibrarySection.ADULT)
+                            }
+                            WearDestination.MOVIE_DETAILS -> selectLibrarySection(WearLibrarySection.MOVIES)
+                            else -> destination = next
+                        }
+                    },
+                )
+            } else if (destination == WearDestination.CONTINUE_WATCHING) {
+                WearContinueWatchingScreen(
+                    items = videoItems,
+                    loading = videoLoading,
+                    message = message,
+                    onSelectItem = { item ->
+                        if (item.watchSupported) {
+                            openVideoItem(item)
+                        } else {
+                            message = "TV episodes and provider-specific items must be resumed on your phone."
+                        }
+                    },
+                    onBack = { destination = WearDestination.HOME },
+                )
+            } else if (destination == WearDestination.MOVIE_GENRES) {
+                WearMovieGenresScreen(
+                    selectedGenre = selectedMovieGenre,
+                    items = videoItems,
+                    loading = videoLoading,
+                    message = message,
+                    hasMore = videoHasMore,
+                    onSelectGenre = { genre ->
+                        catalogReturnDestination = WearDestination.MOVIE_GENRES
+                        loadMovieBrowse("genre", genre)
+                    },
+                    onSelectItem = ::openVideoItem,
+                    onLoadMore = {
+                        if (selectedMovieGenre != null && videoHasMore && !videoLoading) {
+                            loadMovieBrowse(
+                                category = "genre",
+                                genre = selectedMovieGenre,
+                                page = videoPage + 1,
+                                append = true,
+                            )
+                        }
+                    },
+                    onBack = {
+                        if (selectedMovieGenre != null) {
+                            selectedMovieGenre = null
+                            videoItems = emptyList()
+                            destination = WearDestination.MOVIE_GENRES
+                        } else {
+                            destination = WearDestination.HOME
+                        }
+                    },
+                )
+            } else if (destination == WearDestination.DOWNLOADS) {
+                WearDownloadsScreen(
+                    items = videoItems,
+                    loading = videoLoading,
+                    message = message,
+                    onBack = { destination = WearDestination.HOME },
+                )
+            } else if (destination == WearDestination.MOVIE_PLAYER) {
+                WearUnavailableDestination(
+                    destination = destination,
+                    explanation = "A movie player opens after a supported stream is selected. Some sources require phone playback.",
+                    actionLabel = "Browse movies",
+                    onAction = { selectLibrarySection(WearLibrarySection.MOVIES) },
+                )
+            } else if (destination == WearDestination.ADULT_PLAYER) {
+                WearUnavailableDestination(
+                    destination = destination,
+                    explanation = "Choose a video from the phone-configured source. Only streams supported by the watch can play here.",
+                    actionLabel = "Browse Adult",
+                    onAction = { selectLibrarySection(WearLibrarySection.ADULT) },
+                )
+            } else if (destination == WearDestination.SETTINGS) {
+                WearSettingsScreen(
+                    selectedOutput = activePlaybackTarget,
+                    phoneConnected = phoneConnected,
+                    updateTitle = if (availableUpdate != null) updateChipTitle else null,
+                    updateDetails = updateChipDetails,
+                    updateEnabled = !downloadingUpdate,
+                    onSelectOutput = ::selectOutput,
+                    onUpdate = ::installLatestUpdate,
+                    onDownloads = { loadPhoneCollection("downloads", WearDestination.DOWNLOADS) },
+                    onBack = { destination = WearDestination.HOME },
+                )
+            } else if (destination == WearDestination.ADULT_CATEGORIES) {
+                WearAdultCategoriesScreen(
+                    selectedCategory = selectedAdultCategory,
+                    items = videoItems,
+                    loading = videoLoading,
+                    message = message,
+                    adultPin = adultPin,
+                    onPinChange = { adultPin = it },
+                    onSelectCategory = { label, query ->
+                        loadAdultCategory(label, query)
+                    },
+                    onSelectItem = ::openVideoItem,
+                    onBack = {
+                        if (selectedAdultCategory != null) {
+                            selectedAdultCategory = null
+                            videoItems = emptyList()
+                            destination = WearDestination.ADULT_CATEGORIES
+                        } else {
+                            destination = WearDestination.HOME
+                        }
+                    },
+                )
+            } else if (destination == WearDestination.MOVIES ||
+                destination == WearDestination.POPULAR ||
+                destination == WearDestination.MOVIE_DETAILS ||
+                destination == WearDestination.ADULT ||
+                destination == WearDestination.ADULT_TRENDING
+            ) {
                 WearVideoLibraryScreen(
-                    section = librarySection,
+                    section = if (destination == WearDestination.ADULT || destination == WearDestination.ADULT_TRENDING) {
+                        WearLibrarySection.ADULT
+                    } else {
+                        WearLibrarySection.MOVIES
+                    },
                     items = videoItems,
                     selectedMovie = selectedMovie,
                     streams = videoStreams,
+                    relatedItems = similarMovies,
                     query = videoQuery,
                     adultPin = adultPin,
                     loading = videoLoading || (selectedMovie != null && loading),
@@ -791,59 +1266,112 @@ private fun WearMusicApp() {
                         videoHasMore = false
                     },
                     onPinChange = { adultPin = it },
-                    onSearch = { loadVideoLibrary(librarySection, videoQuery) },
+                    onSearch = {
+                        selectedAdultCategory = null
+                        catalogReturnDestination = if (librarySection == WearLibrarySection.ADULT) {
+                            WearDestination.ADULT
+                        } else {
+                            WearDestination.MOVIES
+                        }
+                        loadVideoLibrary(librarySection, videoQuery)
+                    },
                     onLoadMore = {
                         if (videoHasMore && !videoLoading) {
-                            loadVideoLibrary(
-                                section = librarySection,
-                                query = videoQuery,
-                                page = videoPage + 1,
-                                append = true,
-                            )
+                            when (destination) {
+                                WearDestination.MOVIE_GENRES -> loadMovieBrowse(
+                                    category = "genre",
+                                    genre = selectedMovieGenre,
+                                    page = videoPage + 1,
+                                    append = true,
+                                )
+                                WearDestination.POPULAR -> loadMovieBrowse(
+                                    category = if (selectedMovieGenre != null) "genre" else "popular",
+                                    genre = selectedMovieGenre,
+                                    page = videoPage + 1,
+                                    append = true,
+                                )
+                                WearDestination.ADULT_TRENDING -> {
+                                    loadVideoLibrary(
+                                        section = WearLibrarySection.ADULT,
+                                        query = "",
+                                        page = videoPage + 1,
+                                        append = true,
+                                    )
+                                    destination = WearDestination.ADULT_TRENDING
+                                }
+                                else -> loadVideoLibrary(
+                                    section = librarySection,
+                                    query = videoQuery,
+                                    page = videoPage + 1,
+                                    append = true,
+                                )
+                            }
                         }
                     },
-                    onSelectSection = { section ->
-                        librarySection = section
-                        if (section != WearLibrarySection.ADULT) adultPin = ""
-                        if (section != WearLibrarySection.MUSIC) {
-                            videoQuery = ""
-                            loadVideoLibrary(section, "")
-                        }
-                    },
+                    onSelectSection = ::selectLibrarySection,
                     onSelectItem = ::openVideoItem,
+                    onSelectRelatedItem = ::openVideoItem,
                     onSelectStream = ::playVideoStream,
                     onBackToItems = {
                         selectedMovie = null
                         videoStreams = emptyList()
                         message = ""
+                        destination = if (librarySection == WearLibrarySection.ADULT && selectedAdultCategory != null) {
+                            WearDestination.ADULT_CATEGORIES
+                        } else if (librarySection == WearLibrarySection.ADULT) {
+                            WearDestination.ADULT
+                        } else {
+                            catalogReturnDestination
+                        }
+                    },
+                    screenTitle = when (destination) {
+                        WearDestination.POPULAR -> selectedMovieGenre?.label ?: "Popular"
+                        WearDestination.ADULT_TRENDING -> "Trending"
+                        WearDestination.MOVIE_DETAILS -> "Movie details"
+                        WearDestination.ADULT -> "Adult"
+                        else -> "Movies"
+                    },
+                    onOpenMovieGenres = {
+                        selectedMovieGenre = null
+                        videoItems = emptyList()
+                        message = ""
+                        destination = WearDestination.MOVIE_GENRES
+                    },
+                    onOpenPopular = { loadMovieBrowse("popular") },
+                    onOpenContinueWatching = {
+                        loadPhoneCollection("continueWatching", WearDestination.CONTINUE_WATCHING)
+                    },
+                    onOpenAdultCategories = {
+                        selectedAdultCategory = null
+                        videoItems = emptyList()
+                        message = ""
+                        destination = WearDestination.ADULT_CATEGORIES
+                    },
+                    onOpenAdultTrending = {
+                        selectedAdultCategory = "Trending"
+                        loadVideoLibrary(WearLibrarySection.ADULT, "")
+                        destination = WearDestination.ADULT_TRENDING
                     },
                 )
             } else {
             ScalingLazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFF101827))
+                    .background(Color(0xFF08070D))
                     .padding(horizontal = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 item {
                     Text(
                         "StreamCloud",
-                        color = Color(0xFF1BC8E8),
+                        color = Color(0xFFE34DFF),
                         style = MaterialTheme.typography.title3,
                     )
                 }
                 item {
                     WearLibraryNavigation(
                         selectedSection = librarySection,
-                        onSelectSection = { section ->
-                            librarySection = section
-                            if (section != WearLibrarySection.ADULT) adultPin = ""
-                            if (section != WearLibrarySection.MUSIC) {
-                                videoQuery = ""
-                                loadVideoLibrary(section, "")
-                            }
-                        }
+                        onSelectSection = ::selectLibrarySection,
                     )
                 }
                 if (availableUpdate != null) {
@@ -920,6 +1448,30 @@ private fun WearMusicApp() {
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Chip(
                             onClick = { performAction(item) },
+                            icon = {
+                                if (item.artwork.isNotBlank()) {
+                                    AsyncImage(
+                                        model = item.artwork,
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .clip(CircleShape),
+                                        contentScale = ContentScale.Crop,
+                                    )
+                                } else {
+                                    androidx.compose.foundation.Image(
+                                        painter = painterResource(
+                                            if (item.browsable) {
+                                                R.drawable.ic_wear_library
+                                            } else {
+                                                R.drawable.ic_wear_music
+                                            },
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                }
+                            },
                             label = {
                                 Text(
                                     item.title.ifBlank { "Untitled" },
@@ -1060,6 +1612,19 @@ private fun parseVideoItems(
                     source = if (section == WearLibrarySection.ADULT) item.optString("source") else "",
                     pageUrl = item.optString("pageUrl"),
                     directUrl = item.optString("directUrl"),
+                    mediaType = item.optString("mediaType", "movie"),
+                    details = item.optString("details"),
+                    kind = item.optString("kind", "video"),
+                    status = item.optString("status"),
+                    progressPct = if (item.has("progress") && !item.isNull("progress")) {
+                        item.optInt("progress").coerceIn(0, 100)
+                    } else {
+                        null
+                    },
+                    positionMs = item.optLong("positionMs").coerceAtLeast(0L),
+                    durationMs = item.optLong("durationMs").coerceAtLeast(0L),
+                    watchSupported = item.optBoolean("watchSupported", true),
+                    availableOffline = item.optBoolean("availableOffline"),
                 ),
             )
         }
@@ -1113,3 +1678,5 @@ private fun isWatchPlayableTrackId(mediaId: String): Boolean =
 private const val MAX_WATCH_QUEUE_ITEMS = 100
 private const val WATCH_QUEUE_PREVIOUS_TRACKS = 10
 private const val VIDEO_REQUEST_TIMEOUT_MS = 90_000L
+private const val WATCH_MUSIC_HOME_ID = "streamcloud_home"
+private const val WATCH_LIBRARY_ID = "streamcloud_library"

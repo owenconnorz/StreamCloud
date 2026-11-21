@@ -79,7 +79,7 @@ internal fun WearNowPlayingScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF101827)),
+            .background(Color(0xFF08070D)),
     ) {
         Box(
             modifier = Modifier
@@ -87,12 +87,12 @@ internal fun WearNowPlayingScreen(
                 .clip(CircleShape)
                 .background(
                     Brush.radialGradient(
-                        listOf(Color(0xFF395B7B), Color(0xFF101827)),
+                        listOf(Color(0xFF57215F), Color(0xFF170E1C), Color(0xFF08070D)),
                     ),
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Text("♪", color = Color(0xFF9CCCE0), style = MaterialTheme.typography.display1)
+            Text("♪", color = Color(0xFFE34DFF), style = MaterialTheme.typography.display1)
             if (snapshot.artwork.isNotBlank()) {
                 AsyncImage(
                     model = snapshot.artwork,
@@ -109,10 +109,10 @@ internal fun WearNowPlayingScreen(
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xC5101724),
-                            Color(0x33101724),
-                            Color(0xD9101724),
-                            Color(0xF2101724),
+                            Color(0xC508070D),
+                            Color(0x3308070D),
+                            Color(0xD908070D),
+                            Color(0xF208070D),
                         ),
                     ),
                 ),
@@ -421,7 +421,7 @@ private fun WatchSeekBar(
         }
         val progressWidth = size.width * fraction
         drawRoundRect(
-            color = Color(0xFF1BC8E8),
+            color = Color(0xFFE34DFF),
             topLeft = Offset(0f, y),
             size = Size(progressWidth, trackHeight),
             cornerRadius = CornerRadius(trackHeight / 2f),

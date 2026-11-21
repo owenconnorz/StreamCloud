@@ -134,7 +134,8 @@ class WearMusicBridgeService : com.google.android.gms.wearable.WearableListenerS
         val serialized = serializeItems(children, root.mediaId, 0)
         val existingIds = children.mapTo(mutableSetOf()) { it.mediaId }
         listOf(
-            MusicPlaybackService.HOME_ID to "Music home",
+            MusicPlaybackService.HOME_ID to "Music",
+            MusicPlaybackService.LIBRARY_ID to "Your Library",
             MusicPlaybackService.PLAYLISTS_ID to "My playlists",
         ).forEach { (id, label) ->
             if (existingIds.add(id)) {
@@ -376,7 +377,16 @@ class WearMusicBridgeService : com.google.android.gms.wearable.WearableListenerS
     }
 
     private companion object {
-        val VIDEO_OPERATIONS = setOf("movies", "movieStreams", "adultPage", "adultPlay")
+        val VIDEO_OPERATIONS = setOf(
+            "movies",
+            "movieBrowse",
+            "movieDetails",
+            "continueWatching",
+            "downloads",
+            "movieStreams",
+            "adultPage",
+            "adultPlay",
+        )
         const val DEFAULT_PAGE_SIZE = 40
         const val MAX_PAGE_SIZE = 80
         const val QUEUE_PREVIOUS_ITEMS = 10

@@ -5,6 +5,7 @@ import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import com.streamcloud.app.data.ServiceLocator
+import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.api.AdultSource
 import com.streamcloud.app.data.api.AdultWebsiteRepository
 import com.streamcloud.app.data.api.BeegRepository
@@ -17,6 +18,7 @@ import com.streamcloud.app.data.api.XFreeRepository
 import com.streamcloud.app.data.api.XHamsterRepository
 import com.streamcloud.app.data.api.XnxxRepository
 import com.streamcloud.app.data.api.PornMzRepository
+import com.streamcloud.app.data.api.TmdbMovie
 import com.streamcloud.app.data.network.Net
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.plugins.PluginRuntime
@@ -56,6 +58,18 @@ internal object WearVideoBridgeHandler {
                 query = request.optString("query").trim(),
                 page = request.optInt("page", 1).coerceAtLeast(1),
             )
+            "movieBrowse" -> movieBrowse(
+                services = services,
+                category = request.optString("category", "popular"),
+                genreId = request.optInt("genreId").takeIf { it > 0 },
+                page = request.optInt("page", 1).coerceAtLeast(1),
+            )
+            "movieDetails" -> movieDetails(
+                services = services,
+                tmdbId = request.optLong("tmdbId"),
+            )
+            "continueWatching" -> continueWatching(context.applicationContext)
+            "downloads" -> downloads(context.applicationContext)
             "movieStreams" -> movieStreams(
                 context = context.applicationContext,
                 services = services,
@@ -93,23 +107,136 @@ internal object WearVideoBridgeHandler {
         } else {
             services.tmdb.search(services.tmdbApiKey, query, page)
         }
-        val movies = JSONArray()
-        response.results.take(30).forEach { movie ->
-            movies.put(
-                JSONObject()
-                    .put("id", movie.id)
-                    .put("title", movie.displayTitle)
-                    .put("overview", movie.overview.orEmpty())
-                    .put("artwork", movie.posterUrl.orEmpty())
-                    .put("subtitle", listOfNotNull(movie.displayReleaseInfo(), movie.voteAverage.takeIf { it > 0 }?.let { "★ ${"%.1f".format(it)}" }).joinToString(" · "))
-                    .put("year", movie.displayReleaseInfo()?.take(4)?.toIntOrNull() ?: 0),
-            )
-        }
+        val movies = JSONArray(response.results.take(30).map(::serializeMovie))
         return JSONObject()
             .put("ok", true)
             .put("items", movies)
             .put("page", response.page)
             .put("hasMore", response.page < response.totalPages)
+    }
+
+    private suspend fun movieBrowse(
+        services: ServiceLocator,
+        category: String,
+        genreId: Int?,
+        page: Int,
+    ): JSONObject {
+        val response = when (category) {
+            "trending" -> services.tmdb.trending("week", services.tmdbApiKey, page)
+            "top_rated" -> services.tmdb.topRated(services.tmdbApiKey, page)
+            "genre" -> {
+                require(genreId != null) { "Choose a movie genre first." }
+                services.tmdb.discover(
+                    apiKey = services.tmdbApiKey,
+                    withGenres = genreId.toString(),
+                    page = page,
+                )
+            }
+            else -> services.tmdb.popular(services.tmdbApiKey, page)
+        }
+        return JSONObject()
+            .put("ok", true)
+            .put("items", JSONArray(response.results.take(30).map(::serializeMovie)))
+            .put("page", response.page)
+            .put("hasMore", response.page < response.totalPages)
+    }
+
+    private suspend fun movieDetails(
+        services: ServiceLocator,
+        tmdbId: Long,
+    ): JSONObject {
+        require(tmdbId > 0L) { "Choose a movie first." }
+        val details = services.tmdb.details(tmdbId, services.tmdbApiKey)
+        val credits = runCatching {
+            services.tmdb.movieCredits(tmdbId, services.tmdbApiKey)
+        }.getOrNull()
+        val similar = runCatching {
+            services.tmdb.movieSimilar(tmdbId, services.tmdbApiKey, 1)
+        }.getOrNull()
+        val cast = JSONArray(
+            credits?.cast.orEmpty().take(6).map { person ->
+                JSONObject()
+                    .put("name", person.name)
+                    .put("role", person.character.orEmpty())
+                    .put("artwork", person.profileUrl.orEmpty())
+            },
+        )
+        return JSONObject()
+            .put("ok", true)
+            .put("id", details.id)
+            .put("title", details.displayTitle)
+            .put("overview", details.overview.orEmpty())
+            .put("artwork", details.backdropUrl ?: details.posterUrl.orEmpty())
+            .put("poster", details.posterUrl.orEmpty())
+            .put("year", details.displayReleaseInfo()?.take(4)?.toIntOrNull() ?: 0)
+            .put("runtime", details.displayRuntime().orEmpty())
+            .put("rating", details.voteAverage)
+            .put("votes", details.voteCount)
+            .put("genres", JSONArray(details.genres.map { it.name }))
+            .put("director", credits?.crew.orEmpty().firstOrNull { it.job == "Director" }?.name.orEmpty())
+            .put("cast", cast)
+            .put("similar", JSONArray(similar?.results.orEmpty().take(8).map(::serializeMovie)))
+    }
+
+    private suspend fun continueWatching(context: Context): JSONObject {
+        val entries = LibraryDb.get(context).watchProgress().continueWatching().first()
+        val items = JSONArray(entries.map { entry ->
+            val percent = if (entry.durationMs > 0L) {
+                ((entry.positionMs.toDouble() / entry.durationMs) * 100).toInt().coerceIn(0, 100)
+            } else {
+                null
+            }
+            val episodeLabel = if (entry.seasonNumber > 0 && entry.episodeNumber > 0) {
+                "S${entry.seasonNumber} E${entry.episodeNumber}"
+            } else {
+                "Movie"
+            }
+            JSONObject()
+                .put("id", entry.tmdbId)
+                .put("title", entry.title)
+                .put("artwork", entry.posterUrl.orEmpty())
+                .put("mediaType", entry.mediaType)
+                .put("seasonNumber", entry.seasonNumber)
+                .put("episodeNumber", entry.episodeNumber)
+                .put("positionMs", entry.positionMs)
+                .put("durationMs", entry.durationMs)
+                .put("progress", percent ?: JSONObject.NULL)
+                .put("subtitle", listOfNotNull(episodeLabel, percent?.let { "$it% watched" }).joinToString(" · "))
+                .put("watchSupported", entry.mediaType == "movie" && entry.sourceRoute.isNullOrBlank())
+        })
+        return JSONObject().put("ok", true).put("items", items)
+    }
+
+    private suspend fun downloads(context: Context): JSONObject {
+        val db = LibraryDb.get(context)
+        val movieItems = db.movieDownloads().latestForWear().map { download ->
+            JSONObject()
+                .put("id", download.tmdbId)
+                .put("title", download.title)
+                .put("artwork", download.posterUrl.orEmpty())
+                .put("mediaType", download.mediaType)
+                .put("kind", "video")
+                .put("status", download.status)
+                .put("progress", (download.progress * 100).toInt().coerceIn(0, 100))
+                .put("sizeBytes", download.sizeBytes)
+                .put("subtitle", "${download.status.replaceFirstChar { it.uppercase() }} · ${download.sizeBytes.formatBytes()}")
+                .put("availableOffline", download.status == "done" && !download.filePath.isNullOrBlank())
+        }
+        val musicItems = db.tracks().downloadedForWear().map { track ->
+            JSONObject()
+                .put("id", "${track.title}:${track.artist}".hashCode().toString())
+                .put("title", track.title)
+                .put("artist", track.artist)
+                .put("artwork", track.thumbnail.orEmpty())
+                .put("kind", "music")
+                .put("status", "downloaded")
+                .put("subtitle", listOf(track.artist, "Available offline on phone").filter(String::isNotBlank).joinToString(" · "))
+                .put("availableOffline", true)
+        }
+        return JSONObject()
+            .put("ok", true)
+            .put("items", JSONArray(movieItems + musicItems))
+            .put("phoneOnly", true)
     }
 
     private suspend fun movieStreams(
@@ -285,6 +412,22 @@ internal object WearVideoBridgeHandler {
         }.awaitAll().flatten()
     }
 
+    private fun serializeMovie(movie: TmdbMovie): JSONObject =
+        JSONObject()
+            .put("id", movie.id)
+            .put("title", movie.displayTitle)
+            .put("overview", movie.overview.orEmpty())
+            .put("artwork", movie.backdropUrl ?: movie.posterUrl.orEmpty())
+            .put("poster", movie.posterUrl.orEmpty())
+            .put("subtitle", listOfNotNull(
+                movie.displayReleaseInfo(),
+                movie.voteAverage.takeIf { it > 0 }?.let { "★ ${"%.1f".format(it)}" },
+            ).joinToString(" · "))
+            .put("year", movie.displayReleaseInfo()?.take(4)?.toIntOrNull() ?: 0)
+            .put("rating", movie.voteAverage)
+            .put("votes", movie.voteCount)
+            .put("mediaType", "movie")
+
     private suspend fun adultPage(
         services: ServiceLocator,
         query: String,
@@ -439,6 +582,12 @@ internal object WearVideoBridgeHandler {
         var difference = 0
         first.indices.forEach { difference = difference or (first[it].code xor second[it].code) }
         return difference == 0
+    }
+
+    private fun Long.formatBytes(): String = when {
+        this >= 1024L * 1024L -> "${"%.1f".format(this / (1024f * 1024f))} MB"
+        this >= 1024L -> "${(this / 1024L).coerceAtLeast(1L)} KB"
+        else -> "$this B"
     }
 
     private fun StremioStream.toWearStream(providerName: String): JSONObject? {

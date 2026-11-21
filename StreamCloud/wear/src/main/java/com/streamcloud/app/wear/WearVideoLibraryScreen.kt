@@ -1,20 +1,29 @@
 package com.streamcloud.app.wear
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -25,6 +34,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import androidx.wear.compose.material.Chip
+import androidx.wear.compose.material.CompactButton
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.ScalingLazyColumn
 import androidx.wear.compose.material.Text
@@ -37,15 +47,17 @@ import kotlinx.coroutines.flow.collect
 
 internal enum class WearLibrarySection(val label: String) {
     MUSIC("Music"),
+    LIBRARY("Library"),
     MOVIES("Movies"),
     ADULT("Adult"),
 }
 
-private val WearLibrarySection.iconLabel: String
+private val WearLibrarySection.iconResource: Int?
     get() = when (this) {
-        WearLibrarySection.MUSIC -> "♫"
-        WearLibrarySection.MOVIES -> "▶"
-        WearLibrarySection.ADULT -> "18+"
+        WearLibrarySection.MUSIC -> R.drawable.ic_wear_music
+        WearLibrarySection.LIBRARY -> R.drawable.ic_wear_library
+        WearLibrarySection.MOVIES -> R.drawable.ic_wear_movies
+        WearLibrarySection.ADULT -> null
     }
 
 @Composable
@@ -54,26 +66,37 @@ internal fun WearLibraryNavigation(
     onSelectSection: (WearLibrarySection) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         WearLibrarySection.entries.forEach { section ->
             Chip(
                 onClick = { onSelectSection(section) },
                 label = {
                     Text(
-                        section.iconLabel,
-                        color = if (section == selectedSection) Color(0xFF1BC8E8) else Color.White,
-                        style = if (section == WearLibrarySection.ADULT) {
-                            MaterialTheme.typography.caption2
-                        } else {
-                            MaterialTheme.typography.title3
-                        },
+                        section.label,
+                        color = if (section == selectedSection) Color(0xFFE34DFF) else Color.White,
+                        style = MaterialTheme.typography.caption2,
                         maxLines = 1,
                     )
                 },
+                icon = {
+                    val icon = section.iconResource
+                    if (icon != null) {
+                        androidx.compose.foundation.Image(
+                            painter = painterResource(icon),
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    } else {
+                        Text("18+", style = MaterialTheme.typography.caption2)
+                    }
+                },
                 modifier = Modifier
-                    .weight(1f)
+                    .widthIn(min = 68.dp)
                     .semantics {
                         contentDescription = section.label
                         selected = section == selectedSection
@@ -93,6 +116,15 @@ internal data class WearVideoItem(
     val source: String = "",
     val pageUrl: String = "",
     val directUrl: String = "",
+    val mediaType: String = "movie",
+    val details: String = "",
+    val kind: String = "video",
+    val status: String = "",
+    val progressPct: Int? = null,
+    val positionMs: Long = 0L,
+    val durationMs: Long = 0L,
+    val watchSupported: Boolean = true,
+    val availableOffline: Boolean = false,
 )
 
 internal data class WearVideoStream(
@@ -110,6 +142,7 @@ internal fun WearVideoLibraryScreen(
     items: List<WearVideoItem>,
     selectedMovie: WearVideoItem?,
     streams: List<WearVideoStream>,
+    relatedItems: List<WearVideoItem> = emptyList(),
     query: String,
     adultPin: String,
     loading: Boolean,
@@ -123,6 +156,13 @@ internal fun WearVideoLibraryScreen(
     onSelectItem: (WearVideoItem) -> Unit,
     onSelectStream: (WearVideoStream) -> Unit,
     onBackToItems: () -> Unit,
+    onSelectRelatedItem: (WearVideoItem) -> Unit = {},
+    screenTitle: String? = null,
+    onOpenMovieGenres: () -> Unit = {},
+    onOpenPopular: () -> Unit = {},
+    onOpenContinueWatching: () -> Unit = {},
+    onOpenAdultCategories: () -> Unit = {},
+    onOpenAdultTrending: () -> Unit = {},
 ) {
     val listState = rememberScalingLazyListState()
 
@@ -144,55 +184,77 @@ internal fun WearVideoLibraryScreen(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF101827))
+            .background(Color(0xFF08070D))
             .padding(horizontal = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         item {
             Text(
-                section.label,
-                color = Color(0xFF1BC8E8),
+                screenTitle ?: section.label,
+                color = Color(0xFFE34DFF),
                 style = MaterialTheme.typography.title3,
             )
         }
-        item { WearLibraryNavigation(section, onSelectSection) }
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF1A2638), RoundedCornerShape(24.dp))
-                    .padding(horizontal = 14.dp, vertical = 9.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                Text(
-                    if (section == WearLibrarySection.ADULT) "Search adult videos" else "Search movies",
-                    color = Color(0xFFDCE8F4),
-                    style = MaterialTheme.typography.caption2,
-                )
-                BasicTextField(
-                    value = query,
-                    onValueChange = onQueryChange,
-                    singleLine = true,
-                    textStyle = TextStyle(
-                        color = Color.White,
-                        fontSize = MaterialTheme.typography.body2.fontSize,
-                    ),
-                    decorationBox = { innerTextField ->
-                        if (query.isBlank()) {
-                            Text("Type a title", color = Color(0xFF97A9BE), maxLines = 1)
-                        }
-                        innerTextField()
-                    },
+        if (selectedMovie == null) {
+            item { WearLibraryNavigation(section, onSelectSection) }
+        }
+        if (selectedMovie == null) {
+            item {
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                )
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (section == WearLibrarySection.MOVIES) {
+                        WearBrowseShortcut("⌁", "Genres", onOpenMovieGenres)
+                        WearBrowseShortcut("P", "Popular", onOpenPopular)
+                        WearBrowseShortcut("▶", "Continue", onOpenContinueWatching)
+                    } else {
+                        WearBrowseShortcut("♡", "Categories", onOpenAdultCategories)
+                        WearBrowseShortcut("↗", "Trending", onOpenAdultTrending)
+                    }
+                }
             }
         }
-        if (section == WearLibrarySection.ADULT) {
+        if (selectedMovie == null) {
             item {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF1A2638), RoundedCornerShape(24.dp))
+                        .background(Color(0xFF18121F), RoundedCornerShape(24.dp))
+                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Text(
+                        if (section == WearLibrarySection.ADULT) "Search adult videos" else "Search movies",
+                        color = Color(0xFFDCE8F4),
+                        style = MaterialTheme.typography.caption2,
+                    )
+                    BasicTextField(
+                        value = query,
+                        onValueChange = onQueryChange,
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            color = Color.White,
+                            fontSize = MaterialTheme.typography.body2.fontSize,
+                        ),
+                        decorationBox = { innerTextField ->
+                            if (query.isBlank()) {
+                                Text("Type a title", color = Color(0xFF97A9BE), maxLines = 1)
+                            }
+                            innerTextField()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+        if (section == WearLibrarySection.ADULT && selectedMovie == null) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF18121F), RoundedCornerShape(24.dp))
                         .padding(horizontal = 14.dp, vertical = 9.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
@@ -217,28 +279,73 @@ internal fun WearVideoLibraryScreen(
                 }
             }
         }
-        item {
-            Chip(
-                onClick = onSearch,
-                label = { Text("Browse / search") },
-                modifier = Modifier.fillMaxWidth(),
-            )
+        if (selectedMovie == null) {
+            item {
+                Chip(
+                    onClick = onSearch,
+                    label = { Text("Browse / search") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
         if (selectedMovie != null) {
             item {
-                Text(
-                    selectedMovie.title,
-                    color = Color.White,
-                    style = MaterialTheme.typography.title3,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(122.dp)
+                        .clip(RoundedCornerShape(24.dp)),
+                ) {
+                    if (selectedMovie.artwork.isNotBlank()) {
+                        AsyncImage(
+                            model = selectedMovie.artwork,
+                            contentDescription = "${selectedMovie.title} artwork",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                        )
+                    } else {
+                        Box(Modifier.fillMaxSize().background(Color(0xFF291432)))
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE808070D)))),
+                    )
+                    Text(
+                        selectedMovie.title,
+                        color = Color.White,
+                        style = MaterialTheme.typography.title3,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 12.dp, vertical = 10.dp),
+                    )
+                }
+            }
+            if (selectedMovie.subtitle.isNotBlank()) {
+                item {
+                    Text(
+                        selectedMovie.subtitle,
+                        color = Color(0xFFEBDCF0),
+                        style = MaterialTheme.typography.caption2,
+                    )
+                }
             }
             if (selectedMovie.overview.isNotBlank()) {
                 item {
                     Text(
                         selectedMovie.overview,
                         color = Color(0xFFDCE8F4),
+                        style = MaterialTheme.typography.caption2,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (selectedMovie.details.isNotBlank()) {
+                item {
+                    Text(
+                        selectedMovie.details,
+                        color = Color(0xFFD7C8DF),
                         style = MaterialTheme.typography.caption2,
                         maxLines = 4,
                         overflow = TextOverflow.Ellipsis,
@@ -289,6 +396,14 @@ internal fun WearVideoLibraryScreen(
                         },
                         modifier = Modifier.fillMaxWidth(),
                     )
+                }
+            }
+            if (relatedItems.isNotEmpty()) {
+                item { Text("Similar movies", color = Color.White, style = MaterialTheme.typography.title3) }
+                relatedItems.forEach { related ->
+                    item {
+                        WearVideoChip(related, onClick = { onSelectRelatedItem(related) })
+                    }
                 }
             }
         } else {
@@ -346,5 +461,25 @@ internal fun WearVideoLibraryScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun WearBrowseShortcut(
+    glyph: String,
+    label: String,
+    onClick: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(1.dp),
+    ) {
+        CompactButton(
+            onClick = onClick,
+            modifier = Modifier.semantics { contentDescription = label },
+        ) {
+            WearLineIcon(glyph, tint = Color(0xFFFF70D1), size = 18.dp)
+        }
+        Text(label, color = Color(0xFFDCC7E3), style = MaterialTheme.typography.caption2, maxLines = 1)
     }
 }
