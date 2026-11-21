@@ -286,6 +286,8 @@ android {
             excludes += "META-INF/NOTICE*"
             // jackson-core and PipePipe's fastdoubleparser both package this text resource.
             excludes += "META-INF/thirdparty-LICENSE"
+            // Bouncy Castle and JSpecify both ship this non-runtime OSGi manifest.
+            excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
         }
         jniLibs {
             useLegacyPackaging = true
