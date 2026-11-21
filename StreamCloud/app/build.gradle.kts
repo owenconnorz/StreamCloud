@@ -27,7 +27,7 @@ val tvAbiFilters = requestedTvAbi?.let { abi ->
 } ?: supportedTvAbis
 
 // Nuvio Engine's release AAR is built with Kotlin 2.3, but this app must stay on
-// Kotlin 2.0.21 for Room/KAPT and compileSdk 34 compatibility. Compile its pinned
+// Kotlin 2.0.21 for Room/KAPT compatibility. Compile its pinned
 // Kotlin wrapper sources with the app toolchain and extract only native libraries.
 val nuvioEngineVersion = "0.1.6"
 val nuvioEngineCommit = "167f8541d2e07212a9cf7034b9ca4a0c3b6be4d3"
@@ -171,7 +171,7 @@ val prepareNuvioEngine = tasks.register("prepareNuvioEngine") {
 
 android {
     namespace = "com.streamcloud.app"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.streamcloud.app"
@@ -311,7 +311,7 @@ tasks.configureEach {
 // what this project's compileSdk / toolchain supports.
 //
 // haze 1.5.4 (via org.jetbrains.compose) pulls in:
-//   - androidx.activity 1.10.x  → requires compileSdk 35 (we use 34)
+//   - androidx.activity 1.10.x  → requires compileSdk 35 (now supported)
 //   - kotlin-stdlib    2.1.0    → compiler emits metadata 2.1.0; Room kapt
 //                                  (kotlinx-metadata-jvm bundled in Room) caps
 //                                  at 2.0.0 and crashes. Kotlin compiler plugin
@@ -348,11 +348,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
 
-    // Compose BOM — 2024.09.03 ships Runtime 1.7.x which is required by the
-    // Kotlin 2.0 Compose Compiler Plugin (kotlin.plugin.compose). Runtime 1.6.x
-    // (shipped by 2024.06.00) is missing Composer APIs the new compiler generates
-    // calls to, causing AbstractMethodError / NoSuchMethodError on first composable.
-    implementation(platform("androidx.compose:compose-bom:2024.09.03"))
+    // Compose 1.8.x is compatible with the Kotlin 2.0 Compose compiler and Wear Compose 1.5.
+    implementation(platform("androidx.compose:compose-bom:2025.05.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
@@ -383,17 +380,17 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
     // Media3 ExoPlayer (audio + video)
-    implementation("androidx.media3:media3-exoplayer:1.4.1")
-    implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
-    implementation("androidx.media3:media3-exoplayer-dash:1.4.1")
-    implementation("androidx.media3:media3-ui:1.4.1")
-    implementation("androidx.media3:media3-session:1.4.1")
-    implementation("androidx.media3:media3-common:1.4.1")
+    implementation("androidx.media3:media3-exoplayer:1.9.2")
+    implementation("androidx.media3:media3-exoplayer-hls:1.9.2")
+    implementation("androidx.media3:media3-exoplayer-dash:1.9.2")
+    implementation("androidx.media3:media3-ui:1.9.2")
+    implementation("androidx.media3:media3-session:1.9.2")
+    implementation("androidx.media3:media3-common:1.9.2")
     implementation("com.google.android.gms:play-services-wearable:18.2.0")
     // OkHttp-backed data source for Media3 — replaces DefaultHttpDataSource in the
     // download pipeline so downloads get HTTP/2, connection pooling, and socket-level
     // buffer tuning instead of bare HttpURLConnection.
-    implementation("androidx.media3:media3-datasource-okhttp:1.4.1")
+    implementation("androidx.media3:media3-datasource-okhttp:1.9.2")
 
     // Nuvio Engine's pinned wrapper sources and verified ABI libraries are
     // prepared by prepareNuvioEngine; the upstream Kotlin 2.3 AAR classes are not linked.
