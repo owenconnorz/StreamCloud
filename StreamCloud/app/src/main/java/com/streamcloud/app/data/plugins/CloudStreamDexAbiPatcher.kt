@@ -1,5 +1,6 @@
 package com.streamcloud.app.data.plugins
 
+import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
 import java.util.zip.Adler32
 
@@ -20,7 +21,9 @@ internal object CloudStreamDexAbiPatcher {
     private const val PROTO_IDS_OFFSET_OFFSET = 76
     private const val METHOD_IDS_SIZE_OFFSET = 88
     private const val METHOD_IDS_OFFSET_OFFSET = 92
+    private const val MAP_OFFSET_OFFSET = 52
 
+    private const val STRING_DATA_ITEM_TYPE = 0x2002
     private const val BUILDERS_CLASS = "Lkotlinx/coroutines/BuildersKt;"
     private const val COROUTINE_CONTEXT = "Lkotlin/coroutines/CoroutineContext;"
     private const val FUNCTION_2 = "Lkotlin/jvm/functions/Function2;"
@@ -36,6 +39,7 @@ internal object CloudStreamDexAbiPatcher {
         val lengthOffset: Int,
         val utf16Length: Int,
         val dataOffset: Int,
+        val endOffset: Int,
     )
 
     private data class Prototype(
@@ -165,48 +169,12 @@ internal object CloudStreamDexAbiPatcher {
             }
         }
 
-        val output = input.copyOf()
-        replacements.forEach { (index, replacement) ->
-            val original = dexString(index)
-            require(original.value.length == original.utf16Length) {
-                "Coroutine alias is not an ASCII DEX string"
-            }
-            require(replacement.length == original.utf16Length - 1 &&
-                replacement == original.value.replace("runBlockingK", "runBlocking")
-            ) {
-                "Unexpected coroutine alias encoding"
-            }
-            val removedCharacterIndex = "runBlocking".length
-            require(original.value.getOrNull(removedCharacterIndex) == 'K' &&
-                original.value.removeRange(removedCharacterIndex, removedCharacterIndex + 1) == replacement
-            ) {
-                "Coroutine alias does not have the expected K suffix"
-            }
-            for (charIndex in original.value.indices) {
-                require(
-                    (input[original.dataOffset + charIndex].toInt() and 0xff) ==
-                        original.value[charIndex].code,
-                ) {
-                    "Coroutine alias is not encoded as plain ASCII"
-                }
-            }
-            require(input[original.dataOffset + original.utf16Length].toInt() == 0) {
-                "Coroutine alias string is not null-terminated"
-            }
-            require(original.utf16Length < 0x80 && replacement.length < 0x80) {
-                "Coroutine alias length is not a one-byte ULEB128 value"
-            }
-
-            output[original.lengthOffset] = replacement.length.toByte()
-            for (targetIndex in removedCharacterIndex until replacement.length) {
-                output[original.dataOffset + targetIndex] =
-                    input[original.dataOffset + targetIndex + 1]
-            }
-            // Leave the old terminator in place. It becomes an unused zero byte after the new
-            // terminator, so no DEX offsets or section sizes need to move.
-            output[original.dataOffset + replacement.length] = 0
-        }
-
+        val output = rebuildStringData(
+            input = input,
+            stringIdsOffset = stringsOffset,
+            strings = (0 until stringsSize).map { it to dexString(it) },
+            replacements = replacements,
+        )
         updateIntegrity(output)
         return PatchResult(output, replacements.size)
     }
@@ -219,6 +187,135 @@ internal object CloudStreamDexAbiPatcher {
         requireTable(dex, stringsOffset, stringsSize, 4, "string_ids")
         require(stringIndex in 0 until stringsSize)
         return readString(dex, stringsOffset, stringIndex).value
+    }
+
+    private data class DataRegion(val start: Int, val end: Int)
+
+    private fun rebuildStringData(
+        input: ByteArray,
+        stringIdsOffset: Int,
+        strings: List<Pair<Int, DexString>>,
+        replacements: Map<Int, String>,
+    ): ByteArray {
+        val region = findStringDataRegion(input, strings)
+        val orderedStrings = strings.sortedBy { it.second.lengthOffset }
+        var originalCursor = region.start
+        orderedStrings.forEach { (_, item) ->
+            require(item.lengthOffset == originalCursor) {
+                "DEX string_data items are not contiguous; refusing to rewrite the archive"
+            }
+            originalCursor = item.endOffset
+        }
+        require(originalCursor <= region.end) {
+            "DEX string_data items extend beyond their mapped section"
+        }
+
+        val rewrittenData = ByteArrayOutputStream()
+        val newStringOffsets = IntArray(strings.size)
+        orderedStrings.forEach { (stringIndex, item) ->
+            newStringOffsets[stringIndex] = region.start + rewrittenData.size()
+            val replacement = replacements[stringIndex]
+            if (replacement == null) {
+                rewrittenData.write(
+                    input,
+                    item.lengthOffset,
+                    item.endOffset - item.lengthOffset,
+                )
+            } else {
+                require(item.value.length == item.utf16Length) {
+                    "Coroutine alias is not an ASCII DEX string"
+                }
+                val removedCharacterIndex = "runBlocking".length
+                require(
+                    item.value.getOrNull(removedCharacterIndex) == 'K' &&
+                        item.value.removeRange(removedCharacterIndex, removedCharacterIndex + 1) == replacement,
+                ) {
+                    "Coroutine alias does not have the expected K suffix"
+                }
+                require(replacement.length == item.utf16Length - 1) {
+                    "Unexpected coroutine alias length"
+                }
+                for (charIndex in item.value.indices) {
+                    require(
+                        (input[item.dataOffset + charIndex].toInt() and 0xff) ==
+                            item.value[charIndex].code,
+                    ) {
+                        "Coroutine alias is not encoded as plain ASCII"
+                    }
+                }
+                require(input[item.dataOffset + item.utf16Length].toInt() == 0) {
+                    "Coroutine alias string is not null-terminated"
+                }
+                rewrittenData.writeUleb128(replacement.length)
+                rewrittenData.write(replacement.toByteArray(Charsets.US_ASCII))
+                rewrittenData.write(0)
+            }
+        }
+
+        val newEnd = region.start.toLong() + rewrittenData.size()
+        require(newEnd <= region.end) { "Rewritten DEX strings exceed their mapped section" }
+        val output = input.copyOf()
+        for (offset in region.start until region.end) output[offset] = 0
+        rewrittenData.toByteArray().copyInto(output, region.start)
+        newStringOffsets.forEachIndexed { index, offset ->
+            writeIntAt(output, stringIdsOffset + index * 4, offset)
+        }
+        return output
+    }
+
+    private fun findStringDataRegion(
+        dex: ByteArray,
+        strings: List<Pair<Int, DexString>>,
+    ): DataRegion {
+        val mapOffset = intAt(dex, MAP_OFFSET_OFFSET)
+        require(mapOffset >= DEX_HEADER_SIZE && mapOffset.toLong() + 4L <= dex.size) {
+            "DEX map list is missing; refusing to rewrite coroutine aliases"
+        }
+        val mapSize = intAt(dex, mapOffset)
+        require(mapSize > 0 && mapOffset.toLong() + 4L + mapSize.toLong() * 12L <= dex.size) {
+            "DEX map list is out of range"
+        }
+
+        data class MapItem(val type: Int, val size: Int, val offset: Int)
+        val mapItems = List(mapSize) { index ->
+            val offset = mapOffset + 4 + index * 12
+            MapItem(
+                type = ushortAt(dex, offset),
+                size = intAt(dex, offset + 4),
+                offset = intAt(dex, offset + 8),
+            )
+        }
+        val stringDataItem = mapItems.singleOrNull { it.type == STRING_DATA_ITEM_TYPE }
+            ?: error("DEX map list has no unique string_data section")
+        require(stringDataItem.size == strings.size) {
+            "DEX string_data count does not match the string identifier table"
+        }
+        val nextSectionOffset = mapItems
+            .asSequence()
+            .map { it.offset }
+            .filter { it > stringDataItem.offset }
+            .minOrNull() ?: dex.size
+        val firstStringOffset = strings.minOfOrNull { it.second.lengthOffset }
+        require(firstStringOffset == stringDataItem.offset) {
+            "DEX string_data map offset does not match its first item"
+        }
+        require(nextSectionOffset >= stringDataItem.offset) {
+            "DEX string_data section has an invalid boundary"
+        }
+        require(nextSectionOffset <= dex.size) {
+            "DEX string_data section extends beyond the file"
+        }
+        return DataRegion(stringDataItem.offset, nextSectionOffset)
+    }
+
+    private fun ByteArrayOutputStream.writeUleb128(value: Int) {
+        var remaining = value
+        while (true) {
+            val next = remaining and 0x7f
+            remaining = remaining ushr 7
+            write(if (remaining == 0) next else next or 0x80)
+            if (remaining == 0) return
+        }
     }
 
     private fun validateHeader(dex: ByteArray) {
@@ -288,7 +385,7 @@ internal object CloudStreamDexAbiPatcher {
         require(offset < bytes.size && bytes[offset].toInt() == 0) {
             "DEX string is missing its terminator"
         }
-        return DexString(value.toString(), dataOffset, utf16Length, contentOffset)
+        return DexString(value.toString(), dataOffset, utf16Length, contentOffset, offset + 1)
     }
 
     private fun readUleb128(bytes: ByteArray, startOffset: Int): Pair<Int, Int> {
@@ -321,6 +418,14 @@ internal object CloudStreamDexAbiPatcher {
         require(offset >= 0 && offset.toLong() + 2 <= bytes.size) { "DEX short is out of range" }
         return (bytes[offset].toInt() and 0xff) or
             ((bytes[offset + 1].toInt() and 0xff) shl 8)
+    }
+
+    private fun writeIntAt(bytes: ByteArray, offset: Int, value: Int) {
+        require(offset >= 0 && offset.toLong() + 4 <= bytes.size) { "DEX integer write is out of range" }
+        bytes[offset] = value.toByte()
+        bytes[offset + 1] = (value ushr 8).toByte()
+        bytes[offset + 2] = (value ushr 16).toByte()
+        bytes[offset + 3] = (value ushr 24).toByte()
     }
 
     private fun updateIntegrity(dex: ByteArray) {

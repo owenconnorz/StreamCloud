@@ -6,6 +6,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
 import java.util.zip.Adler32
+import java.util.zip.CRC32
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
@@ -47,6 +48,10 @@ class CloudStreamDexAbiPatcherTest {
             "runBlocking\$default",
             CloudStreamDexAbiPatcher.readStringForTest(result.dex, fixture.stringIds.getValue("runBlockingK\$default")),
         )
+        fixture.stringIds.forEach { (name, index) ->
+            val expected = name.replace("runBlockingK", "runBlocking")
+            assertEquals(expected, CloudStreamDexAbiPatcher.readStringForTest(result.dex, index))
+        }
         assertDexIntegrityIsValid(result.dex)
     }
 
@@ -67,7 +72,13 @@ class CloudStreamDexAbiPatcherTest {
         val output = File.createTempFile("cloudstream-plugin-output-", ".cs3")
         try {
             ZipOutputStream(source.outputStream().buffered()).use { zip ->
-                zip.putNextEntry(ZipEntry("classes.dex"))
+                val dexEntry = ZipEntry("classes.dex").apply {
+                    method = ZipEntry.STORED
+                    size = fixture.bytes.size.toLong()
+                    compressedSize = size
+                    crc = CRC32().apply { update(fixture.bytes) }.value
+                }
+                zip.putNextEntry(dexEntry)
                 zip.write(fixture.bytes)
                 zip.closeEntry()
                 zip.putNextEntry(ZipEntry("manifest.json"))
@@ -80,6 +91,7 @@ class CloudStreamDexAbiPatcherTest {
             assertEquals(1, result.rewrittenDexFiles)
             assertEquals(2, result.rewrittenMethodReferences)
             ZipFile(output).use { zip ->
+                assertEquals(ZipEntry.STORED, zip.getEntry("classes.dex").method)
                 val rewrittenDex = zip.getInputStream(zip.getEntry("classes.dex")).use { it.readBytes() }
                 assertEquals(
                     "runBlocking",
@@ -140,12 +152,33 @@ class CloudStreamDexAbiPatcherTest {
 
         val directParametersOffset = appendTypeList(directParameters)
         val defaultParametersOffset = appendTypeList(defaultParameters)
+        val stringDataStart = dataOffset + data.size()
         val stringDataOffsets = IntArray(allStrings.size)
         allStrings.forEachIndexed { index, value ->
             stringDataOffsets[index] = dataOffset + data.size()
             data.writeUleb128(value.length)
             data.write(value.toByteArray(Charsets.US_ASCII))
             data.write(0)
+        }
+        while ((dataOffset + data.size()) % 4 != 0) data.write(0)
+        val mapOffset = dataOffset + data.size()
+        data class MapEntry(val type: Int, val size: Int, val offset: Int)
+        val mapEntries = listOf(
+            MapEntry(0x0000, 1, 0),
+            MapEntry(0x0001, allStrings.size, stringIdsOffset),
+            MapEntry(0x0002, typeNames.size, typeIdsOffset),
+            MapEntry(0x0003, 2, protoIdsOffset),
+            MapEntry(0x0005, 2, methodIdsOffset),
+            MapEntry(0x1001, 2, dataOffset),
+            MapEntry(0x2002, allStrings.size, stringDataStart),
+            MapEntry(0x1000, 1, mapOffset),
+        ).sortedBy { it.offset }
+        data.writeLittleEndianInt(mapEntries.size)
+        mapEntries.forEach { entry ->
+            data.writeLittleEndianShort(entry.type)
+            data.writeLittleEndianShort(0)
+            data.writeLittleEndianInt(entry.size)
+            data.writeLittleEndianInt(entry.offset)
         }
 
         val fileSize = dataOffset + data.size()
@@ -155,6 +188,7 @@ class CloudStreamDexAbiPatcherTest {
         buffer.putInt(32, fileSize)
         buffer.putInt(36, 112)
         buffer.putInt(40, 0x12345678)
+        buffer.putInt(52, mapOffset)
         buffer.putInt(56, allStrings.size)
         buffer.putInt(60, stringIdsOffset)
         buffer.putInt(64, typeNames.size)

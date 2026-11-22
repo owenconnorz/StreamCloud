@@ -139,6 +139,7 @@ object PluginRuntime {
                 if (primary.isSuccess) {
                     primary.getOrThrow()
                 } else {
+                    val primaryFailure = primary.exceptionOrNull()
                     val fallbackLoader = DexClassLoader(
                         readOnlyFile.absolutePath,
                         optimizedDir.absolutePath,
@@ -147,8 +148,9 @@ object PluginRuntime {
                     )
                     runCatching { fallbackLoader.loadClass(pluginClassName) }.getOrElse { e ->
                         error("Found plugin class `$pluginClassName` but failed to load it " +
-                            "(tried primary + fallback classloaders): " +
-                            "${e::class.simpleName}: ${e.message}")
+                            "(tried primary + fallback classloaders). " +
+                            "Primary: ${primaryFailure?.javaClass?.simpleName}: ${primaryFailure?.message}. " +
+                            "Fallback: ${e::class.simpleName}: ${e.message}")
                     }
                 }
             }
