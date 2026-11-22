@@ -25,6 +25,7 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipFile
@@ -62,18 +63,57 @@ object PluginRuntime {
 
             val readOnlyDir = File(context.codeCacheDir, "plugins-ro").apply { mkdirs() }
             val readOnlyFile = File(readOnlyDir, src.name)
-            if (!readOnlyFile.exists() ||
-                readOnlyFile.length() != src.length() ||
-                readOnlyFile.lastModified() < src.lastModified()
-            ) {
-                src.copyTo(readOnlyFile, overwrite = true)
+            val sourceFingerprint = sha256File(src)
+            val fingerprintMarker = File(
+                readOnlyDir,
+                "${sha256String(src.absolutePath).take(24)}.source-sha256",
+            )
+            synchronized(readOnlyFile.absolutePath.intern()) {
+                val preparedFingerprint = runCatching {
+                    fingerprintMarker.takeIf { it.isFile }?.readText(Charsets.UTF_8)
+                }.getOrNull()
+                if (!readOnlyFile.exists() || preparedFingerprint != sourceFingerprint) {
+                    val extension = src.extension.ifBlank { "cs3" }
+                    val temporaryFile = File.createTempFile(
+                        "plugin-runtime-",
+                        ".$extension",
+                        readOnlyDir,
+                    )
+                    try {
+                        val preparation = CloudStreamPluginArchivePreparer.prepare(src, temporaryFile)
+                        if (readOnlyFile.exists()) {
+                            readOnlyFile.setWritable(true, true)
+                            check(readOnlyFile.delete()) {
+                                "Could not replace the cached plugin archive"
+                            }
+                        }
+                        if (!temporaryFile.renameTo(readOnlyFile)) {
+                            temporaryFile.copyTo(readOnlyFile, overwrite = true)
+                            temporaryFile.delete()
+                        }
+                        fingerprintMarker.writeText(sourceFingerprint, Charsets.UTF_8)
+                        if (preparation.rewrittenMethodReferences > 0) {
+                            android.util.Log.i(
+                                "PluginRuntime",
+                                "Applied ${preparation.rewrittenMethodReferences} coroutine ABI " +
+                                    "rewrite(s) to ${src.name}",
+                            )
+                        }
+                    } finally {
+                        temporaryFile.delete()
+                    }
+                }
             }
-
 
             @Suppress("ResultOfMethodCallIgnored")
             readOnlyFile.setReadOnly()
 
-            val optimizedDir = context.getDir("plugins-opt", android.content.Context.MODE_PRIVATE)
+            // Use a fingerprint-specific optimization path so a previously failed load cannot
+            // reuse stale optimized DEX from the unpatched plugin archive.
+            val optimizedDir = context.getDir(
+                "plugins-opt-${sourceFingerprint.take(24)}",
+                android.content.Context.MODE_PRIVATE,
+            )
             // Primary parent: the classloader that loaded our Plugin class.
             // Fallback: the app's full PathClassLoader (helps with NoClassDefFoundError on some
             // plugins that reference classes not visible through the narrower Plugin classloader).
@@ -307,7 +347,13 @@ object PluginRuntime {
         val kind = e::class.simpleName ?: "Error"
         val raw = e.message ?: "(no message)"
         val pluginName = java.io.File(filePath).name.removeSuffix(".cs3").removeSuffix(".jar")
+        val isCoroutineAbiMismatch = raw.contains("runBlockingK")
         return when {
+            isCoroutineAbiMismatch ->
+                "Plugin '$pluginName' uses a different coroutine builder name than this app exports — " +
+                    "$kind: $raw\n" +
+                    "Hint: StreamCloud attempts a narrowly scoped DEX compatibility rewrite for this " +
+                    "method. Reinstall the extension or check for an updated plugin if this error remains."
             e is NoSuchMethodError || e is NoClassDefFoundError -> {
                 val isParCollections = raw.contains("ParCollectionsKt") ||
                     raw.contains("amap") || raw.contains("apmap")
@@ -331,6 +377,33 @@ object PluginRuntime {
                 }
             }
             else -> "Plugin '$pluginName' load failed — $kind: $raw"
+        }
+    }
+
+    private fun sha256File(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().toHexString()
+    }
+
+    private fun sha256String(value: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .toHexString()
+
+    private fun ByteArray.toHexString(): String = buildString(size * 2) {
+        val alphabet = "0123456789abcdef"
+        for (byte in this@toHexString) {
+            val value = byte.toInt() and 0xff
+            append(alphabet[value ushr 4])
+            append(alphabet[value and 0x0f])
         }
     }
 
