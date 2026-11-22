@@ -117,6 +117,7 @@ private fun hashPin(pin: String): String {
 
 private sealed interface PickerView {
     data object Grid : PickerView
+    data object Manage : PickerView
     data class Edit(val profile: UserProfile, val isNew: Boolean) : PickerView
 }
 
@@ -151,16 +152,14 @@ fun ProfilePickerScreen(
     var view        by remember { mutableStateOf<PickerView>(PickerView.Grid) }
     var editProfile by remember { mutableStateOf<UserProfile?>(null) }
     var editIsNew   by remember { mutableStateOf(false) }
-    var isManagingProfiles by rememberSaveable { mutableStateOf(false) }
-
     var pinTarget   by remember { mutableStateOf<UserProfile?>(null) }
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
 
-    BackHandler(view !is PickerView.Grid || isManagingProfiles) {
-        if (view !is PickerView.Grid) {
-            view = PickerView.Grid
-        } else {
-            isManagingProfiles = false
+    BackHandler(view !is PickerView.Grid) {
+        view = when (view) {
+            is PickerView.Edit -> PickerView.Manage
+            PickerView.Manage -> PickerView.Grid
+            PickerView.Grid -> PickerView.Grid
         }
     }
 
@@ -185,7 +184,6 @@ fun ProfilePickerScreen(
                     ProfileGridView(
                         profiles  = profiles,
                         activeId  = activeId,
-                        isManagingProfiles = isManagingProfiles,
                         onSelect  = { p ->
                             if (p.pinHash.isNotEmpty() && p.id != activeId) {
                                 pinTarget = p
@@ -194,35 +192,45 @@ fun ProfilePickerScreen(
                                 onDone()
                             }
                         },
-                        onEdit    = { p ->
-                            editProfile = p
-                            editIsNew   = false
-                            view = PickerView.Edit(p, false)
-                        },
+                        onEdit    = {},
                         onAddNew  = {
-                            val newP = UserProfile.create("New Profile")
-                            editProfile = newP
-                            editIsNew   = true
-                            view = PickerView.Edit(newP, true)
+                            view = PickerView.Manage
                         },
-                        onManageToggle = { isManagingProfiles = !isManagingProfiles },
+                    )
+                }
+                currentView is PickerView.Manage -> {
+                    ProfileManagementView(
+                        profiles = profiles,
+                        activeId = activeId,
+                        onBack = { view = PickerView.Grid },
+                        onEdit = { profile ->
+                            editProfile = profile
+                            editIsNew = false
+                            view = PickerView.Edit(profile, false)
+                        },
+                        onAddNew = {
+                            val newProfile = UserProfile.create("New Profile")
+                            editProfile = newProfile
+                            editIsNew = true
+                            view = PickerView.Edit(newProfile, true)
+                        },
                     )
                 }
                 currentView is PickerView.Edit && editProfile != null -> {
                     EditProfileView(
                         profile   = editProfile!!,
                         isNew     = editIsNew,
-                        onBack    = { view = PickerView.Grid },
+                        onBack    = { view = PickerView.Manage },
                         onSave    = { updated ->
                             repo.saveProfile(updated)
                             if (editIsNew) repo.setActiveProfile(updated.id)
                             com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
-                            view = PickerView.Grid
+                            view = PickerView.Manage
                         },
                         onDelete  = { id ->
                             repo.deleteProfile(id)
                             com.streamcloud.app.data.nuvio.NuvioAutoSync.request(context.applicationContext)
-                            view = PickerView.Grid
+                            view = PickerView.Manage
                         },
                     )
                 }
@@ -252,11 +260,9 @@ fun ProfilePickerScreen(
 private fun ProfileGridView(
     profiles: List<UserProfile>,
     activeId: String?,
-    isManagingProfiles: Boolean,
     onSelect: (UserProfile) -> Unit,
     onEdit: (UserProfile) -> Unit,
     onAddNew: () -> Unit,
-    onManageToggle: () -> Unit,
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val initialFocusRequester = remember { FocusRequester() }
@@ -268,11 +274,9 @@ private fun ProfileGridView(
             activeId = activeId,
             initialFocusId = initialFocusId,
             initialFocusRequester = initialFocusRequester,
-            isManagingProfiles = isManagingProfiles,
             onSelect = onSelect,
             onEdit = onEdit,
             onAddNew = onAddNew,
-            onManageToggle = onManageToggle,
         )
         return
     }
@@ -312,13 +316,10 @@ private fun ProfileGridView(
                 ProfileGridItem(
                     profile = profile,
                     isActive = profile.id == activeId,
-                    isManaging = isManagingProfiles,
+                    isManaging = false,
                     onSelect = { onSelect(profile) },
                     onEdit = { onEdit(profile) },
                 )
-            }
-            if (isManagingProfiles) item {
-                AddProfileItem(onClick = onAddNew)
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Box(
@@ -328,8 +329,8 @@ private fun ProfileGridView(
                     contentAlignment = Alignment.Center,
                 ) {
                     ProfileManagementButton(
-                        isManaging = isManagingProfiles,
-                        onClick = onManageToggle,
+                        isManaging = false,
+                        onClick = onAddNew,
                     )
                 }
             }
@@ -343,11 +344,9 @@ private fun TvProfileGridView(
     activeId: String?,
     initialFocusId: String?,
     initialFocusRequester: FocusRequester,
-    isManagingProfiles: Boolean,
     onSelect: (UserProfile) -> Unit,
     onEdit: (UserProfile) -> Unit,
     onAddNew: () -> Unit,
-    onManageToggle: () -> Unit,
 ) {
     LaunchedEffect(initialFocusId) {
         repeat(12) {
@@ -391,7 +390,7 @@ private fun TvProfileGridView(
                         ProfileGridItem(
                             profile = profile,
                             isActive = profile.id == activeId,
-                            isManaging = isManagingProfiles,
+                            isManaging = false,
                             onSelect = { onSelect(profile) },
                             onEdit = { onEdit(profile) },
                             initialFocusRequester = if (profile.id == initialFocusId) {
@@ -399,18 +398,106 @@ private fun TvProfileGridView(
                             } else null,
                         )
                     }
-                    item {
-                        AddProfileItem(
-                            onClick = onAddNew,
-                            initialFocusRequester = if (profiles.isEmpty()) initialFocusRequester else null,
-                        )
-                    }
                 }
                 Spacer(Modifier.height(22.dp))
                 ProfileManagementButton(
-                    isManaging = isManagingProfiles,
-                    onClick = onManageToggle,
+                    isManaging = false,
+                    onClick = onAddNew,
+                    initialFocusRequester = if (profiles.isEmpty()) initialFocusRequester else null,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileManagementView(
+    profiles: List<UserProfile>,
+    activeId: String?,
+    onBack: () -> Unit,
+    onEdit: (UserProfile) -> Unit,
+    onAddNew: () -> Unit,
+) {
+    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
+    val firstProfileFocus = remember { FocusRequester() }
+    LaunchedEffect(profiles.firstOrNull()?.id) {
+        if (!isTv) return@LaunchedEffect
+        repeat(12) {
+            if (runCatching { firstProfileFocus.requestFocus() }.isSuccess) return@LaunchedEffect
+            delay(100)
+        }
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .then(if (isTv) Modifier.padding(horizontal = 56.dp, vertical = 32.dp) else Modifier
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 24.dp, vertical = 16.dp)),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+            }
+            Text(
+                "Manage Profiles",
+                color = Color.White,
+                style = if (isTv) {
+                    MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold)
+                } else MaterialTheme.typography.titleLarge,
+            )
+        }
+        if (isTv) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth().height(230.dp),
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    lazyRowItems(profiles, key = { it.id }) { profile ->
+                        ProfileGridItem(
+                            profile = profile,
+                            isActive = profile.id == activeId,
+                            isManaging = true,
+                            onSelect = { onEdit(profile) },
+                            onEdit = { onEdit(profile) },
+                            initialFocusRequester = if (profile.id == profiles.firstOrNull()?.id) {
+                                firstProfileFocus
+                            } else null,
+                        )
+                    }
+                    item {
+                        AddProfileItem(
+                            onClick = onAddNew,
+                            initialFocusRequester = if (profiles.isEmpty()) firstProfileFocus else null,
+                        )
+                    }
+                }
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(vertical = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
+            ) {
+                gridItems(profiles, key = { it.id }) { profile ->
+                    ProfileGridItem(
+                        profile = profile,
+                        isActive = profile.id == activeId,
+                        isManaging = true,
+                        onSelect = { onEdit(profile) },
+                        onEdit = { onEdit(profile) },
+                    )
+                }
+                item {
+                    AddProfileItem(onClick = onAddNew)
+                }
             }
         }
     }
@@ -420,6 +507,7 @@ private fun TvProfileGridView(
 private fun ProfileManagementButton(
     isManaging: Boolean,
     onClick: () -> Unit,
+    initialFocusRequester: FocusRequester? = null,
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     OutlinedButton(
@@ -433,6 +521,7 @@ private fun ProfileManagementButton(
             contentColor = if (isTv) Color.White else Color(0xFFB4B4BA),
         ),
         modifier = Modifier
+            .then(initialFocusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
             .width(if (isManaging) 112.dp else if (isTv) 256.dp else 190.dp)
             .height(if (isTv) 60.dp else 48.dp),
     ) {
@@ -464,20 +553,18 @@ private fun ProfileGridItem(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.width(148.dp),
         ) {
-            val cardShape = RoundedCornerShape(14.dp)
+            val avatarShape = CircleShape
             Box(
                 modifier = Modifier
-                    .width(136.dp)
-                    .height(108.dp)
+                    .size(128.dp)
                     .then(initialFocusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
-                    .clip(cardShape)
-                    .background(Color(0xFF151D2C))
+                    .clip(avatarShape)
                     .then(
-                        if (isActive) Modifier.border(2.dp, Color(0xFF08A9D2), cardShape)
+                        if (isActive) Modifier.border(2.dp, Color(0xFF08A9D2), avatarShape)
                         else Modifier
                     )
                     .tvFocusBorder(
-                        cardShape,
+                        avatarShape,
                         color = Color(0xFF13BCEB),
                         borderWidth = 3.dp,
                     )
@@ -490,8 +577,8 @@ private fun ProfileGridItem(
                 AvatarImage(
                     profile = profile,
                     modifier = Modifier
-                        .size(56.dp)
-                        .clip(RoundedCornerShape(12.dp)),
+                        .size(112.dp)
+                        .clip(CircleShape),
                 )
             }
             Text(
@@ -503,8 +590,10 @@ private fun ProfileGridItem(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            TextButton(onClick = onEdit) {
-                Text("Edit", color = Color(0xFF9FAAB7))
+            if (isManaging) {
+                TextButton(onClick = onEdit) {
+                    Text("Edit", color = Color(0xFF9FAAB7))
+                }
             }
         }
         return
@@ -516,13 +605,10 @@ private fun ProfileGridItem(
         modifier = if (isTv) Modifier else Modifier.clickable(onClick = activate),
     ) {
         Box(contentAlignment = Alignment.BottomEnd) {
-            val avatarShape = if (isTv) CircleShape else RoundedCornerShape(18.dp)
+            val avatarShape = CircleShape
             Box(
                 Modifier
-                    .then(
-                        if (isTv) Modifier.size(140.dp)
-                        else Modifier.width(132.dp).height(124.dp),
-                    )
+                    .size(132.dp)
                     .then(
                         if (initialFocusRequester != null) {
                             Modifier.focusRequester(initialFocusRequester)
@@ -558,7 +644,7 @@ private fun ProfileGridItem(
             ) {
                 AvatarImage(
                     profile = profile,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().clip(CircleShape),
                 )
             }
             if (isManaging && !isTv) {
@@ -604,16 +690,15 @@ private fun AddProfileItem(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.width(148.dp),
         ) {
-            val cardShape = RoundedCornerShape(14.dp)
+            val avatarShape = CircleShape
             Box(
                 modifier = Modifier
-                    .width(136.dp)
-                    .height(108.dp)
+                    .size(128.dp)
                     .then(initialFocusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
-                    .clip(cardShape)
+                    .clip(avatarShape)
                     .background(Color(0xFF151D2C))
-                    .border(1.dp, Color(0xFF334152), cardShape)
-                    .tvFocusBorder(cardShape, color = Color(0xFF13BCEB), borderWidth = 3.dp)
+                    .border(1.dp, Color(0xFF334152), avatarShape)
+                    .tvFocusBorder(avatarShape, color = Color(0xFF13BCEB), borderWidth = 3.dp)
                     .clickable(onClick = onClick),
                 contentAlignment = Alignment.Center,
             ) {
@@ -639,21 +724,18 @@ private fun AddProfileItem(
     ) {
         Box(
             Modifier
-                .then(
-                    if (isTv) Modifier.size(140.dp)
-                    else Modifier.width(132.dp).height(124.dp),
-                )
+                .size(132.dp)
                 .then(
                     if (initialFocusRequester != null) {
                         Modifier.focusRequester(initialFocusRequester)
                     } else Modifier
                 )
-                .clip(if (isTv) CircleShape else RoundedCornerShape(18.dp))
-                .background(if (isTv) Color(0xFF112631) else Color(0xFF111315))
+                .clip(CircleShape)
+                .background(Color(0xFF112631))
                 .border(
                     2.dp,
-                    if (isTv) Color(0xFF13BCEB).copy(alpha = 0.4f) else Color.White.copy(alpha = 0.1f),
-                    if (isTv) CircleShape else RoundedCornerShape(18.dp),
+                    Color(0xFF13BCEB).copy(alpha = 0.4f),
+                    CircleShape,
                 )
                 .then(
                     if (isTv) {

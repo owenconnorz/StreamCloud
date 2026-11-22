@@ -537,6 +537,12 @@ fun StreamCloudApp(
     }
 
     Box(Modifier.fillMaxSize()) {
+    if (showProfilePicker) {
+        ProfilePickerScreen(
+            repo = sl.profiles,
+            onDone = { showProfilePicker = false },
+        )
+    } else {
     com.streamcloud.app.ui.theme.SelectedAppPaletteTheme(
         enabled = useSelectedAppPalette,
     ) {
@@ -2478,18 +2484,6 @@ fun StreamCloudApp(
         )
     }
 
-    // Profile picker overlay â floats above everything
-    if (showProfilePicker) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Color(0xFF0A0A0A)),
-        ) {
-            ProfilePickerScreen(
-                repo   = sl.profiles,
-                onDone = { showProfilePicker = false },
-            )
-        }
     }
     StartupUpdatePrompt(enabled = !showProfilePicker)
     } // end outer Box
