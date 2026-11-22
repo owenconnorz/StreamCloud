@@ -3688,7 +3688,7 @@ private fun TvPeacockTopNav(
                                     .height(28.dp)
                                     .padding(horizontal = 3.dp)
                                     .clip(RoundedCornerShape(18.dp))
-                                    .background(accentColor),
+                                    .background(Color.White),
                             )
                         }
                         Row(
@@ -3700,6 +3700,15 @@ private fun TvPeacockTopNav(
                         ) {
                             destinations.forEachIndexed { index, destination ->
                                 val active = index == activeDestinationIndex
+                                val selectedTint by animateColorAsState(
+                                    targetValue = if (destination.selected && !active) {
+                                        Color.Black.copy(alpha = 0.38f)
+                                    } else {
+                                        Color.Transparent
+                                    },
+                                    animationSpec = tween(durationMillis = 180),
+                                    label = "tvNavigationSelectedTint",
+                                )
                                 Box(
                                     contentAlignment = Alignment.Center,
                                     modifier = Modifier
@@ -3741,6 +3750,15 @@ private fun TvPeacockTopNav(
                                             destination.route?.let(onTabSelected)
                                         },
                                 ) {
+                                    Box(
+                                        Modifier
+                                            .align(Alignment.Center)
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 3.dp)
+                                            .height(28.dp)
+                                            .clip(RoundedCornerShape(18.dp))
+                                            .background(selectedTint),
+                                    )
                                     Text(
                                         text = destination.label,
                                         style = MaterialTheme.typography.labelMedium,
@@ -3750,7 +3768,7 @@ private fun TvPeacockTopNav(
                                             FontWeight.Medium
                                         },
                                         color = if (active) {
-                                            accentContentColor
+                                            Color(0xFF111216)
                                         } else {
                                             Color.White.copy(alpha = 0.94f)
                                         },
