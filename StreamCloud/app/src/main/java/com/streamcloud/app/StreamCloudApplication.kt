@@ -42,6 +42,7 @@ class StreamCloudApplication : Application(), ImageLoaderFactory {
         installCrashCapture()
         super.onCreate()
 
+        com.lagradost.cloudstream3.CloudStreamApp.installContext(applicationContext)
         com.streamcloud.app.data.network.Net.init(cacheDir)
         com.streamcloud.app.data.spotify.SpotifyPlaylistRepository.initialize(applicationContext)
 
