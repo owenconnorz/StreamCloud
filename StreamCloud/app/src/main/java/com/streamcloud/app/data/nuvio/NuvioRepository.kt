@@ -73,6 +73,9 @@ class NuvioRepository(
     private fun savedReposKey(scope: NuvioStorageScope) =
         stringPreferencesKey("saved_repos_${scope.storageKey}")
 
+    private fun providerSettingsKey(scope: NuvioStorageScope, providerId: String) =
+        stringPreferencesKey("provider_settings_${scope.storageKey}_${stableKey(providerId)}")
+
     val installed: Flow<List<InstalledNuvioProvider>> =
         scopeFlow.flatMapLatest(::installedFor).distinctUntilChanged()
 
@@ -248,6 +251,37 @@ class NuvioRepository(
         save(list.filterNot { it.id == id }, targetScope)
     }
 
+    suspend fun providerSettingsJson(providerId: String): String {
+        val scope = currentScope()
+        return context.nuvioStore.data.first()[providerSettingsKey(scope, providerId)] ?: "{}"
+    }
+
+    suspend fun saveProviderSettings(providerId: String, settingsJson: String) {
+        val settings = runCatching {
+            Net.json.parseToJsonElement(settingsJson) as? kotlinx.serialization.json.JsonObject
+                ?: error("Provider settings must be a JSON object")
+        }.getOrElse { throw IllegalArgumentException("Invalid provider settings", it) }
+        val scope = currentScope()
+        context.nuvioStore.edit {
+            it[providerSettingsKey(scope, providerId)] = settings.toString()
+        }
+    }
+
+    suspend fun providerSettingsLayout(provider: InstalledNuvioProvider): String =
+        withContext(Dispatchers.IO) {
+            val scope = currentScope()
+            val installedProvider = installedFor(scope).first()
+                .firstOrNull { it.id == provider.id }
+                ?: error("Provider is no longer installed")
+            val script = File(installedProvider.filePath).takeIf(File::isFile)?.readText()
+                ?: error("Could not read provider script")
+            NuvioRuntime.getSettingsLayout(
+                scriptText = script,
+                scriptKey = installedProvider.id,
+                context = context,
+            )
+        }
+
 
     suspend fun resolveAll(
         tmdbId: String,
@@ -262,6 +296,7 @@ class NuvioRepository(
             async(Dispatchers.IO) {
                 val js = runCatching { File(provider.filePath).readText() }.getOrNull()
                     ?: return@async emptyList()
+                val settingsJson = providerSettingsJson(provider.id)
                 val streams = NuvioRuntime.runProvider(
                     scriptText = js,
                     tmdbId = resolvedTmdb,
@@ -271,6 +306,8 @@ class NuvioRepository(
                     episode = episode,
                     scriptKey = provider.id,
                     context = context,
+                    scraperSettingsJson = settingsJson,
+                    tmdbApiKey = com.streamcloud.app.BuildConfig.TMDB_API_KEY,
                 )
                 streams.map { provider to it }
             }
@@ -343,6 +380,7 @@ class NuvioRepository(
         val js = runCatching { File(scopedProvider.filePath).readText() }.getOrNull()
             ?: return@withContext emptyList()
         val resolvedTmdb = resolveTmdbId(tmdbId, mediaType) ?: tmdbId
+        val settingsJson = providerSettingsJson(scopedProvider.id)
         NuvioRuntime.runProvider(
             scriptText = js,
             tmdbId = resolvedTmdb,
@@ -352,6 +390,8 @@ class NuvioRepository(
             episode = episode,
             scriptKey = scopedProvider.id,
             context = context,
+            scraperSettingsJson = settingsJson,
+            tmdbApiKey = com.streamcloud.app.BuildConfig.TMDB_API_KEY,
         )
     }
 
@@ -365,6 +405,7 @@ class NuvioRepository(
             return@withContext 0 to "Could not read provider file"
         }
         val resolvedTmdb = resolveTmdbId(tmdbId, mediaType) ?: tmdbId
+        val settingsJson = providerSettingsJson(provider.id)
         try {
             val streams = NuvioRuntime.runProvider(
                 scriptText = js,
@@ -375,6 +416,8 @@ class NuvioRepository(
                 episode = null,
                 scriptKey = "test__${provider.id}",
                 context = context,
+                scraperSettingsJson = settingsJson,
+                tmdbApiKey = com.streamcloud.app.BuildConfig.TMDB_API_KEY,
             )
             streams.size to null
         } catch (e: Exception) {

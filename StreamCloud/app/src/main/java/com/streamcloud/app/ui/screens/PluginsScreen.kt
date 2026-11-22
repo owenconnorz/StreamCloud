@@ -801,6 +801,35 @@ private fun NuvioProvidersPage(
     var nuvioRepoName by remember { mutableStateOf("") }
     var nuvioRepoInput by remember { mutableStateOf("") }
     var showRepoDialog by remember { mutableStateOf(false) }
+    var settingsProvider by remember {
+        mutableStateOf<com.streamcloud.app.data.nuvio.InstalledNuvioProvider?>(null)
+    }
+    var settingsLayoutJson by remember { mutableStateOf("[]") }
+    var settingsJson by remember { mutableStateOf("{}") }
+    var settingsLoading by remember { mutableStateOf(false) }
+    var settingsError by remember { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+
+    settingsProvider?.let { provider ->
+        NuvioProviderSettingsDialog(
+            providerName = provider.name,
+            layoutJson = settingsLayoutJson,
+            initialSettingsJson = settingsJson,
+            loading = settingsLoading,
+            error = settingsError,
+            onDismiss = { settingsProvider = null },
+            onSave = { updatedSettings ->
+                coroutineScope.launch {
+                    try {
+                        vm.saveNuvioProviderSettings(provider.id, updatedSettings)
+                        settingsProvider = null
+                    } catch (e: Exception) {
+                        settingsError = e.message ?: "Could not save provider settings"
+                    }
+                }
+            },
+        )
+    }
 
     if (showRepoDialog) {
         AddNamedRepositoryDialog(
@@ -925,6 +954,23 @@ private fun NuvioProvidersPage(
                     NuvioProviderRow(
                         p        = p,
                         onRemove = { vm.uninstallNuvioProvider(p.id) },
+                        onSettings = {
+                            settingsProvider = p
+                            settingsLoading = true
+                            settingsError = null
+                            coroutineScope.launch {
+                                try {
+                                    val (layout, settings) = vm.loadNuvioProviderSettings(p)
+                                    settingsLayoutJson = layout
+                                    settingsJson = settings
+                                } catch (e: Exception) {
+                                    settingsError = e.message ?: "Could not load provider settings"
+                                    settingsLayoutJson = "[]"
+                                } finally {
+                                    settingsLoading = false
+                                }
+                            }
+                        },
                     )
                 }
             } else {
@@ -1154,6 +1200,7 @@ private fun InstalledRow(
 private fun NuvioProviderRow(
     p: com.streamcloud.app.data.nuvio.InstalledNuvioProvider,
     onRemove: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     val lastError = com.streamcloud.app.data.nuvio.NuvioRuntime.lastError(p.id)
     val repoHost = remember(p.repoUrl) {
@@ -1226,6 +1273,9 @@ private fun NuvioProviderRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+            }
+            IconButton(onClick = onSettings) {
+                Icon(Icons.Default.Tune, "Provider settings", tint = ColourNuvio, modifier = Modifier.size(20.dp))
             }
             IconButton(onClick = onRemove) {
                 Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))

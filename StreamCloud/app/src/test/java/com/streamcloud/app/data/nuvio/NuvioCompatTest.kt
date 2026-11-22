@@ -37,17 +37,25 @@ class NuvioCompatTest {
     }
 
     @Test
-    fun injectsBrowserStyleDefaultsForNuvioRequests() {
+    fun addsOnlyDefaultUserAgentAndPreservesProviderHeaders() {
         val headers = buildNuvioRequestHeaders(
-            requestUrl = "https://vidfast.pro/movie/687163",
-            method = "GET",
-            incoming = emptyMap(),
+            incoming = mapOf("Referer" to "https://provider.example/"),
         )
 
         assertEquals(NUVIO_DEFAULT_USER_AGENT, headers["User-Agent"])
-        assertEquals("https://vidfast.pro/", headers["Referer"])
-        assertEquals("same-origin", headers["Sec-Fetch-Site"])
-        assertEquals("gzip, deflate", headers["Accept-Encoding"])
+        assertEquals("https://provider.example/", headers["Referer"])
+        assertTrue(headers.keys.none { it.startsWith("Sec-Fetch-", ignoreCase = true) })
+        assertTrue(headers.keys.none { it.equals("Accept-Language", ignoreCase = true) })
+    }
+
+    @Test
+    fun doesNotOverrideProviderUserAgent() {
+        val headers = buildNuvioRequestHeaders(
+            incoming = mapOf("user-agent" to "provider-agent"),
+        )
+
+        assertEquals("provider-agent", headers["user-agent"])
+        assertEquals(1, headers.size)
     }
 
     @Test

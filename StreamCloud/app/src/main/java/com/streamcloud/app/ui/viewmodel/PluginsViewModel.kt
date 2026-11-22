@@ -310,6 +310,18 @@ class PluginsViewModel(
         com.streamcloud.app.data.nuvio.NuvioAutoSync.request(appContext)
     }
 
+    suspend fun loadNuvioProviderSettings(
+        provider: InstalledNuvioProvider,
+    ): Pair<String, String> = coroutineScope {
+        val layout = async(Dispatchers.IO) { nuvio.providerSettingsLayout(provider) }
+        val settings = async(Dispatchers.IO) { nuvio.providerSettingsJson(provider.id) }
+        layout.await() to settings.await()
+    }
+
+    suspend fun saveNuvioProviderSettings(providerId: String, settingsJson: String) {
+        nuvio.saveProviderSettings(providerId, settingsJson)
+    }
+
     fun clearMessages() {
         _state.update { it.copy(error = null, info = null) }
     }

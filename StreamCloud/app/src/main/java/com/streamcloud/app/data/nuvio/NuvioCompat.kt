@@ -3,8 +3,7 @@ package com.streamcloud.app.data.nuvio
 import java.net.URI
 
 internal const val NUVIO_DEFAULT_USER_AGENT =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-        "(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 internal fun normaliseNuvioIdToken(raw: Any?): String? =
     normaliseNuvioContentId(raw)
@@ -127,11 +126,7 @@ internal fun normaliseNuvioFetchUrl(rawUrl: String): String {
     return prefix + fixedPath + suffix
 }
 
-internal fun buildNuvioRequestHeaders(
-    requestUrl: String,
-    method: String,
-    incoming: Map<String, String>,
-): Map<String, String> {
+internal fun buildNuvioRequestHeaders(incoming: Map<String, String>): Map<String, String> {
     val headers = linkedMapOf<String, String>()
     headers.putAll(incoming)
 
@@ -140,27 +135,9 @@ internal fun buildNuvioRequestHeaders(
         if (!value.isNullOrBlank() && !has(name)) headers[name] = value
     }
 
-    val normalizedMethod = method.uppercase()
-    val origin = runCatching {
-        val uri = URI(requestUrl)
-        val scheme = uri.scheme ?: return@runCatching null
-        val host = uri.host ?: return@runCatching null
-        val port = if (uri.port != -1) ":${uri.port}" else ""
-        "$scheme://$host$port"
-    }.getOrNull()
-
+    // Match Nuvio's fetch bridge: preserve provider-supplied headers and only
+    // provide a user agent when the provider has not supplied one.
     setIfMissing("User-Agent", NUVIO_DEFAULT_USER_AGENT)
-    setIfMissing("Accept", "application/json, text/html, */*")
-    setIfMissing("Accept-Language", "en-US,en;q=0.9")
-    setIfMissing("Cache-Control", "no-cache")
-    setIfMissing("Pragma", "no-cache")
-    setIfMissing("Referer", origin?.plus("/"))
-    if (normalizedMethod !in setOf("GET", "HEAD", "OPTIONS")) {
-        setIfMissing("Origin", origin)
-    }
-    setIfMissing("Sec-Fetch-Dest", "empty")
-    setIfMissing("Sec-Fetch-Mode", "cors")
-    setIfMissing("Sec-Fetch-Site", "same-origin")
     return headers
 }
 

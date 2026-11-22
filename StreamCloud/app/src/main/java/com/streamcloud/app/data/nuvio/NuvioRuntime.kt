@@ -14,7 +14,6 @@ import com.streamcloud.app.data.network.BrowserHeaders
 import com.streamcloud.app.data.network.CloudflareKiller
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
@@ -64,6 +63,8 @@ object NuvioRuntime {
         context: Context? = null,
         filePath: String = "",
         proxyBaseUrl: String? = null,
+        scraperSettingsJson: String = "{}",
+        tmdbApiKey: String = com.streamcloud.app.BuildConfig.TMDB_API_KEY,
     ): List<NuvioStream> {
         val documentCache = mutableMapOf<String, Document>()
         val elementCache = mutableMapOf<String, Element>()
@@ -94,7 +95,7 @@ object NuvioRuntime {
 
                 // Step 1: polyfills — matches official JsBindings.buildPolyfillCode exactly.
                 Log.d(TAG, "[$scriptKey] evaluating polyfills")
-                evaluate<Any?>(buildPolyfillCode(scriptKey))
+                evaluate<Any?>(buildPolyfillCode(scriptKey, scraperSettingsJson, tmdbApiKey))
                 Log.d(TAG, "[$scriptKey] polyfills OK")
 
                 // Step 2: extra per-run globals (not in official but harmless for compat).
@@ -111,6 +112,14 @@ object NuvioRuntime {
                     globalThis.type      = $mediaTypeJson;
                     globalThis.season    = $seasonArg;
                     globalThis.episode   = $episodeArg;
+                    globalThis.params    = {
+                        tmdbId: $tmdbIdJson,
+                        imdbId: $imdbIdJson,
+                        mediaType: $mediaTypeJson,
+                        type: $mediaTypeJson,
+                        season: $seasonArg,
+                        episode: $episodeArg
+                    };
                 """.trimIndent())
                 Log.d(TAG, "[$scriptKey] extra globals OK")
 
@@ -202,6 +211,58 @@ object NuvioRuntime {
 
 
 
+    suspend fun getSettingsLayout(
+        scriptText: String,
+        scriptKey: String,
+        context: Context? = null,
+    ): String = withContext(Dispatchers.Default) {
+        withTimeoutOrNull(15_000L) {
+            val deferred = CompletableDeferred<String>()
+            quickJs(Dispatchers.Default) {
+                installConsole(scriptKey)
+                installFetchBridge(context, scriptKey)
+                installCryptoBindings()
+                installUrlBinding()
+                installCheerioBindings(mutableMapOf(), mutableMapOf(), AtomicInteger())
+                function("__capture_result") { args: Array<Any?> ->
+                    deferred.complete(args.firstOrNull()?.toString() ?: "[]")
+                    null
+                }
+                evaluate<Any?>(
+                    buildPolyfillCode(scriptKey, "{}", com.streamcloud.app.BuildConfig.TMDB_API_KEY),
+                )
+                evaluate<Any?>(
+                    """
+                        var module = { exports: {} };
+                        var exports = module.exports;
+                        (function() {
+                            $scriptText
+                        })();
+                    """.trimIndent(),
+                )
+                evaluate<Any?>(
+                    """
+                        (async function() {
+                            try {
+                                var onSettings = module.exports.onSettings
+                                    || (module.exports.default && module.exports.default.onSettings)
+                                    || globalThis.onSettings;
+                                var layout = typeof onSettings === 'function'
+                                    ? await onSettings()
+                                    : [];
+                                __capture_result(JSON.stringify(layout || []));
+                            } catch (e) {
+                                console.error('[provider] onSettings error:', e && e.message ? e.message : String(e));
+                                __capture_result('[]');
+                            }
+                        })();
+                    """.trimIndent(),
+                )
+                deferred.await()
+            }
+        } ?: "[]"
+    }
+
     private fun com.dokar.quickjs.QuickJs.installConsole(scriptKey: String) {
         define("console") {
             listOf("log", "info", "warn", "error", "debug").forEach { level ->
@@ -228,18 +289,16 @@ object NuvioRuntime {
 
 
     private fun com.dokar.quickjs.QuickJs.installFetchBridge(context: Context?, scriptKey: String) {
-        // Synchronous function with runBlocking — matches official NuvioMobile FetchBridge exactly.
-        // __native_fetch blocks the scheduler thread for the duration of the HTTP request;
-        // quickjs-kt drives the event loop when the Kotlin suspend resumes after the block.
-        function("__native_fetch") { args: Array<Any?> ->
+        asyncFunction("__native_fetch") { args: Array<Any?> ->
             val url = args.getOrNull(0)?.toString() ?: ""
             val method = args.getOrNull(1)?.toString()?.uppercase() ?: "GET"
             val headersJson = args.getOrNull(2)?.toString() ?: "{}"
-            val body = args.getOrNull(3)?.toString().orEmpty()
-            val followRedirects = args.getOrNull(4) as? Boolean ?: true
+            val bodyKind = args.getOrNull(3)?.toString() ?: "none"
+            val body = args.getOrNull(4)?.toString().orEmpty()
+            val followRedirects = args.getOrNull(5) as? Boolean ?: true
             Log.d(TAG, "[$scriptKey] fetch $method ${url.take(200)}")
             lastFetchCountByScript.merge(scriptKey, 1, Int::plus)
-            val result = runBlocking { performFetch(url, method, headersJson, body, followRedirects, context) }
+            val result = performFetch(url, method, headersJson, bodyKind, body, followRedirects, context)
             // Surface HTTP-level errors (non-2xx, connection failures, etc.) in the picker UI.
             try {
                 val J = kotlinx.serialization.json.Json
@@ -261,6 +320,7 @@ object NuvioRuntime {
         url: String,
         method: String,
         headersJson: String,
+        bodyKind: String,
         body: String,
         followRedirects: Boolean,
         context: Context? = null,
@@ -268,13 +328,16 @@ object NuvioRuntime {
         return try {
             val sanitizedUrl = normaliseNuvioFetchUrl(url)
             val rawHeaders = parseHeaders(headersJson)
-            val headers = buildNuvioRequestHeaders(sanitizedUrl, method, rawHeaders).toMutableMap()
+            val headers = buildNuvioRequestHeaders(rawHeaders).toMutableMap()
             val client = if (followRedirects) http else http.newBuilder().followRedirects(false).build()
 
             val requestBody = when {
-                method == "GET" || method == "HEAD" -> null
-                body.isEmpty() -> ByteArray(0).toRequestBody()
-                else -> body.toRequestBody()
+                method == "GET" || method == "HEAD" || bodyKind == "none" -> null
+                bodyKind == "base64" -> android.util.Base64
+                    .decode(body, android.util.Base64.NO_WRAP)
+                    .toRequestBody()
+                bodyKind == "text" -> body.toRequestBody()
+                else -> error("Unsupported fetch body kind: $bodyKind")
             }
             val req = Request.Builder().url(sanitizedUrl).apply {
                 headers.forEach { (k, v) -> header(k, v) }
@@ -283,7 +346,8 @@ object NuvioRuntime {
 
             client.newCall(req).execute().use { resp ->
                 val respCode = resp.code
-                val respBody = resp.body?.string().orEmpty().stripLeadingBom()
+                val responseBytes = resp.body?.bytes() ?: byteArrayOf()
+                val respBody = responseBytes.toString(Charsets.UTF_8).stripLeadingBom()
                 val respMultimap = resp.headers.toMultimap()
 
                 // Cloudflare challenge — try WebView bypass and retry once
@@ -292,7 +356,8 @@ object NuvioRuntime {
                     val bypassed = CloudflareKiller.bypass(context, url, ua, BrowserCookieJar)
                     if (bypassed) {
                         return client.newCall(req).execute().use { r2 ->
-                            val text2 = r2.body?.string().orEmpty().let {
+                            val bodyBytes = r2.body?.bytes() ?: byteArrayOf()
+                            val text2 = bodyBytes.toString(Charsets.UTF_8).let {
                                 if (it.length > MAX_FETCH_BODY_CHARS) it.substring(0, MAX_FETCH_BODY_CHARS) else it
                             }
                             buildJson {
@@ -301,6 +366,10 @@ object NuvioRuntime {
                                 put("statusText", r2.message)
                                 put("url", r2.request.url.toString())
                                 put("body", text2)
+                                put("bodyBase64", android.util.Base64.encodeToString(
+                                    bodyBytes,
+                                    android.util.Base64.NO_WRAP,
+                                ))
                                 put("headers", r2.headers.associate { (n, v) -> n.lowercase() to v })
                             }
                         }
@@ -317,9 +386,15 @@ object NuvioRuntime {
                     put("statusText", resp.message)
                     put("url", resp.request.url.toString())
                     put("body", text)
+                    put("bodyBase64", android.util.Base64.encodeToString(
+                        responseBytes,
+                        android.util.Base64.NO_WRAP,
+                    ))
                     put("headers", hdrs)
                 }
             }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (t: Throwable) {
             Log.w(TAG, "fetch($url) failed: ${t.message}")
             buildJson {
@@ -328,6 +403,7 @@ object NuvioRuntime {
                 put("statusText", t.message ?: "Fetch failed")
                 put("url", url)
                 put("body", "")
+                put("bodyBase64", "")
                 put("headers", emptyMap<String, String>())
             }
         }
@@ -754,7 +830,11 @@ object NuvioRuntime {
 
 
 
-    private fun buildPolyfillCode(scriptKey: String): String = """
+    private fun buildPolyfillCode(
+        scriptKey: String,
+        scraperSettingsJson: String,
+        tmdbApiKey: String,
+    ): String = """
         globalThis.SCRAPER_ID = ${jsString(scriptKey)};
         if (typeof globalThis.global === 'undefined') globalThis.global = globalThis;
         if (typeof globalThis.window === 'undefined') globalThis.window = globalThis;
@@ -762,9 +842,9 @@ object NuvioRuntime {
 
         // ── Globals injected by official NuvioMobile to match provider contract ──────
         // Some providers use these as free variables without declaring them.
-        if (typeof globalThis.SCRAPER_SETTINGS === 'undefined') globalThis.SCRAPER_SETTINGS = {};
+        globalThis.SCRAPER_SETTINGS = JSON.parse(${jsString(scraperSettingsJson)});
         if (typeof globalThis.PRIMARY_KEY === 'undefined')       globalThis.PRIMARY_KEY = '';
-        if (typeof globalThis.TMDB_API_KEY === 'undefined')      globalThis.TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
+        if (typeof globalThis.TMDB_API_KEY === 'undefined')      globalThis.TMDB_API_KEY = ${jsString(tmdbApiKey)};
         // logger — official app injects a logger object; fall back to console so
         // providers that call logger.log() instead of console.log() don't crash.
         if (typeof globalThis.logger === 'undefined') globalThis.logger = {
@@ -913,15 +993,63 @@ object NuvioRuntime {
             return out;
         }
 
+        function __fetch_bytes_to_base64(bytes) {
+            var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+            var out = '';
+            for (var i = 0; i < bytes.length; i += 3) {
+                var a = bytes[i];
+                var hasB = i + 1 < bytes.length;
+                var hasC = i + 2 < bytes.length;
+                var b = hasB ? bytes[i + 1] : 0;
+                var c = hasC ? bytes[i + 2] : 0;
+                out += chars.charAt(a >> 2);
+                out += chars.charAt(((a & 3) << 4) | (b >> 4));
+                out += hasB ? chars.charAt(((b & 15) << 2) | (c >> 6)) : '=';
+                out += hasC ? chars.charAt(c & 63) : '=';
+            }
+            return out;
+        }
+        function __fetch_base64_to_bytes(value) {
+            var alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+            var input = String(value || '').replace(/[^A-Za-z0-9+/=]/g, '');
+            var bytes = [];
+            for (var i = 0; i < input.length; i += 4) {
+                var a = alphabet.indexOf(input.charAt(i));
+                var b = alphabet.indexOf(input.charAt(i + 1));
+                var c = alphabet.indexOf(input.charAt(i + 2));
+                var d = alphabet.indexOf(input.charAt(i + 3));
+                if (a < 0 || b < 0) break;
+                bytes.push((a << 2) | (b >> 4));
+                if (c >= 0) bytes.push(((b & 15) << 4) | (c >> 2));
+                if (d >= 0) bytes.push(((c & 3) << 6) | d);
+            }
+            return new Uint8Array(bytes);
+        }
+        function __normalize_fetch_body(body) {
+            if (body === undefined || body === null) return { kind: 'none', value: '' };
+            if (typeof body === 'string') return { kind: 'text', value: body };
+            var bytes = null;
+            if (typeof ArrayBuffer !== 'undefined' && body instanceof ArrayBuffer) {
+                bytes = new Uint8Array(body);
+            } else if (typeof ArrayBuffer !== 'undefined' &&
+                       typeof ArrayBuffer.isView === 'function' && ArrayBuffer.isView(body)) {
+                bytes = new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+            }
+            if (bytes !== null) return { kind: 'base64', value: __fetch_bytes_to_base64(bytes) };
+            return { kind: 'text', value: String(body) };
+        }
+
         var fetch = async function(url, options) {
             options = options || {};
             var method = (options.method || 'GET').toUpperCase();
             var headers = __normalize_fetch_headers(options.headers);
-            var body = options.body || '';
+            var body = __normalize_fetch_body(options.body);
             var followRedirects = options.redirect !== 'manual';
-            // __native_fetch is a synchronous native bridge — matches official NuvioMobile exactly.
-            var result = __native_fetch(url, method, JSON.stringify(headers), body, followRedirects);
+            var result = await __native_fetch(
+                url, method, JSON.stringify(headers), body.kind, body.value, followRedirects
+            );
             var parsed = JSON.parse(result);
+            var responseBytes = __fetch_base64_to_bytes(parsed.bodyBase64 || '');
             return {
                 ok: parsed.ok,
                 status: parsed.status,
@@ -929,6 +1057,11 @@ object NuvioRuntime {
                 url: parsed.url,
                 headers: {
                     get: function(name) { return (parsed.headers || {})[name.toLowerCase()] || null; }
+                },
+                arrayBuffer: function() {
+                    var copy = new Uint8Array(responseBytes.length);
+                    copy.set(responseBytes);
+                    return Promise.resolve(copy.buffer);
                 },
                 text: function() { return Promise.resolve(parsed.body); },
                 json: function() {
@@ -978,12 +1111,9 @@ object NuvioRuntime {
 
         // setTimeout / clearTimeout stubs.
         //
-        // QuickJS has no real async timer system. We schedule ALL callbacks via
-        // Promise.resolve().then() so they fire at the next microtask checkpoint.
-        // This is safe because:
-        //   (a) our fetch polyfill is synchronous (__native_fetch blocks via runBlocking)
-        //       so fetches complete before any microtask runs anyway;
-        //   (b) our fetch polyfill ignores signal.aborted entirely.
+        // QuickJS has no real async timer system. We schedule callbacks through
+        // the microtask queue. Timers are approximate, but fetch itself is async
+        // and no longer blocks the JS runtime while a request is in flight.
         //
         // The critical pattern this fixes:
         //   await new Promise(resolve => setTimeout(resolve, delay)); // "sleep"
