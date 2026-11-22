@@ -23,8 +23,14 @@ class CloudStreamApp {
 
         fun <T> setKey(folder: String, path: String, value: T) {
             val currentContext = appContext ?: return
-            installPrefs(currentContext)
-            com.lagradost.cloudstream3.setKey(folder, path, value)
+            val preferences = com.lagradost.cloudstream3.utils.DataStore
+                .getSharedPrefs(currentContext)
+            val key = com.lagradost.cloudstream3.utils.DataStore.getFolderName(folder, path)
+            runCatching {
+                preferences.edit()
+                    .putString(key, mapper.writeValueAsString(value))
+                    .apply()
+            }
         }
     }
 }

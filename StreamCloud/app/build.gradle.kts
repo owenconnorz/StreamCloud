@@ -447,6 +447,8 @@ dependencies {
     // `MainActivityKt.mapper.readValue(...)` or `parsedSafe<...>()`. Without it,
     // every plugin dies with NoClassDefFoundError on first JSON parse.
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.2")
+    // Some CloudStream extensions use Gson directly for provider responses and model annotations.
+    implementation("com.google.code.gson:gson:2.15.0")
 
     // Google Cast (Chromecast). Adds the `androidx.mediarouter` chooser dialog
     // and the cast framework that powers MediaRouteButton + RemoteMediaClient.
