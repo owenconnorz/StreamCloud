@@ -3590,6 +3590,7 @@ private fun TvHeroBackdrop(
         }
     }
 }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
