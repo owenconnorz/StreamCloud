@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.lagradost.cloudstream3.AnimeLoadResponse
+import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.ExtractorLink
 import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.SearchResponse
@@ -69,6 +70,11 @@ private data class PickerGroupState(
     val error: String? = null,
 )
 
+private data class CloudStreamPickerResult(
+    val streams: List<PlayerSource>,
+    val error: String? = null,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StreamPickerOverlay(
@@ -98,20 +104,10 @@ fun StreamPickerOverlay(
     }
     val providerOrderIsLoaded = savedProviderOrder != null
 
-    val eligibleCs = remember(installedCsPlugins, mediaType) {
-        if (mediaType == "tv") {
-            installedCsPlugins.filter { !it.isAdultPlugin() }
-        } else {
-            installedCsPlugins.filter { plugin ->
-                !plugin.isAdultPlugin() && run {
-                    val types = plugin.tvTypes
-                    types == null || types.any { t ->
-                        val lt = t.lowercase()
-                        lt.contains("movie") || lt == "others" || lt == "live"
-                    }
-                }
-            }
-        }
+    val eligibleCs = remember(installedCsPlugins) {
+        // CloudStream repo tvTypes metadata is not always complete or consistent.
+        // The plugin's own search result is the authoritative media-type check.
+        installedCsPlugins.filter { !it.isAdultPlugin() }
     }
 
     val providerEntries = remember(installedAddons, installedNuvio, eligibleCs) {
@@ -218,19 +214,36 @@ fun StreamPickerOverlay(
 
             eligibleCs.forEach { plugin ->
                 launch {
-                    val sources = withContext(Dispatchers.IO) {
+                    val result = withContext(Dispatchers.IO) {
                         withTimeoutOrNull(35_000L) {
                             try {
-                                resolveCsForPicker(context, plugin, csTitle, csYear)
+                                resolveCsForPicker(
+                                    context = context,
+                                    plugin = plugin,
+                                    title = csTitle,
+                                    year = csYear,
+                                    season = season,
+                                    episode = episode,
+                                )
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: Throwable) {
                                 Log.d("StreamPicker", "CS ${plugin.name}: ${e.message}")
-                                emptyList()
+                                CloudStreamPickerResult(
+                                    streams = emptyList(),
+                                    error = "CloudStream plugin failed: ${e.message ?: "unknown error"}",
+                                )
                             }
-                        } ?: emptyList()
+                        } ?: CloudStreamPickerResult(
+                            streams = emptyList(),
+                            error = "CloudStream plugin timed out while finding sources.",
+                        )
                     }
-                    updateGroup("cs:${plugin.internalName}", streams = sources)
+                    updateGroup(
+                        "cs:${plugin.internalName}",
+                        streams = result.streams,
+                        error = result.error,
+                    )
                 }
             }
         }
@@ -284,25 +297,29 @@ fun StreamPickerOverlay(
           }
       }
 
-        val addonTabs = remember(groups, groupOrder) {
+    val providerTabs = remember(groups, groupOrder) {
         groupOrder.mapNotNull { (key, name) ->
-            val g = groups[key]
-            if (g != null && (g.isLoading || g.streams.isNotEmpty())) name else null
-        }.distinct()
+            val group = groups[key] ?: return@mapNotNull null
+            if (key.startsWith("cs:") || group.isLoading || group.streams.isNotEmpty()) {
+                key to name
+            } else {
+                null
+            }
+        }
     }
-    val tabs = remember(addonTabs) { listOf("All") + addonTabs }
+    val tabs = remember(providerTabs) { listOf("All") + providerTabs.map { it.second } }
     val safeTab = selectedTab.coerceAtMost(tabs.lastIndex)
+    val selectedProviderKey = providerTabs.getOrNull(safeTab - 1)?.first
 
-    val visibleGroups = remember(groups, safeTab, tabs, groupOrder) {
+    val visibleGroups = remember(groups, safeTab, groupOrder, selectedProviderKey) {
         if (safeTab == 0) {
             groupOrder.mapNotNull { (key, name) ->
                 val g = groups[key] ?: return@mapNotNull null
                 Triple(key, name, g)
             }
         } else {
-            val selectedAddon = tabs.getOrNull(safeTab)
             groupOrder.mapNotNull { (key, name) ->
-                if (name != selectedAddon) return@mapNotNull null
+                if (key != selectedProviderKey) return@mapNotNull null
                 val g = groups[key] ?: return@mapNotNull null
                 Triple(key, name, g)
             }
@@ -461,11 +478,24 @@ fun StreamPickerOverlay(
                 }
 
                 visibleGroups.forEach { (key, addonName, groupState) ->
-                    // When still loading: show header + progress bar
-                    // When done with streams: show header + streams
-                    // When done with NO streams: hide entirely (clean look)
+                    // In All, hide completed empty providers; their individual tabs
+                    // remain available so a failed CloudStream lookup is explainable.
                     val doneEmpty = !groupState.isLoading && groupState.streams.isEmpty()
-                    if (doneEmpty) return@forEach
+                    if (doneEmpty) {
+                        if (safeTab != 0) {
+                            item(key = "empty:$key") {
+                                Text(
+                                    groupState.error ?: "No streams found for this title.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp, vertical = 20.dp),
+                                )
+                            }
+                        }
+                        return@forEach
+                    }
 
                     if (safeTab == 0) {
                         item(key = "hdr:$key") {
@@ -823,37 +853,102 @@ private suspend fun resolveCsForPicker(
     plugin: InstalledPlugin,
     title: String,
     year: Int?,
-): List<PlayerSource> {
+    season: Int?,
+    episode: Int?,
+): CloudStreamPickerResult {
     return try {
-        if (title.isBlank()) return emptyList()
-        val results: List<SearchResponse> = runCatching {
+        if (title.isBlank()) {
+            return CloudStreamPickerResult(emptyList(), "A title is required to search this plugin.")
+        }
+        val results: List<SearchResponse> = try {
             PluginRuntime.search(context, plugin.filePath, title)
-        }.getOrDefault(emptyList())
-        val best = pickerBestMatch(results, title, year) ?: return emptyList()
-        val detail = runCatching {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            return CloudStreamPickerResult(
+                emptyList(),
+                "CloudStream search failed: ${e.message ?: "unknown error"}",
+            )
+        }
+        if (results.isEmpty()) {
+            return CloudStreamPickerResult(
+                emptyList(),
+                PluginRuntime.lastErrorFor(plugin.filePath)
+                    ?: "No results found for this title in ${plugin.name}.",
+            )
+        }
+        val best = pickerBestMatch(results, title, year)
+            ?: return CloudStreamPickerResult(emptyList(), "No matching title found in ${plugin.name}.")
+        val detail = try {
             PluginRuntime.loadDetail(context, plugin.filePath, best.url)
-        }.getOrNull() ?: return emptyList()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Throwable) {
+            null
+        } ?: return CloudStreamPickerResult(
+            emptyList(),
+            "Could not load the matching title from ${plugin.name}.",
+        )
         val dataStr: String? = when (detail) {
             is MovieLoadResponse -> detail.dataUrl
             is TvSeriesLoadResponse -> {
-                val eps = detail.episodes
-                if (eps.size == 1) eps.first().data else null
+                pickerEpisodeData(detail.episodes, season, episode)
             }
             is AnimeLoadResponse -> {
                 val eps = detail.episodes.values.flatten()
-                if (eps.size == 1) eps.first().data else null
+                pickerEpisodeData(eps, season, episode)
             }
             else -> null
         }
-        val data = dataStr ?: return emptyList()
-        val (links, _) = runCatching {
+        val data = dataStr ?: return CloudStreamPickerResult(
+            emptyList(),
+            when {
+                (detail is TvSeriesLoadResponse || detail is AnimeLoadResponse) &&
+                    season != null && episode != null ->
+                    "${plugin.name} does not list episode S${season}E${episode}."
+                detail is TvSeriesLoadResponse || detail is AnimeLoadResponse ->
+                    "Choose a TV episode before loading sources from ${plugin.name}."
+                else -> "${plugin.name} returned an unsupported title type.",
+            },
+        )
+        val (links, _) = try {
             PluginRuntime.loadLinks(context, plugin.filePath, data, isCasting = false)
-        }.getOrElse { return emptyList() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            return CloudStreamPickerResult(
+                emptyList(),
+                "Could not load streams from ${plugin.name}: ${e.message ?: "unknown error"}",
+            )
+        }
         val sourceRoute = "cs:${plugin.internalName}|||${best.url}|||${best.name}|||"
-        links.pickerToCsSources(plugin.name, sourceRoute)
+        val sources = links.pickerToCsSources(plugin.name, sourceRoute)
+        CloudStreamPickerResult(
+            streams = sources,
+            error = if (sources.isEmpty()) "No streams were returned by ${plugin.name}." else null,
+        )
+    } catch (e: CancellationException) {
+        throw e
     } catch (_: Throwable) {
-        emptyList()
+        CloudStreamPickerResult(
+            emptyList(),
+            "CloudStream could not resolve sources from ${plugin.name}.",
+        )
     }
+}
+
+private fun pickerEpisodeData(
+    episodes: List<Episode>,
+    season: Int?,
+    episode: Int?,
+): String? {
+    if (season != null && episode != null) {
+        return episodes.firstOrNull { it.season == season && it.episode == episode }?.data
+            ?: episodes.singleOrNull()
+                ?.takeIf { it.season == null || it.episode == null }
+                ?.data
+    }
+    return episodes.singleOrNull()?.data
 }
 
 private fun pickerBestMatch(results: List<SearchResponse>, title: String, year: Int?): SearchResponse? {
