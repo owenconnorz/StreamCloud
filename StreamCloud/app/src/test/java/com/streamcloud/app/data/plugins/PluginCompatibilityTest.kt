@@ -3,6 +3,7 @@ package com.streamcloud.app.data.plugins
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.amapIndexed
 import com.lagradost.cloudstream3.amapNotNull
+import com.lagradost.cloudstream3.MainActivity
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -25,26 +26,9 @@ class PluginCompatibilityTest {
     }
 
     @Test
-    fun rejectsPluginReferencesToCloudStreamOnlyMainActivity() {
-        assertEquals(
-            listOf("com.lagradost.cloudstream3.MainActivity"),
-            PluginRuntime.findUnsupportedCloudStreamRuntimeReferences(
-                listOf(
-                    "com.example.SafePlugin",
-                    "com.lagradost.cloudstream3.MainActivity",
-                    "com.lagradost.cloudstream3.MainActivity",
-                )
-            ),
-        )
-    }
-
-    @Test
-    fun allowsPluginsWithoutCloudStreamOnlyActivityReferences() {
-        assertTrue(
-            PluginRuntime.findUnsupportedCloudStreamRuntimeReferences(
-                listOf("com.example.SafePlugin", "com.lagradost.cloudstream3.MainAPI")
-            ).isEmpty()
-        )
+    fun legacyPluginHostActivityReferenceResolvesSafely() {
+        assertEquals("com.lagradost.cloudstream3.MainActivity", MainActivity::class.java.name)
+        MainActivity.afterPluginsLoadedEvent.invoke(true)
     }
 
     @Test

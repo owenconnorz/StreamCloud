@@ -35,7 +35,6 @@ object PluginRuntime {
 
     private const val DEFAULT_LOAD_LINKS_TIMEOUT_MS = 30_000L
     private const val TOTAL_LOAD_LINKS_TIMEOUT_MS = 90_000L
-    private const val CLOUDSTREAM_MAIN_ACTIVITY = "com.lagradost.cloudstream3.MainActivity"
 
     private data class LoadedPlugin(
         val plugin: Plugin,
@@ -73,18 +72,6 @@ object PluginRuntime {
 
             @Suppress("ResultOfMethodCallIgnored")
             readOnlyFile.setReadOnly()
-
-            val unsupportedReferences = findUnsupportedCloudStreamRuntimeReferences(
-                readDexClassNamesFromZip(readOnlyFile)
-            )
-            if (unsupportedReferences.isNotEmpty()) {
-                error(
-                    "Plugin '${src.nameWithoutExtension}' is not compatible with StreamCloud. " +
-                        "It references CloudStream app-only classes that are not available here: " +
-                        unsupportedReferences.joinToString() +
-                        ". Install a compatible plugin version or uninstall this plugin."
-                )
-            }
 
             val optimizedDir = context.getDir("plugins-opt", android.content.Context.MODE_PRIVATE)
             // Primary parent: the classloader that loaded our Plugin class.
@@ -347,12 +334,6 @@ object PluginRuntime {
         }
     }
 
-    internal fun findUnsupportedCloudStreamRuntimeReferences(
-        classNames: Iterable<String>,
-    ): List<String> = classNames
-        .filter { it == CLOUDSTREAM_MAIN_ACTIVITY }
-        .distinct()
-
     @Serializable
     private data class PluginManifest(
         val pluginClassName: String? = null,
@@ -601,7 +582,12 @@ object PluginRuntime {
 
     suspend fun search(context: Context, filePath: String, query: String): List<SearchResponse> = withContext(Dispatchers.IO) {
         val apis = load(context, filePath)
-        if (apis.isEmpty()) return@withContext emptyList()
+        if (apis.isEmpty()) {
+            if (lastErrors[filePath] == null) {
+                lastErrors[filePath] = "This extension does not register a searchable media provider."
+            }
+            return@withContext emptyList()
+        }
         val results = mutableListOf<SearchResponse>()
         val failures = mutableListOf<String>()
         apis.forEach { api ->
