@@ -90,10 +90,9 @@ fun Modifier.tvFocusBorder(
 
     this
         .onFocusChanged { focused = it.isFocused }
-        // Focusable already asks a Lazy list to reveal the focused item. A second,
-        // unconditional bringIntoView request here made nested TV rails fight the
-        // parent list and could scroll vertically while moving across a row.
-        .focusable()
+        // Keep this modifier visual-only. Interactive controls create their own
+        // focus target; adding another one here can make the remote focus the
+        // decoration first and require a second OK press to activate the control.
         .graphicsLayer {
             scaleX = scale
             scaleY = scale
