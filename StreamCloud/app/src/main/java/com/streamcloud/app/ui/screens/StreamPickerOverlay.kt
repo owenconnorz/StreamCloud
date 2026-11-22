@@ -900,17 +900,18 @@ private suspend fun resolveCsForPicker(
             }
             else -> null
         }
-        val data = dataStr ?: return CloudStreamPickerResult(
-            emptyList(),
-            when {
-                (detail is TvSeriesLoadResponse || detail is AnimeLoadResponse) &&
-                    season != null && episode != null ->
-                    "${plugin.name} does not list episode S${season}E${episode}."
-                detail is TvSeriesLoadResponse || detail is AnimeLoadResponse ->
-                    "Choose a TV episode before loading sources from ${plugin.name}."
-                else -> "${plugin.name} returned an unsupported title type.",
-            },
-        )
+        val data = dataStr ?: run {
+            val isEpisodeResponse =
+                detail is TvSeriesLoadResponse || detail is AnimeLoadResponse
+            val message = if (isEpisodeResponse && season != null && episode != null) {
+                "${plugin.name} does not list episode S${season}E${episode}."
+            } else if (isEpisodeResponse) {
+                "Choose a TV episode before loading sources from ${plugin.name}."
+            } else {
+                "${plugin.name} returned an unsupported title type."
+            }
+            return CloudStreamPickerResult(emptyList(), message)
+        }
         val (links, _) = try {
             PluginRuntime.loadLinks(context, plugin.filePath, data, isCasting = false)
         } catch (e: CancellationException) {
