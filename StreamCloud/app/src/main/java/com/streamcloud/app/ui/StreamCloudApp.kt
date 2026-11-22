@@ -3574,9 +3574,8 @@ private fun TvPeacockTopNav(
         onDownFocusHandoffRequested()
     }
 
-    // The pill indicates the remote's current navigation focus, not the page
-    // underneath it. Keep the selected route marked subtly when focus is in
-    // the page so it cannot look like the D-pad is still stuck on Movies.
+    // The moving highlight indicates the remote's current navigation focus,
+    // while the selected route stays marked with the app's accent color.
     val activeDestinationIndex = resolveTvNavigationFocusIndex(
         navHasFocus = navHasFocus,
         searchFocused = searchFocused,
@@ -3625,16 +3624,12 @@ private fun TvPeacockTopNav(
                     vertical = 4.dp,
                 ),
         ) {
-            val barShape = RoundedCornerShape(24.dp)
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .widthIn(max = 620.dp)
                     .fillMaxWidth()
                     .height(38.dp)
-                    .clip(barShape)
-                    .background(Color.Black.copy(alpha = 0.72f))
-                    .border(1.dp, Color.White.copy(alpha = 0.14f), barShape)
                     .padding(horizontal = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -3679,11 +3674,16 @@ private fun TvPeacockTopNav(
                         val navRowOffset = (maxWidth - navRowWidth) / 2
                         val focusedPillOffset =
                             navRowOffset + slotWidth * activeDestinationIndex
+                        val animatedFocusedPillOffset by animateDpAsState(
+                            targetValue = focusedPillOffset,
+                            animationSpec = tween(durationMillis = 220),
+                            label = "tvNavigationFocusOffset",
+                        )
                         if (activeDestinationIndex >= 0) {
                             Box(
                                 Modifier
                                     .align(Alignment.CenterStart)
-                                    .offset(x = focusedPillOffset)
+                                    .offset(x = animatedFocusedPillOffset)
                                     .width(slotWidth)
                                     .height(28.dp)
                                     .padding(horizontal = 3.dp)
@@ -3700,15 +3700,6 @@ private fun TvPeacockTopNav(
                         ) {
                             destinations.forEachIndexed { index, destination ->
                                 val active = index == activeDestinationIndex
-                                val selectedTint by animateColorAsState(
-                                    targetValue = if (destination.selected && !active) {
-                                        Color.Black.copy(alpha = 0.38f)
-                                    } else {
-                                        Color.Transparent
-                                    },
-                                    animationSpec = tween(durationMillis = 180),
-                                    label = "tvNavigationSelectedTint",
-                                )
                                 Box(
                                     contentAlignment = Alignment.Center,
                                     modifier = Modifier
@@ -3750,15 +3741,6 @@ private fun TvPeacockTopNav(
                                             destination.route?.let(onTabSelected)
                                         },
                                 ) {
-                                    Box(
-                                        Modifier
-                                            .align(Alignment.Center)
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 3.dp)
-                                            .height(28.dp)
-                                            .clip(RoundedCornerShape(18.dp))
-                                            .background(selectedTint),
-                                    )
                                     Text(
                                         text = destination.label,
                                         style = MaterialTheme.typography.labelMedium,
@@ -3769,23 +3751,14 @@ private fun TvPeacockTopNav(
                                         },
                                         color = if (active) {
                                             Color(0xFF111216)
+                                        } else if (destination.selected) {
+                                            accentColor
                                         } else {
                                             Color.White.copy(alpha = 0.94f)
                                         },
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
-                                    if (destination.selected && !active) {
-                                        Box(
-                                            Modifier
-                                                .align(Alignment.BottomCenter)
-                                                .padding(bottom = 2.dp)
-                                                .width(12.dp)
-                                                .height(2.dp)
-                                                .clip(CircleShape)
-                                                .background(accentColor),
-                                        )
-                                    }
                                 }
                             }
                         }

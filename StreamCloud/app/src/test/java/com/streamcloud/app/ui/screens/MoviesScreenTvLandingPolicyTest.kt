@@ -12,7 +12,7 @@ class MoviesScreenTvLandingPolicyTest {
     @Test
     fun continueWatchingViewportAlsoFitsTheFollowingMovieShelf() {
         assertEquals(
-            194.dp,
+            320.dp,
             calculateTvHomeRowsViewportHeight(
                 continueWatchingRowHeight = 138.dp,
                 hasContinueWatching = true,
@@ -24,13 +24,29 @@ class MoviesScreenTvLandingPolicyTest {
     @Test
     fun continueWatchingViewportExpandsWhenItsCardsNeedMoreRoom() {
         assertEquals(
-            226.dp,
+            320.dp,
             calculateTvHomeRowsViewportHeight(
                 continueWatchingRowHeight = 210.dp,
                 hasContinueWatching = true,
                 hasTopTen = false,
             ),
         )
+    }
+
+    @Test
+    fun tvMovieGridMovesBetweenItsTwoRowsBeforeChangingShelves() {
+        assertEquals(4, resolveTvHomeGridVerticalTargetIndex(8, 0, 1))
+        assertEquals(7, resolveTvHomeGridVerticalTargetIndex(8, 3, 1))
+        assertEquals(1, resolveTvHomeGridVerticalTargetIndex(8, 5, -1))
+        assertNull(resolveTvHomeGridVerticalTargetIndex(8, 0, -1))
+        assertNull(resolveTvHomeGridVerticalTargetIndex(8, 5, 1))
+    }
+
+    @Test
+    fun tvMovieGridDownHandoffUsesTheNearestAvailableItemOnShortRows() {
+        assertEquals(4, resolveTvHomeGridVerticalTargetIndex(5, 2, 1))
+        assertEquals(5, resolveTvHomeGridVerticalTargetIndex(6, 3, 1))
+        assertNull(resolveTvHomeGridVerticalTargetIndex(4, 3, 1))
     }
 
     @Test

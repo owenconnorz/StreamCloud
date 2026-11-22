@@ -533,6 +533,7 @@ fun MoviesScreen(
     val tvHomeRowListStates =
         remember { mutableMapOf<String, androidx.compose.foundation.lazy.LazyListState>() }
     val tvHomeRowParentListIndices = remember { mutableMapOf<String, Int>() }
+    val tvHomeGridItemCounts = remember { mutableMapOf<String, Int>() }
     val tvHomeFocusedItemIndices = remember { mutableMapOf<String, Int>() }
     val tvHomeFocusedRowKey = remember { mutableStateOf<String?>(null) }
     val tvHomeFocusedRowHasFocus = remember { mutableStateOf(false) }
@@ -892,7 +893,8 @@ fun MoviesScreen(
                 val key = item.key as? String ?: return@mapNotNull null
                 if (!tvHomeRowFocusRequesters.containsKey(key)) return@mapNotNull null
                 val hasFocusableItems =
-                    tvHomeRowListStates[key]?.layoutInfo?.totalItemsCount?.let { it > 0 } == true
+                    tvHomeGridItemCounts[key]?.let { it > 0 } == true ||
+                        tvHomeRowListStates[key]?.layoutInfo?.totalItemsCount?.let { it > 0 } == true
                 if (!hasFocusableItems) return@mapNotNull null
                 tvHomeRowParentListIndices[key] = item.index
                 key to item.index
@@ -962,7 +964,9 @@ fun MoviesScreen(
                     rememberedItemIndex = preferredItemIndex
                         ?: tvHomeFocusedItemIndices[rowKey]
                         ?: 0,
-                    itemCount = rowListState?.layoutInfo?.totalItemsCount ?: 0,
+                    itemCount = tvHomeGridItemCounts[rowKey]
+                        ?: rowListState?.layoutInfo?.totalItemsCount
+                        ?: 0,
                 )
                 if (itemIndex == null) {
                     kotlinx.coroutines.delay(16L)
@@ -1247,6 +1251,35 @@ fun MoviesScreen(
                 .firstOrNull { it.key == sourceRowKey }
                 ?.index
                 ?: return false
+            val sourceItemIndex = tvHomeFocusedItemIndices[sourceRowKey] ?: 0
+            val gridTargetIndex = tvHomeGridItemCounts[sourceRowKey]?.let { itemCount ->
+                resolveTvHomeGridVerticalTargetIndex(
+                    itemCount = itemCount,
+                    itemIndex = sourceItemIndex,
+                    direction = direction,
+                )
+            }
+            if (gridTargetIndex != null) {
+                tvHomeFocusTransferInProgress = true
+                tvHomeFocusScope.launch {
+                    try {
+                        if (
+                            !requestTvHomeRowFocus(
+                                sourceRowKey,
+                                preferredItemIndex = gridTargetIndex,
+                            )
+                        ) {
+                            requestTvHomeRowFocus(
+                                sourceRowKey,
+                                preferredItemIndex = sourceItemIndex,
+                            )
+                        }
+                    } finally {
+                        tvHomeFocusTransferInProgress = false
+                    }
+                }
+                return true
+            }
             tvHomeFocusTransferInProgress = true
             tvHomeFocusScope.launch {
                 try {
@@ -2108,112 +2141,126 @@ fun MoviesScreen(
                             rowKey,
                         )
                         val collectionRowState = rememberLazyListState()
-                        tvHomeRowListStates[rowKey] = collectionRowState
+                        if (!isTv) {
+                            tvHomeRowListStates[rowKey] = collectionRowState
+                        }
                         var focusedPosterIndex by remember { mutableIntStateOf(-1) }
-                        KeepTvFocusedItemAtStart(
-                            listState = collectionRowState,
-                            focusedIndex = focusedPosterIndex,
-                            isTv = isTv && homeCardStyle != "portrait",
-                        )
-                        LazyRow(
-                            state = collectionRowState,
-                            modifier = Modifier
-                                .onFocusChanged { updateTvHomeRowFocus(rowKey, it.hasFocus) }
-                                .tvFocusGroup(
-                                    restoreFocusedChild = true,
-                                    focusRequester = rowFocusRequester,
+                        val movieCardContent: @Composable (Int, Dp) -> Unit = { index, cardWidth ->
+                            val m = row.items[index]
+                            val itemFocusRequester = if (isTv) {
+                                rememberTvHomeItemFocusRequester(
+                                    tvHomeItemFocusRequesters,
+                                    rowKey,
+                                    index,
                                 )
-                                .then(if (isTv) Modifier else Modifier.animateContentSize(animationSpec = tween(durationMillis = 260))),
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            itemsIndexed(
-                                row.items,
-                                key = { _, movie -> "${row.id}_${movie.id}" },
-                            ) { index, m ->
-                                val itemFocusRequester = if (isTv) {
-                                    rememberTvHomeItemFocusRequester(
+                            } else {
+                                null
+                            }
+                            val mediaType = if (m.title != null) "movie" else "tv"
+                            MidPoster(
+                                m = m,
+                                posterStyle = homeCardStyle,
+                                landscapeCardWidth = cardWidth,
+                                isWatched = m.id in watchedTmdbIds,
+                                isTv = isTv,
+                                titleLogoUrl = state.tmdbTitleLogos["$mediaType:${m.id}"],
+                                onRequestTitleLogo = { vm.requestTitleLogo(m.id, mediaType) },
+                                onFocusChanged = { hasFocus ->
+                                    if (
+                                        rowKey == firstTvHomeFallbackRowKey &&
+                                        index == 0
+                                    ) {
+                                        tvHomeFirstFallbackHasFocus.value = hasFocus
+                                    }
+                                    if (hasFocus) {
+                                        focusedPosterIndex = index
+                                        if (isTv) {
+                                            updateTvHomeItemFocus(rowKey, index, true)
+                                            focusedHomeHero = tmdbHeroBannerItem(m)
+                                        }
+                                    }
+                                },
+                                modifier = Modifier
+                                    .then(
+                                        itemFocusRequester?.let { Modifier.focusRequester(it) }
+                                            ?: Modifier,
+                                    )
+                                    .then(
+                                        if (
+                                            isTv &&
+                                            rowKey == firstTvHomeFallbackRowKey &&
+                                            index == 0
+                                        ) {
+                                            Modifier.focusRequester(
+                                                tvHomeFirstFallbackFocusRequester,
+                                            )
+                                        } else {
+                                            Modifier
+                                        },
+                                    )
+                                    .then(
+                                        if (
+                                            (
+                                                row.id == firstCollectionRowId ||
+                                                    (isTv && rowKey == firstTvHomeFallbackRowKey)
+                                                ) &&
+                                            index == 0 &&
+                                            startupFocusTarget == "collection" &&
+                                            initialFocusRequester != null
+                                        ) {
+                                            Modifier.focusRequester(initialFocusRequester)
+                                        } else {
+                                            Modifier
+                                        },
+                                    ),
+                                onClick = {
+                                    if (m.title != null) onMovieClick(m.id) else onTvClick(m.id)
+                                },
+                                onLongPress = {
+                                    posterSheet = PosterSheetItem(
+                                        m.id,
+                                        m.displayTitle,
+                                        m.posterUrl,
+                                        m.watchedMediaType(),
+                                    )
+                                },
+                            )
+                        }
+                        if (isTv) {
+                            val visibleMovieCount = minOf(row.items.size, TvHomeGridMovieLimit)
+                            val gridItemCount = visibleMovieCount + 1
+                            tvHomeGridItemCounts[rowKey] = gridItemCount
+                            TvHomeTwoRowGrid(
+                                itemCount = gridItemCount,
+                                modifier = Modifier
+                                    .onFocusChanged {
+                                        updateTvHomeRowFocus(rowKey, it.hasFocus)
+                                    }
+                                    .tvFocusGroup(
+                                        restoreFocusedChild = true,
+                                        focusRequester = rowFocusRequester,
+                                    ),
+                            ) { index, cardWidth ->
+                                if (index < visibleMovieCount) {
+                                    movieCardContent(index, cardWidth)
+                                } else {
+                                    val itemFocusRequester = rememberTvHomeItemFocusRequester(
                                         tvHomeItemFocusRequesters,
                                         rowKey,
                                         index,
                                     )
-                                } else {
-                                    null
-                                }
-                                val mediaType = if (m.title != null) "movie" else "tv"
-                                MidPoster(
-                                    m = m,
-                                    posterStyle = homeCardStyle,
-                                    landscapeCardWidth = 220.dp,
-                                    isWatched = m.id in watchedTmdbIds,
-                                    isTv = isTv,
-                                    titleLogoUrl = state.tmdbTitleLogos["$mediaType:${m.id}"],
-                                    onRequestTitleLogo = { vm.requestTitleLogo(m.id, mediaType) },
-                                    onFocusChanged = { hasFocus ->
-                                        if (
-                                            rowKey == firstTvHomeFallbackRowKey &&
-                                            index == 0
-                                        ) {
-                                            tvHomeFirstFallbackHasFocus.value = hasFocus
-                                        }
-                                        if (hasFocus) {
-                                            focusedPosterIndex = index
-                                            updateTvHomeItemFocus(rowKey, index, true)
-                                            if (isTv) {
-                                                focusedHomeHero = tmdbHeroBannerItem(m)
-                                            }
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .then(
-                                            itemFocusRequester?.let { Modifier.focusRequester(it) }
-                                                ?: Modifier,
-                                        )
-                                        .then(
-                                            if (
-                                                isTv &&
-                                                rowKey == firstTvHomeFallbackRowKey &&
-                                                index == 0
-                                            ) {
-                                                Modifier.focusRequester(
-                                                    tvHomeFirstFallbackFocusRequester,
-                                                )
-                                            } else {
-                                                Modifier
-                                            },
-                                        )
-                                        .then(
-                                            if (
-                                                (
-                                                    row.id == firstCollectionRowId ||
-                                                        (isTv && rowKey == firstTvHomeFallbackRowKey)
-                                                    ) &&
-                                                index == 0 &&
-                                                startupFocusTarget == "collection" &&
-                                                initialFocusRequester != null
-                                            ) {
-                                                Modifier.focusRequester(initialFocusRequester)
-                                            } else {
-                                                Modifier
-                                            },
-                                        ),
-                                    onClick = {
-                                        if (m.title != null) onMovieClick(m.id) else onTvClick(m.id)
-                                    },
-                                    onLongPress = {
-                                        posterSheet = PosterSheetItem(
-                                            m.id,
-                                            m.displayTitle,
-                                            m.posterUrl,
-                                            m.watchedMediaType(),
-                                        )
-                                    },
-                                )
-                            }
-                            if (isTv) {
-                                item(key = "${row.id}_viewall") {
                                     ViewAllCard(
                                         posterStyle = homeCardStyle,
+                                        cardWidth = cardWidth,
+                                        modifier = Modifier
+                                            .focusRequester(itemFocusRequester)
+                                            .onFocusChanged {
+                                                updateTvHomeItemFocus(
+                                                    rowKey,
+                                                    index,
+                                                    it.isFocused || it.hasFocus,
+                                                )
+                                            },
                                         onClick = {
                                             onOpenCatalog(
                                                 "tmdb:${row.id}",
@@ -2222,6 +2269,30 @@ fun MoviesScreen(
                                             )
                                         },
                                     )
+                                }
+                            }
+                        } else {
+                            tvHomeGridItemCounts.remove(rowKey)
+                            tvHomeRowListStates[rowKey] = collectionRowState
+                            LazyRow(
+                                state = collectionRowState,
+                                modifier = Modifier
+                                    .onFocusChanged {
+                                        updateTvHomeRowFocus(rowKey, it.hasFocus)
+                                    }
+                                    .tvFocusGroup(
+                                        restoreFocusedChild = true,
+                                        focusRequester = rowFocusRequester,
+                                    )
+                                    .animateContentSize(animationSpec = tween(durationMillis = 260)),
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                itemsIndexed(
+                                    row.items,
+                                    key = { _, movie -> "${row.id}_${movie.id}" },
+                                ) { index, _ ->
+                                    movieCardContent(index, 220.dp)
                                 }
                             }
                         }
@@ -2249,144 +2320,157 @@ fun MoviesScreen(
                             rowKey,
                         )
                         val stremioRowState = rememberLazyListState()
-                        tvHomeRowListStates[rowKey] = stremioRowState
+                        if (!isTv) {
+                            tvHomeRowListStates[rowKey] = stremioRowState
+                        }
                         var focusedPosterIndex by remember { mutableIntStateOf(-1) }
-                        KeepTvFocusedItemAtStart(
-                            listState = stremioRowState,
-                            focusedIndex = focusedPosterIndex,
-                            isTv = isTv && homeCardStyle != "portrait",
-                        )
-                        LazyRow(
-                            state = stremioRowState,
-                            modifier = Modifier
-                                .onFocusChanged { updateTvHomeRowFocus(rowKey, it.hasFocus) }
-                                .tvFocusGroup(
-                                    restoreFocusedChild = true,
-                                    focusRequester = rowFocusRequester,
-                                ),
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            itemsIndexed(
-                                row.items,
-                                key = { _, meta -> "${row.rowKey}_${meta.id}" },
-                            ) { index, meta ->
-                                val itemFocusRequester = if (isTv) {
-                                    rememberTvHomeItemFocusRequester(
+                        val stremioCardContent: @Composable (Int, Dp) -> Unit = { index, cardWidth ->
+                            val meta = row.items[index]
+                            val itemFocusRequester = if (isTv) {
+                                rememberTvHomeItemFocusRequester(
+                                    tvHomeItemFocusRequesters,
+                                    rowKey,
+                                    index,
+                                )
+                            } else {
+                                null
+                            }
+                            val stremioKey = "stremio:${meta.type}:${meta.id}"
+                            val mediaType = if (
+                                meta.type.equals("series", ignoreCase = true) ||
+                                meta.type.equals("tv", ignoreCase = true)
+                            ) "tv" else "movie"
+                            val resolvedTmdbId = state.stremioTmdbIds[stremioKey]
+                            StremioPoster(
+                                meta = meta,
+                                posterStyle = homeCardStyle,
+                                cardWidth = cardWidth,
+                                resolvedTmdbId = resolvedTmdbId,
+                                onRequestTmdbId = { vm.requestStremioTmdbId(meta) },
+                                titleLogoUrl = resolvedTmdbId?.let {
+                                    state.tmdbTitleLogos["$mediaType:$it"]
+                                },
+                                onRequestTitleLogo = vm::requestTitleLogo,
+                                onFocusChanged = { hasFocus ->
+                                    if (
+                                        rowKey == firstTvHomeFallbackRowKey &&
+                                        index == 0
+                                    ) {
+                                        tvHomeFirstFallbackHasFocus.value = hasFocus
+                                    }
+                                    if (hasFocus) {
+                                        focusedPosterIndex = index
+                                        if (isTv) {
+                                            updateTvHomeItemFocus(rowKey, index, true)
+                                            focusedHomeHero = stremioHeroBannerItem(meta)
+                                        }
+                                    }
+                                },
+                                modifier = Modifier
+                                    .then(
+                                        itemFocusRequester?.let { Modifier.focusRequester(it) }
+                                            ?: Modifier,
+                                    )
+                                    .then(
+                                        if (
+                                            isTv &&
+                                            rowKey == firstTvHomeFallbackRowKey &&
+                                            index == 0
+                                        ) {
+                                            Modifier.focusRequester(
+                                                tvHomeFirstFallbackFocusRequester,
+                                            )
+                                        } else {
+                                            Modifier
+                                        },
+                                    )
+                                    .then(
+                                        if (
+                                            row.rowKey == firstStremioRowKey &&
+                                            index == 0 &&
+                                            startupFocusTarget == "stremio" &&
+                                            initialFocusRequester != null
+                                        ) {
+                                            Modifier.focusRequester(initialFocusRequester)
+                                        } else {
+                                            Modifier
+                                        },
+                                    )
+                                    .then(
+                                        if (
+                                            isTv &&
+                                            rowKey == firstTvHomeFallbackRowKey &&
+                                            index == 0 &&
+                                            startupFocusTarget == "first_row" &&
+                                            initialFocusRequester != null
+                                        ) {
+                                            Modifier.focusRequester(initialFocusRequester)
+                                        } else {
+                                            Modifier
+                                        },
+                                    ),
+                                onLongPress = {
+                                    posterSheet = PosterSheetItem(
+                                        tmdbId = null,
+                                        title = meta.name,
+                                        posterUrl = meta.poster,
+                                        mediaType = row.type,
+                                    )
+                                },
+                            ) {
+                                if (meta.id.startsWith("tt", ignoreCase = true)) {
+                                    vm.openStremioMeta(meta) { tmdbId, _ ->
+                                        if (tmdbId != null) {
+                                            if (meta.type == "series") onTvClick(tmdbId)
+                                            else onMovieClick(tmdbId)
+                                        }
+                                    }
+                                } else {
+                                    onOpenStremio(
+                                        row.addonId,
+                                        row.type,
+                                        meta.id,
+                                        meta.name,
+                                        meta.poster,
+                                    )
+                                }
+                            }
+                        }
+                        if (isTv) {
+                            val visibleMovieCount = minOf(row.items.size, TvHomeGridMovieLimit)
+                            val gridItemCount = visibleMovieCount + 1
+                            tvHomeGridItemCounts[rowKey] = gridItemCount
+                            TvHomeTwoRowGrid(
+                                itemCount = gridItemCount,
+                                modifier = Modifier
+                                    .onFocusChanged {
+                                        updateTvHomeRowFocus(rowKey, it.hasFocus)
+                                    }
+                                    .tvFocusGroup(
+                                        restoreFocusedChild = true,
+                                        focusRequester = rowFocusRequester,
+                                    ),
+                            ) { index, cardWidth ->
+                                if (index < visibleMovieCount) {
+                                    stremioCardContent(index, cardWidth)
+                                } else {
+                                    val itemFocusRequester = rememberTvHomeItemFocusRequester(
                                         tvHomeItemFocusRequesters,
                                         rowKey,
                                         index,
                                     )
-                                } else {
-                                    null
-                                }
-                                val stremioKey = "stremio:${meta.type}:${meta.id}"
-                                val mediaType = if (
-                                    meta.type.equals("series", ignoreCase = true) ||
-                                    meta.type.equals("tv", ignoreCase = true)
-                                ) "tv" else "movie"
-                                val resolvedTmdbId = state.stremioTmdbIds[stremioKey]
-                                StremioPoster(
-                                    meta = meta,
-                                    posterStyle = homeCardStyle,
-                                    resolvedTmdbId = resolvedTmdbId,
-                                    onRequestTmdbId = { vm.requestStremioTmdbId(meta) },
-                                    titleLogoUrl = resolvedTmdbId?.let {
-                                        state.tmdbTitleLogos["$mediaType:$it"]
-                                    },
-                                    onRequestTitleLogo = vm::requestTitleLogo,
-                                    onFocusChanged = { hasFocus ->
-                                        if (
-                                            rowKey == firstTvHomeFallbackRowKey &&
-                                            index == 0
-                                        ) {
-                                            tvHomeFirstFallbackHasFocus.value = hasFocus
-                                        }
-                                        if (hasFocus) {
-                                            focusedPosterIndex = index
-                                            updateTvHomeItemFocus(rowKey, index, true)
-                                            if (isTv) {
-                                                focusedHomeHero = stremioHeroBannerItem(meta)
-                                            }
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .then(
-                                            itemFocusRequester?.let { Modifier.focusRequester(it) }
-                                                ?: Modifier,
-                                        )
-                                        .then(
-                                            if (
-                                                isTv &&
-                                                rowKey == firstTvHomeFallbackRowKey &&
-                                                index == 0
-                                            ) {
-                                                Modifier.focusRequester(
-                                                    tvHomeFirstFallbackFocusRequester,
-                                                )
-                                            } else {
-                                                Modifier
-                                            },
-                                        )
-                                        .then(
-                                            if (
-                                                row.rowKey == firstStremioRowKey &&
-                                                index == 0 &&
-                                                startupFocusTarget == "stremio" &&
-                                                initialFocusRequester != null
-                                            ) {
-                                                Modifier.focusRequester(initialFocusRequester)
-                                            } else {
-                                                Modifier
-                                            },
-                                        )
-                                        .then(
-                                            if (
-                                                isTv &&
-                                                rowKey == firstTvHomeFallbackRowKey &&
-                                                index == 0 &&
-                                                startupFocusTarget == "first_row" &&
-                                                initialFocusRequester != null
-                                            ) {
-                                                Modifier.focusRequester(initialFocusRequester)
-                                            } else {
-                                                Modifier
-                                            },
-                                        ),
-                                    onLongPress = {
-                                        posterSheet = PosterSheetItem(
-                                            tmdbId = null,
-                                            title = meta.name,
-                                            posterUrl = meta.poster,
-                                            mediaType = row.type,
-                                        )
-                                    },
-                                ) {
-                                    if (meta.id.startsWith("tt", ignoreCase = true)) {
-
-
-
-                                        vm.openStremioMeta(meta) { tmdbId, _ ->
-                                            if (tmdbId != null) {
-                                                if (meta.type == "series") onTvClick(tmdbId)
-                                                else onMovieClick(tmdbId)
-                                            }
-                                        }
-                                    } else {
-
-
-
-                                        onOpenStremio(
-                                            row.addonId, row.type, meta.id,
-                                            meta.name, meta.poster,
-                                        )
-                                    }
-                                }
-                            }
-                            if (isTv) {
-                                item(key = "${row.rowKey}_viewall") {
                                     ViewAllCard(
                                         posterStyle = homeCardStyle,
+                                        cardWidth = cardWidth,
+                                        modifier = Modifier
+                                            .focusRequester(itemFocusRequester)
+                                            .onFocusChanged {
+                                                updateTvHomeItemFocus(
+                                                    rowKey,
+                                                    index,
+                                                    it.isFocused || it.hasFocus,
+                                                )
+                                            },
                                         onClick = {
                                             onOpenCatalog(
                                                 "stremio:${row.addonId}:${row.type}:${row.catalogId}",
@@ -2395,6 +2479,29 @@ fun MoviesScreen(
                                             )
                                         },
                                     )
+                                }
+                            }
+                        } else {
+                            tvHomeGridItemCounts.remove(rowKey)
+                            tvHomeRowListStates[rowKey] = stremioRowState
+                            LazyRow(
+                                state = stremioRowState,
+                                modifier = Modifier
+                                    .onFocusChanged {
+                                        updateTvHomeRowFocus(rowKey, it.hasFocus)
+                                    }
+                                    .tvFocusGroup(
+                                        restoreFocusedChild = true,
+                                        focusRequester = rowFocusRequester,
+                                    ),
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                itemsIndexed(
+                                    row.items,
+                                    key = { _, meta -> "${row.rowKey}_${meta.id}" },
+                                ) { index, _ ->
+                                    stremioCardContent(index, 220.dp)
                                 }
                             }
                         }
@@ -2445,127 +2552,140 @@ fun MoviesScreen(
                             rowKey,
                         )
                         val csLandscape = homeCardStyle == "landscape"
-                        val csAspect = if (csLandscape) 16f / 9f else 2f / 3f
                         val csRowState = rememberLazyListState()
-                        tvHomeRowListStates[rowKey] = csRowState
+                        if (!isTv) {
+                            tvHomeRowListStates[rowKey] = csRowState
+                        }
                         var focusedPosterIndex by remember { mutableIntStateOf(-1) }
-                        KeepTvFocusedItemAtStart(
-                            listState = csRowState,
-                            focusedIndex = focusedPosterIndex,
-                            isTv = isTv && homeCardStyle != "portrait",
-                        )
-                        LazyRow(
-                            state = csRowState,
-                            modifier = Modifier
-                                .onFocusChanged { updateTvHomeRowFocus(rowKey, it.hasFocus) }
-                                .tvFocusGroup(
-                                    restoreFocusedChild = true,
-                                    focusRequester = rowFocusRequester,
-                                ),
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            itemsIndexed(
-                                row.items,
-                                key = { _, item ->
-                                    "${row.pluginInternalName}_${row.sectionName}_${item.url}"
+                        val csCardContent: @Composable (Int, Dp) -> Unit = { index, cardWidth ->
+                            val sr = row.items[index]
+                            val itemFocusRequester = if (isTv) {
+                                rememberTvHomeItemFocusRequester(
+                                    tvHomeItemFocusRequesters,
+                                    rowKey,
+                                    index,
+                                )
+                            } else {
+                                null
+                            }
+                            val tmdbKey = csHomeTmdbKey(
+                                row.pluginInternalName,
+                                row.sectionName,
+                                sr.url,
+                            )
+                            val csTmdbMovie = state.csHomeTmdbMovies[tmdbKey]
+                            val csMediaType = if (csTmdbMovie?.title != null) "movie" else "tv"
+                            LaunchedEffect(isTv, focusedPosterIndex, index, csTmdbMovie) {
+                                if (isTv && focusedPosterIndex == index && csTmdbMovie != null) {
+                                    tmdbHeroBannerItem(csTmdbMovie)?.let { focusedHomeHero = it }
+                                }
+                            }
+                            val defaultCardWidth = if (csLandscape) 200.dp else 120.dp
+                            CsHomePosterCard(
+                                item = sr,
+                                defaultWidth = cardWidth.takeIf { isTv } ?: defaultCardWidth,
+                                homeCardStyle = homeCardStyle,
+                                isTv = isTv,
+                                tmdbPrefetchDelayMillis = index * 120L,
+                                tmdbMovie = csTmdbMovie,
+                                onRequestTmdbMovie = {
+                                    vm.requestCsHomeTmdbMovie(tmdbKey, sr)
                                 },
-                            ) { index, sr ->
-                                val itemFocusRequester = if (isTv) {
-                                    rememberTvHomeItemFocusRequester(
+                                titleLogoUrl = csTmdbMovie?.let {
+                                    state.tmdbTitleLogos["$csMediaType:${it.id}"]
+                                },
+                                onRequestTitleLogo = vm::requestTitleLogo,
+                                onFocusChanged = { hasFocus ->
+                                    if (
+                                        rowKey == firstTvHomeFallbackRowKey &&
+                                        index == 0
+                                    ) {
+                                        tvHomeFirstFallbackHasFocus.value = hasFocus
+                                    }
+                                    if (hasFocus) {
+                                        focusedPosterIndex = index
+                                        if (isTv) {
+                                            updateTvHomeItemFocus(rowKey, index, true)
+                                            if (csTmdbMovie != null) {
+                                                focusedHomeHero = tmdbHeroBannerItem(csTmdbMovie)
+                                            }
+                                        }
+                                    }
+                                },
+                                modifier = (itemFocusRequester?.let {
+                                    Modifier.focusRequester(it)
+                                } ?: Modifier)
+                                    .then(
+                                        if (
+                                            isTv &&
+                                            rowKey == firstTvHomeFallbackRowKey &&
+                                            index == 0
+                                        ) {
+                                            Modifier.focusRequester(
+                                                tvHomeFirstFallbackFocusRequester,
+                                            )
+                                        } else {
+                                            Modifier
+                                        },
+                                    )
+                                    .then(
+                                        if (
+                                            isTv &&
+                                            rowKey == firstTvHomeFallbackRowKey &&
+                                            index == 0 &&
+                                            startupFocusTarget == "first_row" &&
+                                            initialFocusRequester != null
+                                        ) {
+                                            Modifier.focusRequester(initialFocusRequester)
+                                        } else {
+                                            Modifier
+                                        },
+                                    ),
+                                onClick = {
+                                    onOpenCsItem(
+                                        row.pluginInternalName,
+                                        sr.url,
+                                        sr.name,
+                                        sr.posterUrl,
+                                    )
+                                },
+                            )
+                        }
+                        if (isTv) {
+                            val visibleMovieCount = minOf(row.items.size, TvHomeGridMovieLimit)
+                            val gridItemCount = visibleMovieCount + 1
+                            tvHomeGridItemCounts[rowKey] = gridItemCount
+                            TvHomeTwoRowGrid(
+                                itemCount = gridItemCount,
+                                modifier = Modifier
+                                    .onFocusChanged {
+                                        updateTvHomeRowFocus(rowKey, it.hasFocus)
+                                    }
+                                    .tvFocusGroup(
+                                        restoreFocusedChild = true,
+                                        focusRequester = rowFocusRequester,
+                                    ),
+                            ) { index, cardWidth ->
+                                if (index < visibleMovieCount) {
+                                    csCardContent(index, cardWidth)
+                                } else {
+                                    val itemFocusRequester = rememberTvHomeItemFocusRequester(
                                         tvHomeItemFocusRequesters,
                                         rowKey,
                                         index,
                                     )
-                                } else {
-                                    null
-                                }
-                                val tmdbKey = csHomeTmdbKey(
-                                    row.pluginInternalName,
-                                    row.sectionName,
-                                    sr.url,
-                                )
-                                val csTmdbMovie = state.csHomeTmdbMovies[tmdbKey]
-                                val csMediaType = if (csTmdbMovie?.title != null) "movie" else "tv"
-                                LaunchedEffect(isTv, focusedPosterIndex, index, csTmdbMovie) {
-                                    if (isTv && focusedPosterIndex == index && csTmdbMovie != null) {
-                                        tmdbHeroBannerItem(csTmdbMovie)?.let { focusedHomeHero = it }
-                                    }
-                                }
-                                val csCardLandscape = homeCardStyle == "landscape"
-                                val csCardWidth = if (csCardLandscape) 200.dp else 120.dp
-                                CsHomePosterCard(
-                                    item = sr,
-                                    defaultWidth = csCardWidth,
-                                    homeCardStyle = homeCardStyle,
-                                    isTv = isTv,
-                                    tmdbPrefetchDelayMillis = index * 120L,
-                                    tmdbMovie = csTmdbMovie,
-                                    onRequestTmdbMovie = {
-                                        vm.requestCsHomeTmdbMovie(tmdbKey, sr)
-                                    },
-                                    titleLogoUrl = csTmdbMovie?.let {
-                                        state.tmdbTitleLogos["$csMediaType:${it.id}"]
-                                    },
-                                    onRequestTitleLogo = vm::requestTitleLogo,
-                                    onFocusChanged = { hasFocus ->
-                                        if (
-                                            rowKey == firstTvHomeFallbackRowKey &&
-                                            index == 0
-                                        ) {
-                                            tvHomeFirstFallbackHasFocus.value = hasFocus
-                                        }
-                                        if (hasFocus) {
-                                            focusedPosterIndex = index
-                                            updateTvHomeItemFocus(rowKey, index, true)
-                                            if (isTv && csTmdbMovie != null) {
-                                                focusedHomeHero = tmdbHeroBannerItem(csTmdbMovie)
-                                            }
-                                        }
-                                    },
-                                    modifier = (itemFocusRequester?.let {
-                                        Modifier.focusRequester(it)
-                                    } ?: Modifier)
-                                        .then(
-                                            if (
-                                                isTv &&
-                                                rowKey == firstTvHomeFallbackRowKey &&
-                                                index == 0
-                                            ) {
-                                                Modifier.focusRequester(
-                                                    tvHomeFirstFallbackFocusRequester,
-                                                )
-                                            } else {
-                                                Modifier
-                                            },
-                                        )
-                                        .then(
-                                            if (
-                                                isTv &&
-                                                rowKey == firstTvHomeFallbackRowKey &&
-                                                index == 0 &&
-                                                startupFocusTarget == "first_row" &&
-                                                initialFocusRequester != null
-                                            ) {
-                                                Modifier.focusRequester(initialFocusRequester)
-                                            } else {
-                                                Modifier
-                                            },
-                                        ),
-                                    onClick = {
-                                        onOpenCsItem(
-                                            row.pluginInternalName,
-                                            sr.url,
-                                            sr.name,
-                                            sr.posterUrl,
-                                        )
-                                    },
-                                )
-                            }
-                            if (isTv) {
-                                item(key = "${row.pluginInternalName}_${row.sectionName}_viewall") {
                                     ViewAllCard(
                                         posterStyle = homeCardStyle,
+                                        cardWidth = cardWidth,
+                                        modifier = Modifier
+                                            .focusRequester(itemFocusRequester)
+                                            .onFocusChanged {
+                                                updateTvHomeItemFocus(
+                                                    rowKey,
+                                                    index,
+                                                    it.isFocused || it.hasFocus,
+                                                )
+                                            },
                                         onClick = {
                                             onViewAllCsSection(
                                                 row.pluginInternalName,
@@ -2574,6 +2694,31 @@ fun MoviesScreen(
                                             )
                                         },
                                     )
+                                }
+                            }
+                        } else {
+                            tvHomeGridItemCounts.remove(rowKey)
+                            tvHomeRowListStates[rowKey] = csRowState
+                            LazyRow(
+                                state = csRowState,
+                                modifier = Modifier
+                                    .onFocusChanged {
+                                        updateTvHomeRowFocus(rowKey, it.hasFocus)
+                                    }
+                                    .tvFocusGroup(
+                                        restoreFocusedChild = true,
+                                        focusRequester = rowFocusRequester,
+                                    ),
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                itemsIndexed(
+                                    row.items,
+                                    key = { _, item ->
+                                        "${row.pluginInternalName}_${row.sectionName}_${item.url}"
+                                    },
+                                ) { index, _ ->
+                                    csCardContent(index, 220.dp)
                                 }
                             }
                         }
@@ -2870,12 +3015,34 @@ internal fun calculateTvHomeRowsViewportHeight(
     hasContinueWatching: Boolean,
     hasTopTen: Boolean,
 ): Dp = when {
-    hasContinueWatching -> maxOf(continueWatchingRowHeight + 16.dp, 194.dp)
-    hasTopTen -> 194.dp
-    else -> 224.dp
+    hasContinueWatching -> maxOf(continueWatchingRowHeight + 16.dp, 320.dp)
+    hasTopTen -> 320.dp
+    else -> 320.dp
+}
+
+internal fun resolveTvHomeGridVerticalTargetIndex(
+    itemCount: Int,
+    itemIndex: Int,
+    direction: Int,
+    columns: Int = TvHomeGridColumns,
+): Int? {
+    if (columns <= 0 || itemIndex !in 0 until itemCount) return null
+    return when (direction) {
+        1 -> {
+            if (itemIndex >= columns || itemCount <= columns) return null
+            (columns + itemIndex).coerceAtMost(itemCount - 1)
+        }
+        -1 -> {
+            if (itemIndex < columns) return null
+            itemIndex - columns
+        }
+        else -> null
+    }
 }
 
 private const val TvHomeFocusScanLimit = 12
+private const val TvHomeGridColumns = 4
+private const val TvHomeGridMovieLimit = 7
 
 internal fun selectAdjacentTvHomeFocusRow(
     visibleRows: List<Pair<String, Int>>,
@@ -3497,17 +3664,21 @@ private fun TvHeroBackdrop(
                                     .onPreviewKeyEvent { event ->
                                         handleHeroActionKey(event, isPrimaryAction = true)
                                     }
-                                    .border(
-                                        width = if (watchNowFocused) 4.dp else 1.dp,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        shape = RoundedCornerShape(8.dp),
-                                    ),
+                                    .height(46.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color.White,
-                                    contentColor = Color(0xFF15151A),
+                                    containerColor = if (watchNowFocused) {
+                                        Color.White
+                                    } else {
+                                        Color.Black.copy(alpha = 0.64f)
+                                    },
+                                    contentColor = if (watchNowFocused) {
+                                        Color(0xFF15151A)
+                                    } else {
+                                        Color.White
+                                    },
                                 ),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 5.dp),
+                                shape = CircleShape,
+                                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
                             ) {
                                 Icon(
                                     Icons.Default.PlayArrow,
@@ -3525,6 +3696,7 @@ private fun TvHeroBackdrop(
                                 onClick = { onMoreDetails(hero) },
                                 modifier = Modifier
                                     .focusRequester(moreDetailsFocusRequester)
+                                    .size(46.dp)
                                     .focusProperties {
                                         up = watchNowFocusRequester
                                         left = watchNowFocusRequester
@@ -3532,22 +3704,21 @@ private fun TvHeroBackdrop(
                                     .onFocusChanged { moreDetailsFocused = it.isFocused }
                                     .onPreviewKeyEvent { event ->
                                         handleHeroActionKey(event, isPrimaryAction = false)
-                                    }
-                                    .border(
-                                        width = if (moreDetailsFocused) 4.dp else 1.dp,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        shape = RoundedCornerShape(8.dp),
-                                    ),
+                                    },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (moreDetailsFocused) {
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.88f)
+                                        Color.White
                                     } else {
-                                        Color.Black.copy(alpha = 0.56f)
+                                        Color.Black.copy(alpha = 0.64f)
                                     },
-                                    contentColor = Color.White,
+                                    contentColor = if (moreDetailsFocused) {
+                                        Color(0xFF15151A)
+                                    } else {
+                                        Color.White
+                                    },
                                 ),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 5.dp),
+                                shape = CircleShape,
+                                contentPadding = PaddingValues(0.dp),
                             ) {
                                 Icon(
                                     Icons.Default.Info,
@@ -4231,15 +4402,55 @@ private fun SectionTitle(text: String) {
     )
 }
 
-/** Card appended at the tail of a category LazyRow on TV so the D-pad can select "View all". */
+@Composable
+private fun TvHomeTwoRowGrid(
+    itemCount: Int,
+    modifier: Modifier = Modifier,
+    itemContent: @Composable (Int, Dp) -> Unit,
+) {
+    val columns = TvHomeGridColumns
+    val horizontalPadding = 16.dp
+    val spacing = 12.dp
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val availableWidth = (
+            maxWidth -
+                horizontalPadding * 2 -
+                spacing * (columns - 1).toFloat()
+            ).coerceAtLeast(0.dp)
+        val cardWidth = (availableWidth / columns.toFloat()).coerceIn(112.dp, 240.dp)
+        val rowCount = ((itemCount + columns - 1) / columns).coerceIn(1, 2)
+        Column(verticalArrangement = Arrangement.spacedBy(spacing)) {
+            repeat(rowCount) { rowIndex ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = horizontalPadding),
+                    horizontalArrangement = Arrangement.spacedBy(spacing),
+                ) {
+                    repeat(columns) { columnIndex ->
+                        val itemIndex = rowIndex * columns + columnIndex
+                        if (itemIndex < itemCount) {
+                            itemContent(itemIndex, cardWidth)
+                        } else {
+                            Spacer(Modifier.width(cardWidth))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Card appended at the end of a home shelf so the D-pad can select "View all". */
 @Composable
 private fun ViewAllCard(
     posterStyle: String = "portrait",
     modifier: Modifier = Modifier,
+    cardWidth: Dp? = null,
     onClick: () -> Unit,
 ) {
     val useLandscape = posterStyle == "landscape"
-    val width = if (useLandscape) 220.dp else 140.dp
+    val width = cardWidth ?: if (useLandscape) 220.dp else 140.dp
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
     Column(
         modifier = modifier
@@ -4882,6 +5093,7 @@ private fun MidPoster(
 private fun StremioPoster(
     meta: StremioMetaPreview,
     posterStyle: String = "portrait",
+    cardWidth: Dp? = null,
     resolvedTmdbId: Long?,
     onRequestTmdbId: () -> Unit,
     titleLogoUrl: String? = null,
@@ -4900,7 +5112,7 @@ private fun StremioPoster(
     val isExpanded = isTv && posterStyle == "expanding" && isFocused
     val posterShape = RoundedCornerShape(12.dp)
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
-    val width = if (useLandscape) 220.dp else 140.dp
+    val width = cardWidth ?: if (useLandscape) 220.dp else 140.dp
     val expandedWidth = 320.dp
     val isSeries = meta.type.equals("series", ignoreCase = true) ||
         meta.type.equals("tv", ignoreCase = true)
