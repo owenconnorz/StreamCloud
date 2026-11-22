@@ -2924,6 +2924,23 @@ private data class TvTopNavigationDestination(
     val route: String? = null,
 )
 
+internal fun resolveTvNavigationFocusIndex(
+    navHasFocus: Boolean,
+    searchFocused: Boolean,
+    profileFocused: Boolean,
+    destinationHasFocus: Boolean,
+    focusedDestinationIndex: Int,
+): Int = if (
+    navHasFocus &&
+    destinationHasFocus &&
+    !searchFocused &&
+    !profileFocused
+) {
+    focusedDestinationIndex
+} else {
+    -1
+}
+
 @Composable
 private fun TvPrimeTopNav(
     tabs: List<Tab>,
@@ -3475,6 +3492,7 @@ private fun TvPeacockTopNav(
     var focusedDestinationKey by remember { mutableStateOf<String?>(null) }
     var searchFocused by remember { mutableStateOf(false) }
     var profileFocused by remember { mutableStateOf(false) }
+    var destinationHasFocus by remember { mutableStateOf(false) }
     var pendingDownFocusHandoff by remember { mutableStateOf(false) }
     var downFocusAttempt by remember { mutableIntStateOf(0) }
     val focusManager = LocalFocusManager.current
@@ -3483,7 +3501,10 @@ private fun TvPeacockTopNav(
     val profileFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(currentRoute, navHasFocus, selectedKey) {
-        if (!navHasFocus) focusedDestinationKey = selectedKey
+        if (!navHasFocus) {
+            focusedDestinationKey = selectedKey
+            destinationHasFocus = false
+        }
     }
 
     LaunchedEffect(
@@ -3553,15 +3574,18 @@ private fun TvPeacockTopNav(
         onDownFocusHandoffRequested()
     }
 
-    val activeDestinationIndex = if (searchFocused || profileFocused) {
-        -1
-    } else {
-        destinations.indexOfFirst {
-            it.key == (if (navHasFocus) focusedDestinationKey else selectedKey)
-        }.takeIf { it >= 0 }
-            ?: selectedIndex.takeIf { it >= 0 }
-            ?: 0
-    }
+    // The pill indicates the remote's current navigation focus, not the page
+    // underneath it. Keep the selected route marked subtly when focus is in
+    // the page so it cannot look like the D-pad is still stuck on Movies.
+    val activeDestinationIndex = resolveTvNavigationFocusIndex(
+        navHasFocus = navHasFocus,
+        searchFocused = searchFocused,
+        profileFocused = profileFocused,
+        destinationHasFocus = destinationHasFocus,
+        focusedDestinationIndex = destinations.indexOfFirst {
+            it.key == focusedDestinationKey
+        },
+    )
     val focusRequesterIndex = selectedIndex.takeIf { it >= 0 } ?: 0
 
     Box(
@@ -3570,7 +3594,10 @@ private fun TvPeacockTopNav(
             .onFocusChanged {
                 navHasFocus = it.hasFocus
                 onNavFocusChanged(it.hasFocus)
-                if (!it.hasFocus) pendingDownFocusHandoff = false
+                if (!it.hasFocus) {
+                    destinationHasFocus = false
+                    pendingDownFocusHandoff = false
+                }
             }
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -3620,7 +3647,10 @@ private fun TvPeacockTopNav(
                         .focusProperties { right = firstDestinationFocusRequester }
                         .onFocusChanged {
                             searchFocused = it.isFocused
-                            if (it.isFocused) focusedDestinationKey = null
+                            if (it.isFocused) {
+                                destinationHasFocus = false
+                                focusedDestinationKey = null
+                            }
                         }
                         .clip(CircleShape)
                         .background(
@@ -3647,16 +3677,13 @@ private fun TvPeacockTopNav(
                         val slotWidth = (maxWidth / destinations.size).coerceAtMost(104.dp)
                         val navRowWidth = slotWidth * destinations.size
                         val navRowOffset = (maxWidth - navRowWidth) / 2
-                        val selectedPillOffset by animateDpAsState(
-                            targetValue = navRowOffset + slotWidth * activeDestinationIndex,
-                            animationSpec = tween(durationMillis = 220),
-                            label = "tvPeacockNavigationSelection",
-                        )
+                        val focusedPillOffset =
+                            navRowOffset + slotWidth * activeDestinationIndex
                         if (activeDestinationIndex >= 0) {
                             Box(
                                 Modifier
                                     .align(Alignment.CenterStart)
-                                    .offset(x = selectedPillOffset)
+                                    .offset(x = focusedPillOffset)
                                     .width(slotWidth)
                                     .height(28.dp)
                                     .padding(horizontal = 3.dp)
@@ -3706,6 +3733,7 @@ private fun TvPeacockTopNav(
                                         .onFocusChanged { focus ->
                                             if (focus.isFocused) {
                                                 focusedDestinationKey = destination.key
+                                                destinationHasFocus = true
                                             }
                                         }
                                         .clickable {
@@ -3716,7 +3744,7 @@ private fun TvPeacockTopNav(
                                     Text(
                                         text = destination.label,
                                         style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = if (active) {
+                                        fontWeight = if (active || destination.selected) {
                                             FontWeight.SemiBold
                                         } else {
                                             FontWeight.Medium
@@ -3729,6 +3757,17 @@ private fun TvPeacockTopNav(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
+                                    if (destination.selected && !active) {
+                                        Box(
+                                            Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .padding(bottom = 2.dp)
+                                                .width(12.dp)
+                                                .height(2.dp)
+                                                .clip(CircleShape)
+                                                .background(accentColor),
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -3750,7 +3789,10 @@ private fun TvPeacockTopNav(
                         )
                         .onFocusChanged {
                             profileFocused = it.isFocused
-                            if (it.isFocused) focusedDestinationKey = null
+                            if (it.isFocused) {
+                                destinationHasFocus = false
+                                focusedDestinationKey = null
+                            }
                         }
                         .tvFocusBorder(CircleShape, showOutline = false)
                         .border(

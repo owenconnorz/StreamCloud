@@ -1,5 +1,6 @@
 package com.streamcloud.app.ui.screens
 
+import androidx.compose.ui.unit.dp
 import com.streamcloud.app.ui.viewmodel.HeroBannerItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -8,6 +9,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MoviesScreenTvLandingPolicyTest {
+    @Test
+    fun continueWatchingViewportAlsoFitsTheFollowingMovieShelf() {
+        assertEquals(
+            194.dp,
+            calculateTvHomeRowsViewportHeight(
+                continueWatchingRowHeight = 138.dp,
+                hasContinueWatching = true,
+                hasTopTen = true,
+            ),
+        )
+    }
+
+    @Test
+    fun continueWatchingViewportExpandsWhenItsCardsNeedMoreRoom() {
+        assertEquals(
+            226.dp,
+            calculateTvHomeRowsViewportHeight(
+                continueWatchingRowHeight = 210.dp,
+                hasContinueWatching = true,
+                hasTopTen = false,
+            ),
+        )
+    }
+
     @Test
     fun featuredTvHeroSkipsContinueWatchingTitles() {
         val featured = selectTvFeaturedHeroItems(

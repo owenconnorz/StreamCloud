@@ -567,11 +567,17 @@ fun MoviesScreen(
         updateTvHomeRowFocus(rowKey, true)
     }
     var focusedHomeHero by remember { mutableStateOf<HeroBannerItem?>(null) }
+    var tvHeroNavigationFocused by remember { mutableStateOf(false) }
     LaunchedEffect(isTv, query, tvNavSafeFocusReceived) {
-        if (isTv && query.isBlank() && tvNavSafeFocusReceived) {
-            focusedHomeHero = null
-            moviesListState.scrollToItem(0)
+        if (!isTv || query.isNotBlank()) {
+            tvHeroNavigationFocused = false
+            return@LaunchedEffect
         }
+        // Navigation focus can briefly toggle during a lazy-row handoff. Keep
+        // hero visuals steady until that focus change has settled.
+        kotlinx.coroutines.delay(140L)
+        tvHeroNavigationFocused = tvNavSafeFocusReceived
+        if (tvHeroNavigationFocused) focusedHomeHero = null
     }
     val tvHeroDetailsVisible by remember(moviesListState, query) {
         derivedStateOf {
@@ -736,11 +742,11 @@ fun MoviesScreen(
         val continueCardWidth = (screenWidth * 0.21f).coerceIn(176.dp, 272.dp)
         30.dp + continueCardWidth * 0.54f
     }
-    val tvHomeRowsViewportHeight = when {
-        visibleContinueWatching.isNotEmpty() -> tvHomeContinueRowHeight + 16.dp
-        tvTopTenItems.isNotEmpty() -> 194.dp
-        else -> 224.dp
-    }
+    val tvHomeRowsViewportHeight = calculateTvHomeRowsViewportHeight(
+        continueWatchingRowHeight = tvHomeContinueRowHeight,
+        hasContinueWatching = visibleContinueWatching.isNotEmpty(),
+        hasTopTen = tvTopTenItems.isNotEmpty(),
+    )
     val tvHeroBackdropRowsViewportHeight = if (visibleContinueWatching.isNotEmpty()) {
         (tvHomeRowsViewportHeight - tvHomeContinueRowHeight).coerceAtLeast(0.dp)
     } else {
@@ -1326,7 +1332,7 @@ fun MoviesScreen(
                 rowsViewportHeight = tvHeroBackdropRowsViewportHeight,
                 dotsBottomInset = tvHomeRowsViewportHeight,
                 actionsBottomInset = tvHomeRowsViewportHeight,
-                navigationFocused = tvNavSafeFocusReceived,
+                navigationFocused = tvHeroNavigationFocused,
                 initialFocusRequester = if (startupFocusTarget == "hero") {
                     initialFocusRequester
                 } else {
@@ -1408,7 +1414,7 @@ fun MoviesScreen(
                     }
                 },
                 onMoreDetails = openHeroDetails,
-                detailsVisible = tvHeroDetailsVisible || tvNavSafeFocusReceived,
+                detailsVisible = tvHeroDetailsVisible || tvHeroNavigationFocused,
                 onActionsFocusChanged = { focused ->
                     tvNavHeroHasFocus = focused
                     if (focused) focusedHomeHero = null
@@ -2858,6 +2864,16 @@ internal fun calculateTvGenreCardWidth(screenWidth: Dp, genreCount: Int): Dp {
 
 internal fun calculateMobileGenreCardWidth(screenWidth: Dp): Dp =
     (screenWidth * 0.42f).coerceIn(144.dp, 176.dp)
+
+internal fun calculateTvHomeRowsViewportHeight(
+    continueWatchingRowHeight: Dp,
+    hasContinueWatching: Boolean,
+    hasTopTen: Boolean,
+): Dp = when {
+    hasContinueWatching -> maxOf(continueWatchingRowHeight + 16.dp, 194.dp)
+    hasTopTen -> 194.dp
+    else -> 224.dp
+}
 
 private const val TvHomeFocusScanLimit = 12
 
