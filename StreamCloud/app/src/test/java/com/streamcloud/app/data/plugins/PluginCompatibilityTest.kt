@@ -25,6 +25,29 @@ class PluginCompatibilityTest {
     }
 
     @Test
+    fun rejectsPluginReferencesToCloudStreamOnlyMainActivity() {
+        assertEquals(
+            listOf("com.lagradost.cloudstream3.MainActivity"),
+            PluginRuntime.findUnsupportedCloudStreamRuntimeReferences(
+                listOf(
+                    "com.example.SafePlugin",
+                    "com.lagradost.cloudstream3.MainActivity",
+                    "com.lagradost.cloudstream3.MainActivity",
+                )
+            ),
+        )
+    }
+
+    @Test
+    fun allowsPluginsWithoutCloudStreamOnlyActivityReferences() {
+        assertTrue(
+            PluginRuntime.findUnsupportedCloudStreamRuntimeReferences(
+                listOf("com.example.SafePlugin", "com.lagradost.cloudstream3.MainAPI")
+            ).isEmpty()
+        )
+    }
+
+    @Test
     fun amapOnListReceiverDoublesEveryElement() = runBlocking {
         val input: List<Int> = listOf(1, 2, 3, 4, 5)
         val result = input.amap { it * 2 }

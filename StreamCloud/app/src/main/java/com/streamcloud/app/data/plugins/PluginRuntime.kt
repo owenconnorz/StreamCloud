@@ -35,6 +35,7 @@ object PluginRuntime {
 
     private const val DEFAULT_LOAD_LINKS_TIMEOUT_MS = 30_000L
     private const val TOTAL_LOAD_LINKS_TIMEOUT_MS = 90_000L
+    private const val CLOUDSTREAM_MAIN_ACTIVITY = "com.lagradost.cloudstream3.MainActivity"
 
     private data class LoadedPlugin(
         val plugin: Plugin,
@@ -72,6 +73,18 @@ object PluginRuntime {
 
             @Suppress("ResultOfMethodCallIgnored")
             readOnlyFile.setReadOnly()
+
+            val unsupportedReferences = findUnsupportedCloudStreamRuntimeReferences(
+                readDexClassNamesFromZip(readOnlyFile)
+            )
+            if (unsupportedReferences.isNotEmpty()) {
+                error(
+                    "Plugin '${src.nameWithoutExtension}' is not compatible with StreamCloud. " +
+                        "It references CloudStream app-only classes that are not available here: " +
+                        unsupportedReferences.joinToString() +
+                        ". Install a compatible plugin version or uninstall this plugin."
+                )
+            }
 
             val optimizedDir = context.getDir("plugins-opt", android.content.Context.MODE_PRIVATE)
             // Primary parent: the classloader that loaded our Plugin class.
@@ -333,6 +346,12 @@ object PluginRuntime {
             else -> "Plugin '$pluginName' load failed — $kind: $raw"
         }
     }
+
+    internal fun findUnsupportedCloudStreamRuntimeReferences(
+        classNames: Iterable<String>,
+    ): List<String> = classNames
+        .filter { it == CLOUDSTREAM_MAIN_ACTIVITY }
+        .distinct()
 
     @Serializable
     private data class PluginManifest(
@@ -849,11 +868,6 @@ object PluginRuntime {
         lastErrors.remove(filePath)
     }
 
-    suspend fun hasSettings(context: Context, filePath: String): Boolean = withContext(Dispatchers.IO) {
-        load(context, filePath)
-        cache[filePath]?.plugin?.openSettings != null
-    }
-
     /**
      * Invokes the plugin's openSettings callback.
      * Returns a Throwable if the callback threw (covers Error subclasses like
@@ -861,7 +875,9 @@ object PluginRuntime {
      * Must be called on the main thread with a valid Activity context.
      */
     fun openSettings(context: Context, filePath: String): Throwable? = try {
-        cache[filePath]?.plugin?.openSettings?.invoke(context)
+        val callback = cache[filePath]?.plugin?.openSettings
+            ?: error("This plugin does not provide a settings page.")
+        callback.invoke(context)
         null
     } catch (e: Throwable) {
         e

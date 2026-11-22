@@ -75,17 +75,20 @@ class PluginSettingsActivity : AppCompatActivity() {
         root.addView(loading)
 
         lifecycleScope.launch {
-            try {
-                PluginRuntime.load(this@PluginSettingsActivity, filePath)
-            } catch (_: Throwable) {}
+            PluginRuntime.load(this@PluginSettingsActivity, filePath)
 
             if (!isFinishing) {
                 root.removeView(loading)
-                val err = PluginRuntime.openSettings(this@PluginSettingsActivity, filePath)
-                if (err != null && !isFinishing) {
+                val loadError = PluginRuntime.lastErrorFor(filePath)
+                val settingsError = if (loadError == null) {
+                    PluginRuntime.openSettings(this@PluginSettingsActivity, filePath)
+                } else {
+                    IllegalStateException(loadError)
+                }
+                if (settingsError != null && !isFinishing) {
                     AlertDialog.Builder(this@PluginSettingsActivity)
                         .setTitle("Settings unavailable")
-                        .setMessage(err.message ?: err::class.java.simpleName)
+                        .setMessage(settingsError.message ?: settingsError::class.java.simpleName)
                         .setPositiveButton("OK") { _, _ -> finish() }
                         .setOnCancelListener { finish() }
                         .show()

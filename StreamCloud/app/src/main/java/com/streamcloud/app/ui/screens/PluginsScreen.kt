@@ -51,7 +51,6 @@ import kotlinx.coroutines.launch
 import com.streamcloud.app.data.plugins.CloudStreamPlugin
 import com.streamcloud.app.data.plugins.CloudStreamRepo
 import com.streamcloud.app.data.plugins.InstalledPlugin
-import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.ui.viewmodel.PluginsState
 import com.streamcloud.app.ui.viewmodel.PluginsViewModel
 import com.streamcloud.app.ui.viewmodel.ProviderTestResult
@@ -378,7 +377,6 @@ private fun CloudStreamPluginsPage(
     onOpenRepository: (CloudStreamRepo) -> Unit,
 ) {
     val context = LocalContext.current
-    val scope   = rememberCoroutineScope()
 
     var addName    by remember { mutableStateOf("") }
     var addUrl     by remember { mutableStateOf("") }
@@ -388,7 +386,6 @@ private fun CloudStreamPluginsPage(
     var installedFilter by remember { mutableStateOf("All") }
     var showInstalledFilterMenu by remember { mutableStateOf(false) }
 
-    var pluginHasSettings by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
     val snackbarHostState = remember { SnackbarHostState() }
     val filteredInstalled = remember(state.installed, installedSearch, installedFilter) {
         state.installed.filter { plugin ->
@@ -396,17 +393,6 @@ private fun CloudStreamPluginsPage(
                 plugin.tvTypes.orEmpty().joinToString(" ")
             (installedSearch.isBlank() || searchable.contains(installedSearch, ignoreCase = true)) &&
                 matchesInstalledPluginCategory(plugin, installedFilter)
-        }
-    }
-
-    LaunchedEffect(state.installed) {
-        state.installed.forEach { plugin ->
-            if (!pluginHasSettings.containsKey(plugin.filePath)) {
-                scope.launch {
-                    val has = runCatching { PluginRuntime.hasSettings(context, plugin.filePath) }.getOrDefault(false)
-                    pluginHasSettings = pluginHasSettings + (plugin.filePath to has)
-                }
-            }
         }
     }
 
@@ -640,9 +626,7 @@ private fun CloudStreamPluginsPage(
                     InstalledRow(
                         p = p,
                         onUninstall = { vm.uninstall(p) },
-                        onSettings = if (pluginHasSettings[p.filePath] == true) {
-                            { PluginSettingsActivity.start(context, p.filePath, p.name) }
-                        } else null,
+                        onSettings = { PluginSettingsActivity.start(context, p.filePath, p.name) },
                     )
                 }
             }
