@@ -22,9 +22,9 @@ class MoviesScreenTvLandingPolicyTest {
     }
 
     @Test
-    fun continueWatchingViewportExpandsWhenItsCardsNeedMoreRoom() {
+    fun continueWatchingViewportExpandsToFitTheFollowingShelf() {
         assertEquals(
-            320.dp,
+            390.dp,
             calculateTvHomeRowsViewportHeight(
                 continueWatchingRowHeight = 210.dp,
                 hasContinueWatching = true,
@@ -34,19 +34,15 @@ class MoviesScreenTvLandingPolicyTest {
     }
 
     @Test
-    fun tvMovieGridMovesBetweenItsTwoRowsBeforeChangingShelves() {
-        assertEquals(4, resolveTvHomeGridVerticalTargetIndex(8, 0, 1))
-        assertEquals(7, resolveTvHomeGridVerticalTargetIndex(8, 3, 1))
-        assertEquals(1, resolveTvHomeGridVerticalTargetIndex(8, 5, -1))
-        assertNull(resolveTvHomeGridVerticalTargetIndex(8, 0, -1))
-        assertNull(resolveTvHomeGridVerticalTargetIndex(8, 5, 1))
-    }
+    fun verticalTvMovementTargetsTheNextDistinctShelf() {
+        val shelves = listOf(
+            "continue_watching" to 2,
+            "col_netflix" to 5,
+            "stremio_trending" to 8,
+        )
 
-    @Test
-    fun tvMovieGridDownHandoffUsesTheNearestAvailableItemOnShortRows() {
-        assertEquals(4, resolveTvHomeGridVerticalTargetIndex(5, 2, 1))
-        assertEquals(5, resolveTvHomeGridVerticalTargetIndex(6, 3, 1))
-        assertNull(resolveTvHomeGridVerticalTargetIndex(4, 3, 1))
+        assertEquals("col_netflix" to 5, selectNextTvHomeFocusRowAfter(shelves, 2))
+        assertEquals("continue_watching" to 2, selectPreviousTvHomeFocusRowBefore(shelves, 5))
     }
 
     @Test

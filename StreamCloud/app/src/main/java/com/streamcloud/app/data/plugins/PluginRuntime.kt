@@ -601,9 +601,26 @@ object PluginRuntime {
 
     suspend fun search(context: Context, filePath: String, query: String): List<SearchResponse> = withContext(Dispatchers.IO) {
         val apis = load(context, filePath)
-        apis.flatMap { api ->
-            try { api.search(query).orEmpty() } catch (_: Throwable) { emptyList() }
+        if (apis.isEmpty()) return@withContext emptyList()
+        val results = mutableListOf<SearchResponse>()
+        val failures = mutableListOf<String>()
+        apis.forEach { api ->
+            try {
+                results += api.search(query).orEmpty()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                failures += "${api.name}: ${e::class.simpleName}: ${e.message ?: "search failed"}"
+            }
         }
+        if (results.isNotEmpty()) {
+            lastErrors.remove(filePath)
+        } else {
+            lastErrors[filePath] = failures.joinToString("\n").ifBlank {
+                "No search results for \"$query\"."
+            }
+        }
+        results
     }
 
     suspend fun home(context: Context, filePath: String): List<Pair<String, List<SearchResponse>>> = withContext(Dispatchers.IO) {
@@ -670,9 +687,26 @@ object PluginRuntime {
 
     suspend fun loadDetail(context: Context, filePath: String, url: String): LoadResponse? = withContext(Dispatchers.IO) {
         val apis = load(context, filePath)
-        apis.firstNotNullOfOrNull { api ->
-            try { api.load(url) } catch (_: Throwable) { null }
+        if (apis.isEmpty()) return@withContext null
+        val failures = mutableListOf<String>()
+        val response = apis.firstNotNullOfOrNull { api ->
+            try {
+                api.load(url)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                failures += "${api.name}: ${e::class.simpleName}: ${e.message ?: "detail load failed"}"
+                null
+            }
         }
+        if (response != null) {
+            lastErrors.remove(filePath)
+        } else {
+            lastErrors[filePath] = failures.joinToString("\n").ifBlank {
+                "No title details were returned for this result."
+            }
+        }
+        response
     }
 
 

@@ -37,6 +37,21 @@ class StreamProviderPriorityTest {
     }
 
     @Test
+    fun cloudStreamTabsAppearFirstAndAreClearlyLabeled() {
+        val tabs = prioritizeStreamPickerTabs(
+            listOf(
+                "nuvio:play" to "Play",
+                "stremio:catalog" to "Catalog",
+                "cs:lime" to "Lime",
+            ),
+        )
+
+        assertEquals(listOf("cs:lime", "nuvio:play", "stremio:catalog"), tabs.map { it.first })
+        assertEquals("CloudStream · Lime", streamPickerTabLabel(tabs.first().first, tabs.first().second))
+        assertEquals("Play", streamPickerTabLabel("nuvio:play", "Play"))
+    }
+
+    @Test
       fun autoPlayWaitsForEarlierProvidersBeforeUsingAvailableStreams() {
           assertEquals(
               null,

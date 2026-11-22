@@ -533,7 +533,6 @@ fun MoviesScreen(
     val tvHomeRowListStates =
         remember { mutableMapOf<String, androidx.compose.foundation.lazy.LazyListState>() }
     val tvHomeRowParentListIndices = remember { mutableMapOf<String, Int>() }
-    val tvHomeGridItemCounts = remember { mutableMapOf<String, Int>() }
     val tvHomeFocusedItemIndices = remember { mutableMapOf<String, Int>() }
     val tvHomeFocusedRowKey = remember { mutableStateOf<String?>(null) }
     val tvHomeFocusedRowHasFocus = remember { mutableStateOf(false) }
@@ -893,8 +892,7 @@ fun MoviesScreen(
                 val key = item.key as? String ?: return@mapNotNull null
                 if (!tvHomeRowFocusRequesters.containsKey(key)) return@mapNotNull null
                 val hasFocusableItems =
-                    tvHomeGridItemCounts[key]?.let { it > 0 } == true ||
-                        tvHomeRowListStates[key]?.layoutInfo?.totalItemsCount?.let { it > 0 } == true
+                    tvHomeRowListStates[key]?.layoutInfo?.totalItemsCount?.let { it > 0 } == true
                 if (!hasFocusableItems) return@mapNotNull null
                 tvHomeRowParentListIndices[key] = item.index
                 key to item.index
@@ -964,9 +962,7 @@ fun MoviesScreen(
                     rememberedItemIndex = preferredItemIndex
                         ?: tvHomeFocusedItemIndices[rowKey]
                         ?: 0,
-                    itemCount = tvHomeGridItemCounts[rowKey]
-                        ?: rowListState?.layoutInfo?.totalItemsCount
-                        ?: 0,
+                    itemCount = rowListState?.layoutInfo?.totalItemsCount ?: 0,
                 )
                 if (itemIndex == null) {
                     kotlinx.coroutines.delay(16L)
@@ -1252,34 +1248,6 @@ fun MoviesScreen(
                 ?.index
                 ?: return false
             val sourceItemIndex = tvHomeFocusedItemIndices[sourceRowKey] ?: 0
-            val gridTargetIndex = tvHomeGridItemCounts[sourceRowKey]?.let { itemCount ->
-                resolveTvHomeGridVerticalTargetIndex(
-                    itemCount = itemCount,
-                    itemIndex = sourceItemIndex,
-                    direction = direction,
-                )
-            }
-            if (gridTargetIndex != null) {
-                tvHomeFocusTransferInProgress = true
-                tvHomeFocusScope.launch {
-                    try {
-                        if (
-                            !requestTvHomeRowFocus(
-                                sourceRowKey,
-                                preferredItemIndex = gridTargetIndex,
-                            )
-                        ) {
-                            requestTvHomeRowFocus(
-                                sourceRowKey,
-                                preferredItemIndex = sourceItemIndex,
-                            )
-                        }
-                    } finally {
-                        tvHomeFocusTransferInProgress = false
-                    }
-                }
-                return true
-            }
             tvHomeFocusTransferInProgress = true
             tvHomeFocusScope.launch {
                 try {
@@ -2226,24 +2194,30 @@ fun MoviesScreen(
                                 },
                             )
                         }
-                        if (isTv) {
-                            val visibleMovieCount = minOf(row.items.size, TvHomeGridMovieLimit)
-                            val gridItemCount = visibleMovieCount + 1
-                            tvHomeGridItemCounts[rowKey] = gridItemCount
-                            TvHomeTwoRowGrid(
-                                itemCount = gridItemCount,
-                                modifier = Modifier
-                                    .onFocusChanged {
-                                        updateTvHomeRowFocus(rowKey, it.hasFocus)
-                                    }
-                                    .tvFocusGroup(
-                                        restoreFocusedChild = true,
-                                        focusRequester = rowFocusRequester,
-                                    ),
-                            ) { index, cardWidth ->
-                                if (index < visibleMovieCount) {
-                                    movieCardContent(index, cardWidth)
-                                } else {
+                        tvHomeRowListStates[rowKey] = collectionRowState
+                        LazyRow(
+                            state = collectionRowState,
+                            modifier = Modifier
+                                .onFocusChanged {
+                                    updateTvHomeRowFocus(rowKey, it.hasFocus)
+                                }
+                                .tvFocusGroup(
+                                    restoreFocusedChild = true,
+                                    focusRequester = rowFocusRequester,
+                                )
+                                .animateContentSize(animationSpec = tween(durationMillis = 260)),
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            itemsIndexed(
+                                row.items,
+                                key = { _, movie -> "${row.id}_${movie.id}" },
+                            ) { index, _ ->
+                                movieCardContent(index, 220.dp)
+                            }
+                            if (isTv) {
+                                item(key = "view_all_col_${row.id}") {
+                                    val index = row.items.size
                                     val itemFocusRequester = rememberTvHomeItemFocusRequester(
                                         tvHomeItemFocusRequesters,
                                         rowKey,
@@ -2251,7 +2225,7 @@ fun MoviesScreen(
                                     )
                                     ViewAllCard(
                                         posterStyle = homeCardStyle,
-                                        cardWidth = cardWidth,
+                                        cardWidth = 220.dp,
                                         modifier = Modifier
                                             .focusRequester(itemFocusRequester)
                                             .onFocusChanged {
@@ -2269,30 +2243,6 @@ fun MoviesScreen(
                                             )
                                         },
                                     )
-                                }
-                            }
-                        } else {
-                            tvHomeGridItemCounts.remove(rowKey)
-                            tvHomeRowListStates[rowKey] = collectionRowState
-                            LazyRow(
-                                state = collectionRowState,
-                                modifier = Modifier
-                                    .onFocusChanged {
-                                        updateTvHomeRowFocus(rowKey, it.hasFocus)
-                                    }
-                                    .tvFocusGroup(
-                                        restoreFocusedChild = true,
-                                        focusRequester = rowFocusRequester,
-                                    )
-                                    .animateContentSize(animationSpec = tween(durationMillis = 260)),
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                itemsIndexed(
-                                    row.items,
-                                    key = { _, movie -> "${row.id}_${movie.id}" },
-                                ) { index, _ ->
-                                    movieCardContent(index, 220.dp)
                                 }
                             }
                         }
@@ -2320,9 +2270,7 @@ fun MoviesScreen(
                             rowKey,
                         )
                         val stremioRowState = rememberLazyListState()
-                        if (!isTv) {
-                            tvHomeRowListStates[rowKey] = stremioRowState
-                        }
+                        tvHomeRowListStates[rowKey] = stremioRowState
                         var focusedPosterIndex by remember { mutableIntStateOf(-1) }
                         val stremioCardContent: @Composable (Int, Dp) -> Unit = { index, cardWidth ->
                             val meta = row.items[index]
@@ -2436,24 +2384,28 @@ fun MoviesScreen(
                                 }
                             }
                         }
-                        if (isTv) {
-                            val visibleMovieCount = minOf(row.items.size, TvHomeGridMovieLimit)
-                            val gridItemCount = visibleMovieCount + 1
-                            tvHomeGridItemCounts[rowKey] = gridItemCount
-                            TvHomeTwoRowGrid(
-                                itemCount = gridItemCount,
-                                modifier = Modifier
-                                    .onFocusChanged {
-                                        updateTvHomeRowFocus(rowKey, it.hasFocus)
-                                    }
-                                    .tvFocusGroup(
-                                        restoreFocusedChild = true,
-                                        focusRequester = rowFocusRequester,
-                                    ),
-                            ) { index, cardWidth ->
-                                if (index < visibleMovieCount) {
-                                    stremioCardContent(index, cardWidth)
-                                } else {
+                        LazyRow(
+                            state = stremioRowState,
+                            modifier = Modifier
+                                .onFocusChanged {
+                                    updateTvHomeRowFocus(rowKey, it.hasFocus)
+                                }
+                                .tvFocusGroup(
+                                    restoreFocusedChild = true,
+                                    focusRequester = rowFocusRequester,
+                                ),
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            itemsIndexed(
+                                row.items,
+                                key = { _, meta -> "${row.rowKey}_${meta.id}" },
+                            ) { index, _ ->
+                                stremioCardContent(index, 220.dp)
+                            }
+                            if (isTv) {
+                                item(key = "view_all_stremio_${row.rowKey}") {
+                                    val index = row.items.size
                                     val itemFocusRequester = rememberTvHomeItemFocusRequester(
                                         tvHomeItemFocusRequesters,
                                         rowKey,
@@ -2461,7 +2413,7 @@ fun MoviesScreen(
                                     )
                                     ViewAllCard(
                                         posterStyle = homeCardStyle,
-                                        cardWidth = cardWidth,
+                                        cardWidth = 220.dp,
                                         modifier = Modifier
                                             .focusRequester(itemFocusRequester)
                                             .onFocusChanged {
@@ -2481,29 +2433,6 @@ fun MoviesScreen(
                                     )
                                 }
                             }
-                        } else {
-                            tvHomeGridItemCounts.remove(rowKey)
-                            tvHomeRowListStates[rowKey] = stremioRowState
-                            LazyRow(
-                                state = stremioRowState,
-                                modifier = Modifier
-                                    .onFocusChanged {
-                                        updateTvHomeRowFocus(rowKey, it.hasFocus)
-                                    }
-                                    .tvFocusGroup(
-                                        restoreFocusedChild = true,
-                                        focusRequester = rowFocusRequester,
-                                    ),
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                itemsIndexed(
-                                    row.items,
-                                    key = { _, meta -> "${row.rowKey}_${meta.id}" },
-                                ) { index, _ ->
-                                    stremioCardContent(index, 220.dp)
-                                }
-                            }
                         }
                     }
                 }
@@ -2512,7 +2441,12 @@ fun MoviesScreen(
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 4.dp),
+                                .padding(
+                                    start = 20.dp,
+                                    end = 12.dp,
+                                    top = if (isTv) 4.dp else 12.dp,
+                                    bottom = if (isTv) 2.dp else 4.dp,
+                                ),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(Modifier.weight(1f)) {
@@ -2553,9 +2487,7 @@ fun MoviesScreen(
                         )
                         val csLandscape = homeCardStyle == "landscape"
                         val csRowState = rememberLazyListState()
-                        if (!isTv) {
-                            tvHomeRowListStates[rowKey] = csRowState
-                        }
+                        tvHomeRowListStates[rowKey] = csRowState
                         var focusedPosterIndex by remember { mutableIntStateOf(-1) }
                         val csCardContent: @Composable (Int, Dp) -> Unit = { index, cardWidth ->
                             val sr = row.items[index]
@@ -2651,24 +2583,30 @@ fun MoviesScreen(
                                 },
                             )
                         }
-                        if (isTv) {
-                            val visibleMovieCount = minOf(row.items.size, TvHomeGridMovieLimit)
-                            val gridItemCount = visibleMovieCount + 1
-                            tvHomeGridItemCounts[rowKey] = gridItemCount
-                            TvHomeTwoRowGrid(
-                                itemCount = gridItemCount,
-                                modifier = Modifier
-                                    .onFocusChanged {
-                                        updateTvHomeRowFocus(rowKey, it.hasFocus)
-                                    }
-                                    .tvFocusGroup(
-                                        restoreFocusedChild = true,
-                                        focusRequester = rowFocusRequester,
-                                    ),
-                            ) { index, cardWidth ->
-                                if (index < visibleMovieCount) {
-                                    csCardContent(index, cardWidth)
-                                } else {
+                        LazyRow(
+                            state = csRowState,
+                            modifier = Modifier
+                                .onFocusChanged {
+                                    updateTvHomeRowFocus(rowKey, it.hasFocus)
+                                }
+                                .tvFocusGroup(
+                                    restoreFocusedChild = true,
+                                    focusRequester = rowFocusRequester,
+                                ),
+                            contentPadding = PaddingValues(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            itemsIndexed(
+                                row.items,
+                                key = { _, item ->
+                                    "${row.pluginInternalName}_${row.sectionName}_${item.url}"
+                                },
+                            ) { index, _ ->
+                                csCardContent(index, 220.dp)
+                            }
+                            if (isTv) {
+                                item(key = "view_all_cs_${row.pluginInternalName}_${row.sectionName}") {
+                                    val index = row.items.size
                                     val itemFocusRequester = rememberTvHomeItemFocusRequester(
                                         tvHomeItemFocusRequesters,
                                         rowKey,
@@ -2676,7 +2614,7 @@ fun MoviesScreen(
                                     )
                                     ViewAllCard(
                                         posterStyle = homeCardStyle,
-                                        cardWidth = cardWidth,
+                                        cardWidth = 220.dp,
                                         modifier = Modifier
                                             .focusRequester(itemFocusRequester)
                                             .onFocusChanged {
@@ -2694,31 +2632,6 @@ fun MoviesScreen(
                                             )
                                         },
                                     )
-                                }
-                            }
-                        } else {
-                            tvHomeGridItemCounts.remove(rowKey)
-                            tvHomeRowListStates[rowKey] = csRowState
-                            LazyRow(
-                                state = csRowState,
-                                modifier = Modifier
-                                    .onFocusChanged {
-                                        updateTvHomeRowFocus(rowKey, it.hasFocus)
-                                    }
-                                    .tvFocusGroup(
-                                        restoreFocusedChild = true,
-                                        focusRequester = rowFocusRequester,
-                                    ),
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                itemsIndexed(
-                                    row.items,
-                                    key = { _, item ->
-                                        "${row.pluginInternalName}_${row.sectionName}_${item.url}"
-                                    },
-                                ) { index, _ ->
-                                    csCardContent(index, 220.dp)
                                 }
                             }
                         }
@@ -3015,34 +2928,12 @@ internal fun calculateTvHomeRowsViewportHeight(
     hasContinueWatching: Boolean,
     hasTopTen: Boolean,
 ): Dp = when {
-    hasContinueWatching -> maxOf(continueWatchingRowHeight + 16.dp, 320.dp)
+    hasContinueWatching -> maxOf(continueWatchingRowHeight + 180.dp, 320.dp)
     hasTopTen -> 320.dp
     else -> 320.dp
 }
 
-internal fun resolveTvHomeGridVerticalTargetIndex(
-    itemCount: Int,
-    itemIndex: Int,
-    direction: Int,
-    columns: Int = TvHomeGridColumns,
-): Int? {
-    if (columns <= 0 || itemIndex !in 0 until itemCount) return null
-    return when (direction) {
-        1 -> {
-            if (itemIndex >= columns || itemCount <= columns) return null
-            (columns + itemIndex).coerceAtMost(itemCount - 1)
-        }
-        -1 -> {
-            if (itemIndex < columns) return null
-            itemIndex - columns
-        }
-        else -> null
-    }
-}
-
 private const val TvHomeFocusScanLimit = 12
-private const val TvHomeGridColumns = 4
-private const val TvHomeGridMovieLimit = 7
 
 internal fun selectAdjacentTvHomeFocusRow(
     visibleRows: List<Pair<String, Int>>,
@@ -4397,48 +4288,9 @@ private fun SectionTitle(text: String) {
         fontWeight = FontWeight.Bold,
         modifier = Modifier.padding(
             horizontal = if (isTv) 24.dp else 20.dp,
-            vertical = if (isTv) 7.dp else 12.dp,
+            vertical = if (isTv) 3.dp else 12.dp,
         ),
     )
-}
-
-@Composable
-private fun TvHomeTwoRowGrid(
-    itemCount: Int,
-    modifier: Modifier = Modifier,
-    itemContent: @Composable (Int, Dp) -> Unit,
-) {
-    val columns = TvHomeGridColumns
-    val horizontalPadding = 16.dp
-    val spacing = 12.dp
-    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        val availableWidth = (
-            maxWidth -
-                horizontalPadding * 2 -
-                spacing * (columns - 1).toFloat()
-            ).coerceAtLeast(0.dp)
-        val cardWidth = (availableWidth / columns.toFloat()).coerceIn(112.dp, 240.dp)
-        val rowCount = ((itemCount + columns - 1) / columns).coerceIn(1, 2)
-        Column(verticalArrangement = Arrangement.spacedBy(spacing)) {
-            repeat(rowCount) { rowIndex ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = horizontalPadding),
-                    horizontalArrangement = Arrangement.spacedBy(spacing),
-                ) {
-                    repeat(columns) { columnIndex ->
-                        val itemIndex = rowIndex * columns + columnIndex
-                        if (itemIndex < itemCount) {
-                            itemContent(itemIndex, cardWidth)
-                        } else {
-                            Spacer(Modifier.width(cardWidth))
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 /** Card appended at the end of a home shelf so the D-pad can select "View all". */
@@ -4497,7 +4349,7 @@ private fun SectionTitleWithViewAll(title: String, onViewAll: () -> Unit) {
             .fillMaxWidth()
             .padding(
                 horizontal = if (isTv) 24.dp else 20.dp,
-                vertical = if (isTv) 7.dp else 12.dp,
+                vertical = if (isTv) 3.dp else 12.dp,
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -4547,7 +4399,7 @@ private fun AddonSectionTitleWithViewAll(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 20.dp, vertical = if (isTv) 3.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {

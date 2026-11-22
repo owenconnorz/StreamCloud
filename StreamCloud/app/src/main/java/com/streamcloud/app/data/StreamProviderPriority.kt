@@ -40,6 +40,16 @@ fun orderStreamProviderEntries(
         .map { it.value }
 }
 
+fun prioritizeStreamPickerTabs(
+    tabs: List<Pair<String, String>>,
+): List<Pair<String, String>> {
+    val (cloudStreamTabs, otherTabs) = tabs.partition { (key, _) -> key.startsWith("cs:") }
+    return cloudStreamTabs + otherTabs
+}
+
+fun streamPickerTabLabel(key: String, name: String): String =
+    if (key.startsWith("cs:")) "CloudStream · $name" else name
+
 fun <T> firstReadyProviderItem(
       providerOrder: List<String>,
       itemsByProvider: Map<String, List<T>>,

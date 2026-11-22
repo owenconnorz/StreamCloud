@@ -3730,6 +3730,7 @@ private fun TvPeacockTopNav(
                                                 Modifier
                                             },
                                         )
+                                        .clip(RoundedCornerShape(18.dp))
                                         .onFocusChanged { focus ->
                                             if (focus.isFocused) {
                                                 focusedDestinationKey = destination.key

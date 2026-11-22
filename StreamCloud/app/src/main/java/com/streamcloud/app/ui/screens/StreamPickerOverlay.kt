@@ -39,7 +39,9 @@ import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.buildStreamProviderPriorityEntries
 import com.streamcloud.app.data.firstReadyProviderItem
 import com.streamcloud.app.data.orderStreamProviderEntries
+import com.streamcloud.app.data.prioritizeStreamPickerTabs
 import com.streamcloud.app.data.shouldShowAutoPlayResolvingState
+import com.streamcloud.app.data.streamPickerTabLabel
 import com.streamcloud.app.ui.theme.LegacyMoviesThemeWrapper
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
@@ -298,14 +300,16 @@ fun StreamPickerOverlay(
       }
 
     val providerTabs = remember(groups, groupOrder) {
-        groupOrder.mapNotNull { (key, name) ->
-            val group = groups[key] ?: return@mapNotNull null
-            if (key.startsWith("cs:") || group.isLoading || group.streams.isNotEmpty()) {
-                key to name
-            } else {
-                null
+        prioritizeStreamPickerTabs(
+            groupOrder.mapNotNull { (key, name) ->
+                val group = groups[key] ?: return@mapNotNull null
+                if (key.startsWith("cs:") || group.isLoading || group.streams.isNotEmpty()) {
+                    key to name
+                } else {
+                    null
+                }
             }
-        }
+        ).map { (key, name) -> key to streamPickerTabLabel(key, name) }
     }
     val tabs = remember(providerTabs) { listOf("All") + providerTabs.map { it.second } }
     val safeTab = selectedTab.coerceAtMost(tabs.lastIndex)
@@ -315,13 +319,13 @@ fun StreamPickerOverlay(
         if (safeTab == 0) {
             groupOrder.mapNotNull { (key, name) ->
                 val g = groups[key] ?: return@mapNotNull null
-                Triple(key, name, g)
+                Triple(key, streamPickerTabLabel(key, name), g)
             }
         } else {
             groupOrder.mapNotNull { (key, name) ->
                 if (key != selectedProviderKey) return@mapNotNull null
                 val g = groups[key] ?: return@mapNotNull null
-                Triple(key, name, g)
+                Triple(key, streamPickerTabLabel(key, name), g)
             }
         }
     }
@@ -478,20 +482,28 @@ fun StreamPickerOverlay(
                 }
 
                 visibleGroups.forEach { (key, addonName, groupState) ->
-                    // In All, hide completed empty providers; their individual tabs
-                    // remain available so a failed CloudStream lookup is explainable.
+                    // Keep empty CloudStream providers visible in All so their lookup
+                    // errors aren't mistaken for a missing provider.
                     val doneEmpty = !groupState.isLoading && groupState.streams.isEmpty()
                     if (doneEmpty) {
-                        if (safeTab != 0) {
+                        if (safeTab != 0 || key.startsWith("cs:")) {
                             item(key = "empty:$key") {
-                                Text(
-                                    groupState.error ?: "No streams found for this title.",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 8.dp, vertical = 20.dp),
-                                )
+                                Column {
+                                    if (safeTab == 0) {
+                                        PickerSectionHeader(
+                                            name = addonName,
+                                            isLoading = false,
+                                        )
+                                    }
+                                    Text(
+                                        groupState.error ?: "No streams found for this title.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 8.dp, vertical = 20.dp),
+                                    )
+                                }
                             }
                         }
                         return@forEach
@@ -887,7 +899,8 @@ private suspend fun resolveCsForPicker(
             null
         } ?: return CloudStreamPickerResult(
             emptyList(),
-            "Could not load the matching title from ${plugin.name}.",
+            PluginRuntime.lastErrorFor(plugin.filePath)
+                ?: "Could not load the matching title from ${plugin.name}.",
         )
         val dataStr: String? = when (detail) {
             is MovieLoadResponse -> detail.dataUrl
@@ -926,7 +939,12 @@ private suspend fun resolveCsForPicker(
         val sources = links.pickerToCsSources(plugin.name, sourceRoute)
         CloudStreamPickerResult(
             streams = sources,
-            error = if (sources.isEmpty()) "No streams were returned by ${plugin.name}." else null,
+            error = if (sources.isEmpty()) {
+                PluginRuntime.lastErrorFor(plugin.filePath)
+                    ?: "No streams were returned by ${plugin.name}."
+            } else {
+                null
+            },
         )
     } catch (e: CancellationException) {
         throw e
