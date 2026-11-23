@@ -112,6 +112,8 @@ object SettingsKeys {
     val AI_MODEL = stringPreferencesKey("ai_model")
     val NSFW_ENABLED = booleanPreferencesKey("nsfw_enabled")
     val VIDEO_QUALITY = stringPreferencesKey("video_quality")
+    val SOURCE_QUALITY_FILTER_ENABLED = booleanPreferencesKey("source_quality_filter_enabled")
+    val SOURCE_QUALITY_FILTER_QUALITIES = stringPreferencesKey("source_quality_filter_qualities")
     val AUDIO_QUALITY = stringPreferencesKey("audio_quality")
     val EXTERNAL_LINKS_IN_BROWSER = booleanPreferencesKey("ext_links_in_browser")
     val AUTOPLAY_NEXT = booleanPreferencesKey("autoplay_next")
@@ -353,6 +355,16 @@ class SettingsRepository(private val context: Context) {
     val aiModel: Flow<String> = context.dataStore.data.map { it[SettingsKeys.AI_MODEL] ?: "gpt-5.1" }
     val nsfwEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.NSFW_ENABLED] ?: false }
     val videoQuality: Flow<String> = context.dataStore.data.map { it[SettingsKeys.VIDEO_QUALITY] ?: "auto" }
+    val sourceQualityFilterEnabled: Flow<Boolean> =
+        context.dataStore.data.map { it[SettingsKeys.SOURCE_QUALITY_FILTER_ENABLED] ?: false }
+    val sourceQualityFilterQualities: Flow<Set<String>> = context.dataStore.data.map {
+        it[SettingsKeys.SOURCE_QUALITY_FILTER_QUALITIES]
+            ?.split(',')
+            ?.map(String::trim)
+            ?.filter(String::isNotEmpty)
+            ?.toSet()
+            ?: "4K,1440p,1080p".split(',').toSet()
+    }
     val audioQuality: Flow<String> = context.dataStore.data.map { it[SettingsKeys.AUDIO_QUALITY] ?: "high" }
     val externalLinksInBrowser: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.EXTERNAL_LINKS_IN_BROWSER] ?: true }
     val autoplayNext: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.AUTOPLAY_NEXT] ?: true }
@@ -644,6 +656,10 @@ class SettingsRepository(private val context: Context) {
     suspend fun setAiModel(m: String) = context.dataStore.edit { it[SettingsKeys.AI_MODEL] = m }
     suspend fun setNsfwEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.NSFW_ENABLED] = b }
     suspend fun setVideoQuality(q: String) = context.dataStore.edit { it[SettingsKeys.VIDEO_QUALITY] = q }
+    suspend fun setSourceQualityFilterEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[SettingsKeys.SOURCE_QUALITY_FILTER_ENABLED] = enabled }
+    suspend fun setSourceQualityFilterQualities(qualities: Set<String>) =
+        context.dataStore.edit { it[SettingsKeys.SOURCE_QUALITY_FILTER_QUALITIES] = qualities.joinToString(",") }
     suspend fun setAudioQuality(q: String) = context.dataStore.edit { it[SettingsKeys.AUDIO_QUALITY] = q }
     suspend fun setExternalLinksInBrowser(b: Boolean) = context.dataStore.edit { it[SettingsKeys.EXTERNAL_LINKS_IN_BROWSER] = b }
     suspend fun setAutoplayNext(b: Boolean) = context.dataStore.edit { it[SettingsKeys.AUTOPLAY_NEXT] = b }

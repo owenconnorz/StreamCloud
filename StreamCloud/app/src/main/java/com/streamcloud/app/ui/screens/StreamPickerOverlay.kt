@@ -5,10 +5,12 @@ import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.streamcloud.app.ui.icons.AppIcons as Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -63,6 +65,7 @@ import com.streamcloud.app.data.plugins.supportsPickerContent
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioStream
 import com.streamcloud.app.player.PlayerSource
+import com.streamcloud.app.player.SourceQualityFilter
 import com.streamcloud.app.player.toAddonSubtitles
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -109,6 +112,11 @@ fun StreamPickerOverlay(
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
     val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "modern_blue")
+    val qualityFilterEnabled by sl.settings.sourceQualityFilterEnabled.collectAsState(initial = false)
+    val selectedQualities by sl.settings.sourceQualityFilterQualities.collectAsState(
+        initial = SourceQualityFilter.defaultSelected,
+    )
+    val settingsScope = rememberCoroutineScope()
     val savedProviderOrder by produceState<List<String>?>(
         initialValue = null,
         sl.settings.streamProviderPriorityOrder,
@@ -312,15 +320,24 @@ fun StreamPickerOverlay(
               )
           }
       }
-      val allSources = remember(sourcesByProvider, groupOrder) {
-          groupOrder.flatMap { (key, _) ->
-              sourcesByProvider[key].orEmpty()
+      val filteredSourcesByProvider = remember(
+          sourcesByProvider,
+          qualityFilterEnabled,
+          selectedQualities,
+      ) {
+          sourcesByProvider.mapValues { (_, sources) ->
+              SourceQualityFilter.filter(sources, qualityFilterEnabled, selectedQualities)
           }
       }
-      val firstReadyPreferredSource = remember(groups, groupOrder, sourcesByProvider) {
+      val allSources = remember(filteredSourcesByProvider, groupOrder) {
+          groupOrder.flatMap { (key, _) ->
+              filteredSourcesByProvider[key].orEmpty()
+          }
+      }
+      val firstReadyPreferredSource = remember(groups, groupOrder, filteredSourcesByProvider) {
           firstReadyProviderItem(
               providerOrder = groupOrder.map { it.first },
-              itemsByProvider = sourcesByProvider,
+              itemsByProvider = filteredSourcesByProvider,
               loadingProviders = groups.filterValues { it.isLoading }.keys,
           )
       }
@@ -548,6 +565,70 @@ fun StreamPickerOverlay(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             }
 
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Filter by quality",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            if (qualityFilterEnabled) {
+                                "Only selected resolutions are shown"
+                            } else {
+                                "Show all available resolutions"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = qualityFilterEnabled,
+                        onCheckedChange = { enabled ->
+                            settingsScope.launch {
+                                sl.settings.setSourceQualityFilterEnabled(enabled)
+                            }
+                        },
+                    )
+                }
+                if (qualityFilterEnabled) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .tvFocusGroup(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SourceQualityFilter.options.forEach { quality ->
+                            FilterChip(
+                                selected = quality in selectedQualities,
+                                onClick = {
+                                    val updated = if (quality in selectedQualities) {
+                                        selectedQualities - quality
+                                    } else {
+                                        selectedQualities + quality
+                                    }
+                                    settingsScope.launch {
+                                        sl.settings.setSourceQualityFilterQualities(updated)
+                                    }
+                                },
+                                label = { Text(quality) },
+                            )
+                        }
+                    }
+                }
+            }
+
             LazyColumn(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -586,8 +667,9 @@ fun StreamPickerOverlay(
                         }
                     }
 
+                    val displayedStreams = filteredSourcesByProvider[key].orEmpty()
                     if (!groupState.isLoading || groupState.streams.isNotEmpty()) {
-                        val sections = groupState.streams.pickerInnerSections(addonName)
+                        val sections = displayedStreams.pickerInnerSections(addonName)
                         val groupError = groupState.error
                         if (
                             !groupState.isLoading &&
@@ -648,13 +730,17 @@ fun StreamPickerOverlay(
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    "No streams found",
+                                    if (qualityFilterEnabled) "No streams match these qualities" else "No streams found",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Spacer(Modifier.height(4.dp))
                                 Text(
-                                    "Tap the refresh button to try again",
+                                    if (qualityFilterEnabled) {
+                                        "Choose more qualities or turn off the filter"
+                                    } else {
+                                        "Tap the refresh button to try again"
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                 )
