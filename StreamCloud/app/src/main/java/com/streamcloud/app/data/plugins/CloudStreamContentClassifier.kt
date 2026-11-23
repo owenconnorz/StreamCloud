@@ -1,6 +1,8 @@
 package com.streamcloud.app.data.plugins
 
 import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.MainAPI
+import com.lagradost.cloudstream3.TvType
 import kotlin.math.ceil
 
 internal enum class CloudStreamContentKind {
@@ -59,6 +61,23 @@ internal fun InstalledPlugin.supportsPickerContent(kind: CloudStreamContentKind)
         if (explicitlyAnimeOnly) return false
     }
     return true
+}
+
+internal fun MainAPI.supportsPickerContent(kind: CloudStreamContentKind): Boolean {
+    val types = runCatching { supportedTypes }.getOrNull().orEmpty()
+    if (types.isEmpty()) return true
+
+    return when (kind) {
+        CloudStreamContentKind.MOVIE ->
+            types.any { it == TvType.Movie || it == TvType.Torrent || it == TvType.Video }
+        CloudStreamContentKind.TV_SERIES ->
+            types.any { it == TvType.TvSeries || it == TvType.AsianDrama || it == TvType.Cartoon }
+        CloudStreamContentKind.ANIME ->
+            types.any { it == TvType.Anime || it == TvType.AnimeMovie || it == TvType.OVA }
+        // The plugin-level adult check is authoritative. Keep each of its APIs eligible because
+        // adult extensions frequently label their provider types as Movie or TV.
+        CloudStreamContentKind.NSFW -> true
+    }
 }
 
 internal fun searchResponseMatchesContentKind(

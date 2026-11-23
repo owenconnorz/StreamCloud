@@ -17,6 +17,7 @@ import com.lagradost.cloudstream3.utils.extractorApis
 import dalvik.system.DexClassLoader
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
@@ -31,6 +32,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
@@ -47,9 +49,15 @@ internal suspend fun searchProviderForDiscovery(
     query: String,
 ): List<SearchResponse> = api.search(query, 1)?.items.orEmpty()
 
+internal data class CloudStreamSearchMatch(
+    val api: MainAPI,
+    val response: SearchResponse,
+)
+
 object PluginRuntime {
 
-    private const val DEFAULT_LOAD_LINKS_TIMEOUT_MS = 30_000L
+    private const val DEFAULT_API_LOAD_LINKS_TIMEOUT_MS = 60_000L
+    private const val EXTRACTOR_RESOLUTION_TIMEOUT_MS = 30_000L
     private const val TOTAL_LOAD_LINKS_TIMEOUT_MS = 90_000L
 
     private data class LoadedPlugin(
@@ -63,7 +71,12 @@ object PluginRuntime {
     private val fetchCountByPlugin = ConcurrentHashMap<String, AtomicInteger>()
     private data class CachedSearch(
         val createdAtMs: Long,
+        val results: List<CloudStreamSearchMatch>,
+    )
+    private data class ApiSearchOutcome(
+        val api: MainAPI,
         val results: List<SearchResponse>,
+        val error: String?,
     )
     private val searchCache = ConcurrentHashMap<String, CachedSearch>()
     private const val SEARCH_CACHE_TTL_MS = 2 * 60 * 1000L
@@ -676,8 +689,16 @@ object PluginRuntime {
         return -1
     }
 
-    suspend fun search(context: Context, filePath: String, query: String): List<SearchResponse> = withContext(Dispatchers.IO) {
-        val cacheKey = "$filePath\u0000${query.trim().lowercase()}"
+    suspend fun search(context: Context, filePath: String, query: String): List<SearchResponse> =
+        searchWithApi(context, filePath, query).map { it.response }
+
+    internal suspend fun searchWithApi(
+        context: Context,
+        filePath: String,
+        query: String,
+        contentKind: CloudStreamContentKind? = null,
+    ): List<CloudStreamSearchMatch> = withContext(Dispatchers.IO) {
+        val cacheKey = "$filePath\u0000${contentKind?.name.orEmpty()}\u0000${query.trim().lowercase()}"
         val now = System.currentTimeMillis()
         searchCache[cacheKey]?.let { cached ->
             if (now - cached.createdAtMs <= SEARCH_CACHE_TTL_MS) {
@@ -686,11 +707,16 @@ object PluginRuntime {
             searchCache.remove(cacheKey, cached)
         }
 
-        val apis = load(context, filePath)
+        val apis = load(context, filePath).filter { api ->
+            contentKind == null || api.supportsPickerContent(contentKind)
+        }
         if (apis.isEmpty()) {
-            if (lastErrors[filePath] == null) {
-                lastErrors[filePath] = "This extension does not register a searchable media provider."
-            }
+            lastErrors[filePath] =
+                if (contentKind == null) {
+                    "This extension does not register a searchable media provider."
+                } else {
+                    "No search results for \"$query\"."
+                }
             return@withContext emptyList()
         }
         val apiSearchLimit = Semaphore(2)
@@ -699,19 +725,28 @@ object PluginRuntime {
                 async {
                     apiSearchLimit.withPermit {
                         try {
-                            searchProviderForDiscovery(api, query) to null
+                            ApiSearchOutcome(
+                                api = api,
+                                results = searchProviderForDiscovery(api, query),
+                                error = null,
+                            )
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Throwable) {
-                            emptyList<SearchResponse>() to
-                                "${api.name}: ${e::class.simpleName}: ${e.message ?: "search failed"}"
+                            ApiSearchOutcome(
+                                api = api,
+                                results = emptyList(),
+                                error = "${api.name}: ${e::class.simpleName}: ${e.message ?: "search failed"}",
+                            )
                         }
                     }
                 }
             }.map { it.await() }
         }
-        val results = outcomes.flatMap { it.first }
-        val failures = outcomes.mapNotNull { it.second }
+        val results = outcomes.flatMap { outcome ->
+            outcome.results.map { response -> CloudStreamSearchMatch(outcome.api, response) }
+        }
+        val failures = outcomes.mapNotNull { it.error }
         if (results.isNotEmpty()) {
             lastErrors.remove(filePath)
             searchCache[cacheKey] = CachedSearch(now, results)
@@ -797,11 +832,19 @@ object PluginRuntime {
         results
     }
 
-    suspend fun loadDetail(context: Context, filePath: String, url: String): LoadResponse? = withContext(Dispatchers.IO) {
+    suspend fun loadDetail(
+        context: Context,
+        filePath: String,
+        url: String,
+        preferredApi: MainAPI? = null,
+    ): LoadResponse? = withContext(Dispatchers.IO) {
         val apis = load(context, filePath)
         if (apis.isEmpty()) return@withContext null
         val failures = mutableListOf<String>()
-        val response = apis.firstNotNullOfOrNull { api ->
+        val orderedApis = preferredApi?.let { preferred ->
+            listOf(preferred) + apis.filter { it !== preferred }
+        } ?: apis
+        val response = orderedApis.firstNotNullOfOrNull { api ->
             try {
                 api.load(url)
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -827,6 +870,8 @@ object PluginRuntime {
         filePath: String,
         data: String,
         isCasting: Boolean = false,
+        preferredApi: MainAPI? = null,
+        onResolvedLink: suspend (ExtractorLink) -> Unit = {},
     ): Pair<List<ExtractorLink>, List<SubtitleFile>> = withContext(Dispatchers.IO) {
         load(context, filePath)
         val loaded = cache[filePath]
@@ -837,9 +882,10 @@ object PluginRuntime {
 
         val links = java.util.Collections.synchronizedList(mutableListOf<ExtractorLink>())
         val subs = java.util.Collections.synchronizedList(mutableListOf<SubtitleFile>())
-        val diagnostics = mutableListOf<String>()
+        val diagnostics = CopyOnWriteArrayList<String>()
         val fetchCounter = AtomicInteger(0)
         val extractors = loaded.extractors
+        val extractorResolutionLimit = Semaphore(4)
         lastErrors.remove(filePath)
         lastLogs.remove(filePath)
 
@@ -865,19 +911,30 @@ object PluginRuntime {
             val url = candidate.url.trim()
             if (url.isBlank()) return 0
 
+            suspend fun publishResolvedLink(link: ExtractorLink) {
+                links.add(link)
+                try {
+                    onResolvedLink(link)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Throwable) {
+                    // A UI progress callback must not interrupt plugin link extraction.
+                }
+            }
+
             val match = matchingExtractor(url) ?: run {
-                links.add(candidate)
+                publishResolvedLink(candidate)
                 return 1
             }
 
             val visitKey = "${match.name}|$url|${candidate.referer}"
             if (!seen.add(visitKey)) {
-                links.add(candidate)
+                publishResolvedLink(candidate)
                 return 1
             }
 
-            val chained = mutableListOf<ExtractorLink>()
-            val completed = withTimeoutOrNull(DEFAULT_LOAD_LINKS_TIMEOUT_MS) {
+            val chained = CopyOnWriteArrayList<ExtractorLink>()
+            val completed = withTimeoutOrNull(EXTRACTOR_RESOLUTION_TIMEOUT_MS) {
                 try {
                     match.getUrl(
                         url = url,
@@ -919,14 +976,21 @@ object PluginRuntime {
                 return@withTimeoutOrNull
             }
 
-            for (api in loaded.apis) {
+            val loadScope = this
+            val apisToTry = preferredApi?.let { preferred ->
+                listOf(preferred) + loaded.apis.filter { it !== preferred }
+            } ?: loaded.apis
+
+            for (api in apisToTry) {
                 coroutineContext.ensureActive()
-                val rawLinks = mutableListOf<ExtractorLink>()
+                val rawLinkCount = AtomicInteger(0)
+                val resolutionJobs = CopyOnWriteArrayList<kotlinx.coroutines.Deferred<Int>>()
+                val seen = ConcurrentHashMap.newKeySet<String>()
                 var apiCrashed = false
-                val handled = withTimeoutOrNull(
-                    api.loadLinksTimeoutMs?.coerceAtMost(DEFAULT_LOAD_LINKS_TIMEOUT_MS)
-                        ?: DEFAULT_LOAD_LINKS_TIMEOUT_MS,
-                ) {
+                val apiTimeoutMs = api.loadLinksTimeoutMs
+                    ?.coerceAtMost(DEFAULT_API_LOAD_LINKS_TIMEOUT_MS)
+                    ?: DEFAULT_API_LOAD_LINKS_TIMEOUT_MS
+                val handled = withTimeoutOrNull(apiTimeoutMs) {
                     try {
                         api.loadLinks(
                             data = data,
@@ -934,7 +998,12 @@ object PluginRuntime {
                             subtitleCallback = { sub -> subs.add(sub) },
                             callback = { link ->
                                 fetchCounter.incrementAndGet()
-                                rawLinks += link
+                                rawLinkCount.incrementAndGet()
+                                resolutionJobs += loadScope.async {
+                                    extractorResolutionLimit.withPermit {
+                                        resolveCandidate(link, seen, api.name)
+                                    }
+                                }
                             },
                         )
                     } catch (e: CancellationException) {
@@ -945,27 +1014,26 @@ object PluginRuntime {
                         null
                     }
                 }
+                val produced = resolutionJobs.toList().awaitAll().sum()
 
                 when {
-                    handled == null && rawLinks.isEmpty() ->
-                        if (!apiCrashed) record("${api.name}: Timed out after 30s", asError = true)
+                    handled == null && rawLinkCount.get() == 0 ->
+                        if (!apiCrashed) {
+                            record("${api.name}: Timed out after ${apiTimeoutMs / 1_000}s", asError = true)
+                        }
 
-                    rawLinks.isEmpty() ->
+                    rawLinkCount.get() == 0 ->
                         record("${api.name}: API returned 0 results")
 
                     else -> {
-                        var produced = 0
-                        val seen = linkedSetOf<String>()
-                        rawLinks.forEach { candidate ->
-                            produced += resolveCandidate(candidate, seen, api.name)
-                        }
                         if (produced > 0) {
                             record("${api.name}: Resolved $produced link(s)")
                         } else {
-                            record("${api.name}: Produced ${rawLinks.size} candidate link(s) but no playable streams", asError = true)
+                            record("${api.name}: Produced ${rawLinkCount.get()} candidate link(s) but no playable streams", asError = true)
                         }
                     }
                 }
+                if (preferredApi != null && api === preferredApi && produced > 0) break
             }
 
             if (links.isEmpty() && extractors.isNotEmpty() && matchingExtractor(data.trim()) != null) {

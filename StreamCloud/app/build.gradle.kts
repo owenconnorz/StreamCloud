@@ -370,6 +370,8 @@ dependencies {
     // OkHttp 4.12 is compatible with the app's Kotlin 2.0 compiler and compileSdk 34.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    // CloudStream extensions may call URLUtilsKt.Url(...) from their compiled provider code.
+    implementation("io.ktor:ktor-http-jvm:2.3.12")
 
     // Coil image loading
     implementation("io.coil-kt:coil-compose:2.7.0")

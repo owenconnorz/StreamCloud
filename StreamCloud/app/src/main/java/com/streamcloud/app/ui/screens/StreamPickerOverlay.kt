@@ -33,7 +33,6 @@ import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.ExtractorLink
 import com.lagradost.cloudstream3.MovieLoadResponse
-import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.buildStreamProviderPriorityEntries
@@ -53,6 +52,7 @@ import com.streamcloud.app.data.nuvio.InstalledNuvioProvider
 import com.streamcloud.app.data.nuvio.NuvioRuntime
 import com.streamcloud.app.data.nuvio.NuvioStream
 import com.streamcloud.app.data.plugins.InstalledPlugin
+import com.streamcloud.app.data.plugins.CloudStreamSearchMatch
 import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.plugins.cloudStreamNoLinksConfirmed
 import com.streamcloud.app.data.plugins.CloudStreamContentKind
@@ -71,6 +71,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 
 private data class PickerGroupState(
     val addonName: String,
@@ -167,6 +169,13 @@ fun StreamPickerOverlay(
         }
     }
 
+    fun updatePartialGroupStreams(key: String, streams: List<PlayerSource>) {
+        groups = groups.toMutableMap().apply {
+            val existing = get(key) ?: return
+            put(key, existing.copy(streams = streams))
+        }
+    }
+
     LaunchedEffect(
         revision,
         providerKeySet,
@@ -258,6 +267,14 @@ fun StreamPickerOverlay(
                                     contentKind = contentKind,
                                     season = season,
                                     episode = episode,
+                                    onPartialStreams = { partialStreams ->
+                                        withContext(Dispatchers.Main.immediate) {
+                                            updatePartialGroupStreams(
+                                                "cs:${plugin.internalName}",
+                                                partialStreams,
+                                            )
+                                        }
+                                    },
                                 )
                             } catch (e: CancellationException) {
                                 throw e
@@ -567,10 +584,16 @@ fun StreamPickerOverlay(
                                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
                             )
                         }
-                    } else {
+                    }
+
+                    if (!groupState.isLoading || groupState.streams.isNotEmpty()) {
                         val sections = groupState.streams.pickerInnerSections(addonName)
                         val groupError = groupState.error
-                        if (groupState.streams.isEmpty() && !groupError.isNullOrBlank()) {
+                        if (
+                            !groupState.isLoading &&
+                            groupState.streams.isEmpty() &&
+                            !groupError.isNullOrBlank()
+                        ) {
                             item(key = "error:$key") {
                                 Text(
                                     groupError,
@@ -914,13 +937,14 @@ private suspend fun resolveCsForPicker(
     contentKind: CloudStreamContentKind,
     season: Int?,
     episode: Int?,
+    onPartialStreams: suspend (List<PlayerSource>) -> Unit = {},
 ): CloudStreamPickerResult {
     return try {
         if (title.isBlank()) {
             return CloudStreamPickerResult(emptyList(), "A title is required to search this plugin.")
         }
-        val results: List<SearchResponse> = try {
-            PluginRuntime.search(context, plugin.filePath, title)
+        val results: List<CloudStreamSearchMatch> = try {
+            PluginRuntime.searchWithApi(context, plugin.filePath, title, contentKind)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -945,7 +969,12 @@ private suspend fun resolveCsForPicker(
                 emptyResultConfirmed = true,
             )
         val detail = try {
-            PluginRuntime.loadDetail(context, plugin.filePath, best.url)
+            PluginRuntime.loadDetail(
+                context = context,
+                filePath = plugin.filePath,
+                url = best.response.url,
+                preferredApi = best.api,
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (_: Throwable) {
@@ -982,8 +1011,26 @@ private suspend fun resolveCsForPicker(
                 emptyResultConfirmed = cloudStreamNoLinksConfirmed(message),
             )
         }
+        val sourceRoute = "cs:${plugin.internalName}|||${best.response.url}|||${best.response.name}|||"
+        val partialSources = CopyOnWriteArrayList<PlayerSource>()
+        val seenPartialUrls = ConcurrentHashMap.newKeySet<String>()
         val (links, _) = try {
-            PluginRuntime.loadLinks(context, plugin.filePath, data, isCasting = false)
+            PluginRuntime.loadLinks(
+                context = context,
+                filePath = plugin.filePath,
+                data = data,
+                isCasting = false,
+                preferredApi = best.api,
+                onResolvedLink = { link ->
+                    val source = listOf(link)
+                        .pickerToCsSources(plugin.name, sourceRoute)
+                        .firstOrNull()
+                    if (source != null && seenPartialUrls.add(source.url)) {
+                        partialSources += source
+                        onPartialStreams(partialSources.toList())
+                    }
+                },
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -992,8 +1039,7 @@ private suspend fun resolveCsForPicker(
                 "Could not load streams from ${plugin.name}: ${e.message ?: "unknown error"}",
             )
         }
-        val sourceRoute = "cs:${plugin.internalName}|||${best.url}|||${best.name}|||"
-        val sources = links.pickerToCsSources(plugin.name, sourceRoute)
+        val sources = links.pickerToCsSources(plugin.name, sourceRoute).distinctBy { it.url }
         val error = if (sources.isEmpty()) {
             PluginRuntime.lastErrorFor(plugin.filePath)
                 ?: "No streams were returned by ${plugin.name}."
@@ -1030,24 +1076,24 @@ private fun pickerEpisodeData(
 }
 
 private fun pickerBestMatch(
-    results: List<SearchResponse>,
+    results: List<CloudStreamSearchMatch>,
     title: String,
     year: Int?,
     contentKind: CloudStreamContentKind,
-): SearchResponse? {
+): CloudStreamSearchMatch? {
     if (results.isEmpty()) return null
     return results
         .asSequence()
-        .filter { searchResponseMatchesContentKind(it, contentKind) }
-        .filter { hasPlausibleCloudStreamTitleMatch(it.name, title) }
-        .map { response ->
-            var score = if (response.name.equals(title, ignoreCase = true)) 100 else 50
+        .filter { searchResponseMatchesContentKind(it.response, contentKind) }
+        .filter { hasPlausibleCloudStreamTitleMatch(it.response.name, title) }
+        .map { match ->
+            var score = if (match.response.name.equals(title, ignoreCase = true)) 100 else 50
             if (year != null) {
-                val responseYear = (response as? com.lagradost.cloudstream3.MovieSearchResponse)?.year
-                    ?: (response as? com.lagradost.cloudstream3.TvSeriesSearchResponse)?.year
+                val responseYear = (match.response as? com.lagradost.cloudstream3.MovieSearchResponse)?.year
+                    ?: (match.response as? com.lagradost.cloudstream3.TvSeriesSearchResponse)?.year
                 if (responseYear == year) score += 30
             }
-            response to score
+            match to score
         }
         .sortedByDescending { it.second }
         .firstOrNull()

@@ -273,6 +273,9 @@ class NiceResponse(
 
     val body: String get() = text
 
+    // Binary compatibility for extensions compiled against newer NiceHTTP responses.
+    fun getTextLarge(): String = text
+
     val cookies: Map<String, String> by lazy {
         (headers["set-cookie"] ?: headers["Set-Cookie"] ?: emptyList())
             .mapNotNull { it.substringBefore(';').takeIf { c -> c.contains('=') } }

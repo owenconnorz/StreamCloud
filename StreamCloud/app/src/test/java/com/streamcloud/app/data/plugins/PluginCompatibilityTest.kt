@@ -6,8 +6,11 @@ import com.lagradost.cloudstream3.amapNotNull
 import com.lagradost.cloudstream3.MainActivity
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newSearchResponseList
+import com.lagradost.nicehttp.NiceResponse
+import com.lagradost.cloudstream3.utils.StringUtils
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -96,6 +99,20 @@ class PluginCompatibilityTest {
     }
 
     @Test
+    fun pickerSkipsUnrelatedCloudStreamApisBeforeSearching() {
+        val animeApi = object : MainAPI() {
+            override val supportedTypes = setOf(TvType.Anime, TvType.AnimeMovie, TvType.OVA)
+        }
+        val movieApi = object : MainAPI() {
+            override val supportedTypes = setOf(TvType.Movie)
+        }
+
+        assertFalse(animeApi.supportsPickerContent(CloudStreamContentKind.MOVIE))
+        assertTrue(movieApi.supportsPickerContent(CloudStreamContentKind.MOVIE))
+        assertTrue(animeApi.supportsPickerContent(CloudStreamContentKind.ANIME))
+    }
+
+    @Test
     fun pickerRejectsUnrelatedTitlesInsteadOfChoosingTheFirstSearchResult() {
         assertTrue(hasPlausibleCloudStreamTitleMatch("Tenet (2020)", "Tenet"))
         assertTrue(hasPlausibleCloudStreamTitleMatch("Meet the Parents", "Meet the Parents"))
@@ -109,6 +126,31 @@ class PluginCompatibilityTest {
         assertTrue(cloudStreamNoLinksConfirmed("No streams were returned by StreamPlay."))
         assertFalse(cloudStreamNoLinksConfirmed("Plugin timed out after 120 seconds."))
         assertFalse(cloudStreamNoLinksConfirmed("NoSuchMethodError: missing plugin API"))
+        assertFalse(cloudStreamNoLinksConfirmed("JsonSyntaxException: expected object but got array"))
+        assertFalse(cloudStreamNoLinksConfirmed("NoClassDefFoundError: missing provider class"))
+    }
+
+    @Test
+    fun pluginCompatibilitySurfaceIncludesReportedCloudStreamSymbols() {
+        assertEquals("two%20words", StringUtils.encodeUrl("two words"))
+        assertEquals(
+            "response body",
+            NiceResponse(
+                code = 200,
+                text = "response body",
+                headers = emptyMap(),
+                url = "https://example.test",
+            ).getTextLarge(),
+        )
+
+        val cloudflareClass = Class.forName("com.lagradost.cloudstream3.network.CloudflareKiller")
+        assertTrue(
+            okhttp3.Interceptor::class.java.isAssignableFrom(cloudflareClass),
+        )
+        val ktorUrlUtils = Class.forName("io.ktor.http.URLUtilsKt")
+        val parsedUrl = ktorUrlUtils.getMethod("Url", String::class.java)
+            .invoke(null, "https://example.test/path")
+        assertEquals("example.test", parsedUrl.javaClass.getMethod("getHost").invoke(parsedUrl))
     }
 
     @Test
