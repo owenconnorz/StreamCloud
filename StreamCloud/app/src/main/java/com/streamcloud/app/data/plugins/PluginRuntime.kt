@@ -32,6 +32,17 @@ import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 import kotlin.coroutines.coroutineContext
 
+/**
+ * Query CloudStream providers through the current paged search API.
+ *
+ * MainAPI's paged overload delegates to the legacy overload for older plugins,
+ * while newer plugins can implement only the paged signature.
+ */
+internal suspend fun searchProviderForDiscovery(
+    api: MainAPI,
+    query: String,
+): List<SearchResponse> = api.search(query, 1)?.items.orEmpty()
+
 object PluginRuntime {
 
     private const val DEFAULT_LOAD_LINKS_TIMEOUT_MS = 30_000L
@@ -667,7 +678,7 @@ object PluginRuntime {
         val failures = mutableListOf<String>()
         apis.forEach { api ->
             try {
-                results += api.search(query).orEmpty()
+                results += searchProviderForDiscovery(api, query)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {

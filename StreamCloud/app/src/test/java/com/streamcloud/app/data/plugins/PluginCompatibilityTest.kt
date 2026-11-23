@@ -4,6 +4,10 @@ import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.amapIndexed
 import com.lagradost.cloudstream3.amapNotNull
 import com.lagradost.cloudstream3.MainActivity
+import com.lagradost.cloudstream3.MainAPI
+import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.newMovieSearchResponse
+import com.lagradost.cloudstream3.newSearchResponseList
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -29,6 +33,30 @@ class PluginCompatibilityTest {
     fun legacyPluginHostActivityReferenceResolvesSafely() {
         assertEquals("com.lagradost.cloudstream3.MainActivity", MainActivity::class.java.name)
         MainActivity.afterPluginsLoadedEvent.invoke(true)
+    }
+
+    @Test
+    fun sourceDiscoverySupportsPagedAndLegacyCloudStreamSearch() = runBlocking {
+        val pagedProvider = object : MainAPI() {
+            override suspend fun search(query: String, page: Int) =
+                newSearchResponseList(
+                    listOf(newMovieSearchResponse(name = "Paged result", url = "/paged")),
+                    hasNext = false,
+                )
+        }
+        val legacyProvider = object : MainAPI() {
+            override suspend fun search(query: String): List<SearchResponse> =
+                listOf(newMovieSearchResponse(name = "Legacy result", url = "/legacy"))
+        }
+
+        assertEquals(
+            "Paged result",
+            searchProviderForDiscovery(pagedProvider, "Example").single().name,
+        )
+        assertEquals(
+            "Legacy result",
+            searchProviderForDiscovery(legacyProvider, "Example").single().name,
+        )
     }
 
     @Test
