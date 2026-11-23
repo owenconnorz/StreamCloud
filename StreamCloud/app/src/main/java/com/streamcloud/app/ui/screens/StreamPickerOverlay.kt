@@ -370,8 +370,9 @@ fun StreamPickerOverlay(
         }
     }
 
-    // Start from the first provider in priority order that returns a stream. A slower,
-      // higher-priority provider must finish empty before a lower-priority result can win.
+    // Start from the first completed provider in priority order. CloudStream can emit
+    // partial links while loading, so don't leave the picker before the preferred provider
+    // has finished and its remaining links have been added to the player source list.
       var hasAutoPlayed by remember { mutableStateOf(false) }
       LaunchedEffect(autoPlayBest, firstReadyPreferredSource, allSources, providerOrderIsLoaded) {
           if (!providerOrderIsLoaded || !autoPlayBest || hasAutoPlayed) {

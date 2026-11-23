@@ -114,6 +114,31 @@ class StreamProviderPriorityTest {
           )
       }
 
+    @Test
+    fun autoPlayWaitsForPreferredProviderToFinishBeforeUsingPartialLinks() {
+        val partialResults = mapOf(
+            "cs:streamplay" to listOf("streamplay-link"),
+            "nuvio:backup" to listOf("backup-link"),
+        )
+
+        assertEquals(
+            null,
+            firstReadyProviderItem(
+                providerOrder = listOf("cs:streamplay", "nuvio:backup"),
+                itemsByProvider = partialResults,
+                loadingProviders = setOf("cs:streamplay"),
+            ),
+        )
+        assertEquals(
+            "streamplay-link",
+            firstReadyProviderItem(
+                providerOrder = listOf("cs:streamplay", "nuvio:backup"),
+                itemsByProvider = partialResults,
+                loadingProviders = setOf("nuvio:backup"),
+            ),
+        )
+    }
+
         @Test
     fun autoPlayAppliesToSourceRoutesButDownloadsStayManual() {
         assertTrue(shouldAutoPlayBestStream(autoPlayEnabled = true, isDownloadRequest = false))

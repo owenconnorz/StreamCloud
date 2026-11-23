@@ -62,8 +62,8 @@ fun <T> firstReadyProviderItem(
       loadingProviders: Set<String>,
     ): T? {
       for (providerKey in providerOrder) {
-          itemsByProvider[providerKey]?.firstOrNull()?.let { return it }
           if (providerKey in loadingProviders) return null
+          itemsByProvider[providerKey]?.firstOrNull()?.let { return it }
       }
       return null
     }
