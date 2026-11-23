@@ -104,7 +104,8 @@ class PluginCompatibilityTest {
 
     @Test
     fun pickerRejectsMovieSearchResponsesForTvShows() {
-        val movie = newMovieSearchResponse(name = "Tenet", url = "/tenet")
+        val provider = object : MainAPI() {}
+        val movie = provider.newMovieSearchResponse(name = "Tenet", url = "/tenet")
         assertTrue(searchResponseMatchesContentKind(movie, CloudStreamContentKind.MOVIE))
         assertFalse(searchResponseMatchesContentKind(movie, CloudStreamContentKind.TV_SERIES))
     }
