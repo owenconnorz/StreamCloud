@@ -84,7 +84,7 @@ private data class PickerGroupState(
     val emptyResultConfirmed: Boolean = false,
 )
 
-private data class CloudStreamPickerResult(
+internal data class CloudStreamPickerResult(
     val streams: List<PlayerSource>,
     val error: String? = null,
     val emptyResultConfirmed: Boolean = false,
@@ -855,7 +855,7 @@ private fun PickerStreamCard(
 private fun TmdbMovie.pickerYear(): Int? =
     releaseDate?.takeIf { it.isNotBlank() }?.substringBefore('-')?.toIntOrNull()
 
-private fun StremioStream.pickerToPlayerSource(addon: InstalledStremioAddon): PlayerSource? {
+internal fun StremioStream.pickerToPlayerSource(addon: InstalledStremioAddon): PlayerSource? {
     val playable = pickerPlayableUrl() ?: return null
     val isMagnet = playable.startsWith("magnet:")
     val label = title?.takeIf { it.isNotBlank() } ?: name ?: description ?: "Stream"
@@ -913,7 +913,7 @@ private fun StremioStream.pickerQualityTag(): String? {
     }
 }
 
-private fun NuvioStream.pickerToPlayerSource(provider: InstalledNuvioProvider): PlayerSource {
+internal fun NuvioStream.pickerToPlayerSource(provider: InstalledNuvioProvider): PlayerSource {
     val cleanName = name?.trim()?.takeIf { it.isNotBlank() }
     val label = buildString {
         if (!cleanName.isNullOrBlank()) append(cleanName)
@@ -981,7 +981,7 @@ private fun pickerNormaliseQuality(q: String?): String? {
     }
 }
 
-private suspend fun resolveCsForPicker(
+internal suspend fun resolveCsForPicker(
     context: Context,
     plugin: InstalledPlugin,
     title: String,
@@ -1075,7 +1075,7 @@ private suspend fun resolveCsForPicker(
                 preferredApi = best.api,
                 onResolvedLink = { link ->
                     val source = listOf(link)
-                        .pickerToCsSources(plugin.name, sourceRoute)
+        .pickerToCsSources(plugin.name, sourceRoute)
                         .firstOrNull()
                     if (source != null && seenPartialUrls.add(source.url)) {
                         partialSources += source
@@ -1156,8 +1156,8 @@ private fun List<ExtractorLink>.pickerToCsSources(
     pluginName: String,
     sourceRoute: String,
 ): List<PlayerSource> =
-    mapIndexedNotNull { idx, link ->
-        if (link.url.isBlank()) return@mapIndexedNotNull null
+    mapNotNull { link ->
+        if (link.url.isBlank()) return@mapNotNull null
         val extractorName = link.source.takeIf { it.isNotBlank() } ?: pluginName
         val label = when {
             link.name.isBlank() -> extractorName
@@ -1174,10 +1174,10 @@ private fun List<ExtractorLink>.pickerToCsSources(
             else -> null
         }
         PlayerSource(
-            id = "cs::$pluginName::${link.url.hashCode()}::$idx",
+            id = "cs::$pluginName::${link.url.hashCode()}::${label.hashCode()}",
             url = link.url,
             label = label,
-            addonName = extractorName,
+            addonName = streamPickerTabLabel("cs:${pluginName}", pluginName),
             qualityTag = quality,
             isMagnet = link.url.startsWith("magnet:"),
             sourceRoute = sourceRoute,

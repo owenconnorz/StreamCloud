@@ -10,8 +10,8 @@ object MoviePlayerSession {
     val sourcesFlow: StateFlow<List<PlayerSource>> = _sources.asStateFlow()
     val sources: List<PlayerSource> get() = _sources.value
 
-    private val _nuvioScanning = MutableStateFlow(false)
-    val nuvioScanningFlow: StateFlow<Boolean> = _nuvioScanning.asStateFlow()
+    private val _sourceScanning = MutableStateFlow(false)
+    val sourceScanningFlow: StateFlow<Boolean> = _sourceScanning.asStateFlow()
 
     private val _sourceErrors = MutableStateFlow<Map<String, String>>(emptyMap())
     val sourceErrorsFlow: StateFlow<Map<String, String>> = _sourceErrors.asStateFlow()
@@ -73,12 +73,12 @@ object MoviePlayerSession {
         this.pauseOverlayMetadata = pauseOverlayMetadata
         _bingeEpisodes.value = bingeEpisodes
         this.currentBingeIndex = currentBingeIndex
-        _nuvioScanning.value = false
+        _sourceScanning.value = false
         _sourceErrors.value = emptyMap()
         _addonSubtitles.value = emptyList()
     }
 
-    fun setNuvioScanning(scanning: Boolean) { _nuvioScanning.value = scanning }
+    fun setSourceScanning(scanning: Boolean) { _sourceScanning.value = scanning }
 
     fun setSourceError(addonName: String, error: String) {
         _sourceErrors.value = _sourceErrors.value + (addonName to error)
@@ -105,7 +105,7 @@ object MoviePlayerSession {
 
     fun clear() {
         _sources.value = emptyList()
-        _nuvioScanning.value = false
+        _sourceScanning.value = false
         _sourceErrors.value = emptyMap()
         _addonSubtitles.value = emptyList()
         progressKey = null

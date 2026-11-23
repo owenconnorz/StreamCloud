@@ -101,6 +101,7 @@ import com.streamcloud.app.ui.screens.MovieSearchScreen
 import com.streamcloud.app.ui.screens.MoviesScreen
 import com.streamcloud.app.ui.screens.MusicScreen
 import com.streamcloud.app.ui.screens.MusicSearchScreen
+import com.streamcloud.app.ui.screens.discoverPlayerSources
 import com.streamcloud.app.ui.screens.PluginPickerScreen
 import com.streamcloud.app.ui.screens.PluginsScreen
 import com.streamcloud.app.ui.screens.SettingsHubScreen
@@ -2110,7 +2111,7 @@ fun StreamCloudApp(
 
 
                     val sources by com.streamcloud.app.player.MoviePlayerSession.sourcesFlow.collectAsState()
-                    val nuvioScanning by com.streamcloud.app.player.MoviePlayerSession.nuvioScanningFlow.collectAsState()
+                    val sourceScanning by com.streamcloud.app.player.MoviePlayerSession.sourceScanningFlow.collectAsState()
                     val sourceErrors by com.streamcloud.app.player.MoviePlayerSession.sourceErrorsFlow.collectAsState()
                     val addonSubtitles by com.streamcloud.app.player.MoviePlayerSession.addonSubtitlesFlow.collectAsState()
                     val bingeEpisodes by com.streamcloud.app.player.MoviePlayerSession.bingeEpisodesFlow.collectAsState()
@@ -2123,6 +2124,76 @@ fun StreamCloudApp(
                         .distinctBy { it.url }
                     val subtitle = active?.let { "${it.addonName}${it.qualityTag?.let { q -> " Â· $q" } ?: ""}" }
                     val refreshScope = rememberCoroutineScope()
+                    var sourceProviderNames by remember(initial) { mutableStateOf(emptyList()) }
+                    var playerSourceDiscoveryAttempted by remember(initial) { mutableStateOf(false) }
+
+                    fun refreshPlayerSources() {
+                        val tmdbId = com.streamcloud.app.player.MoviePlayerSession.tmdbId
+                        if (tmdbId <= 0L) return
+                        val sessionKey = com.streamcloud.app.player.MoviePlayerSession.progressKey
+                        val searchTitle = sessionKey?.showTitle?.takeIf { it.isNotBlank() }
+                            ?: sessionKey?.title
+                                ?.replace(Regex("\\s+S\\d+E\\d+.*$"), "")
+                                ?.substringBefore(" · ")
+                                ?.takeIf { it.isNotBlank() }
+                            ?: title
+                        com.streamcloud.app.player.MoviePlayerSession.setSourceScanning(true)
+                        refreshScope.launch {
+                            try {
+                                discoverPlayerSources(
+                                    context = context.applicationContext,
+                                    services = sl,
+                                    tmdbId = tmdbId,
+                                    mediaType = com.streamcloud.app.player.MoviePlayerSession.mediaType,
+                                    title = searchTitle,
+                                    season = com.streamcloud.app.player.MoviePlayerSession.seasonNumber,
+                                    episode = com.streamcloud.app.player.MoviePlayerSession.episodeNumber,
+                                    onProviderNames = { names ->
+                                        withContext(Dispatchers.Main.immediate) {
+                                            sourceProviderNames = names
+                                        }
+                                    },
+                                    onProviderResult = { providerName, streams, error, removeIfEmpty ->
+                                        withContext(Dispatchers.Main.immediate) {
+                                            if (streams.isNotEmpty()) {
+                                                com.streamcloud.app.player.MoviePlayerSession.clearSourceError(providerName)
+                                                com.streamcloud.app.player.MoviePlayerSession.mergeSources(streams)
+                                            } else if (!error.isNullOrBlank()) {
+                                                com.streamcloud.app.player.MoviePlayerSession.setSourceError(
+                                                    providerName,
+                                                    error,
+                                                )
+                                            } else {
+                                                com.streamcloud.app.player.MoviePlayerSession.clearSourceError(providerName)
+                                            }
+                                            if (removeIfEmpty) {
+                                                sourceProviderNames = sourceProviderNames.filterNot {
+                                                    it == providerName
+                                                }
+                                            }
+                                        }
+                                    },
+                                    onPartialCloudStreamSources = { partial ->
+                                        withContext(Dispatchers.Main.immediate) {
+                                            com.streamcloud.app.player.MoviePlayerSession.mergeSources(partial)
+                                        }
+                                    },
+                                )
+                            } catch (error: Throwable) {
+                                if (error is kotlinx.coroutines.CancellationException) throw error
+                                withContext(Dispatchers.Main.immediate) {
+                                    com.streamcloud.app.player.MoviePlayerSession.setSourceError(
+                                        "Sources",
+                                        error.message ?: "Provider scan failed.",
+                                    )
+                                }
+                            } finally {
+                                withContext(Dispatchers.Main.immediate) {
+                                    com.streamcloud.app.player.MoviePlayerSession.setSourceScanning(false)
+                                }
+                            }
+                        }
+                    }
 
 
                     var switchKey by remember(initial) { mutableStateOf(0) }
@@ -2138,7 +2209,8 @@ fun StreamCloudApp(
                         sources = sources,
                         selectedSourceId = currentId,
                         restartKey = switchKey,
-                        nuvioScanning = nuvioScanning,
+                        sourceScanning = sourceScanning,
+                        sourceProviderNames = sourceProviderNames,
                         forceDirectPlay = true,
                         artworkUrl = com.streamcloud.app.player.MoviePlayerSession.progressKey?.posterUrl,
                         pauseOverlayMetadata =
@@ -2171,33 +2243,15 @@ fun StreamCloudApp(
                         addonSubtitles = sourceSubtitles,
                         // ââ Per-provider errors âââââââââââââââââââââââââââââââ
                         sourceErrors   = sourceErrors,
-                        onRefresh = {
-                            refreshScope.launch {
-                                val tmdbId = com.streamcloud.app.player.MoviePlayerSession.tmdbId
-                                val mediaType = com.streamcloud.app.player.MoviePlayerSession.mediaType
-                                if (tmdbId == 0L) return@launch
-                                com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(true)
-                                val newSources = runCatching {
-                                    sl.nuvio.resolveAll(tmdbId.toString(), mediaType)
-                                        .map { (provider, stream) ->
-                                            val label = stream.title?.takeIf { it.isNotBlank() }
-                                                ?: stream.name?.takeIf { it.isNotBlank() }
-                                                ?: "Stream"
-                                            com.streamcloud.app.player.PlayerSource(
-                                                id = "nuvio::${provider.id}::${stream.url.hashCode()}::${label.hashCode()}",
-                                                url = stream.url,
-                                                label = label,
-                                                addonName = provider.name,
-                                                qualityTag = nuvioQualityTag(stream.quality),
-                                                isMagnet = stream.url.startsWith("magnet:"),
-                                                headers = stream.headers ?: emptyMap(),
-                                                subtitleTracks = stream.toAddonSubtitles(provider.name),
-                                            )
-                                        }
-                                }.getOrDefault(emptyList())
-                                com.streamcloud.app.player.MoviePlayerSession.setNuvioScanning(false)
-                                com.streamcloud.app.player.MoviePlayerSession.mergeSources(newSources)
+                        onSourcesOpened = {
+                            if (!playerSourceDiscoveryAttempted) {
+                                playerSourceDiscoveryAttempted = true
+                                refreshPlayerSources()
                             }
+                        },
+                        onRefresh = {
+                            playerSourceDiscoveryAttempted = true
+                            refreshPlayerSources()
                         },
                     )
                     }

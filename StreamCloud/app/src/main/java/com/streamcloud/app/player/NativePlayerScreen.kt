@@ -135,7 +135,9 @@ fun NativePlayerScreen(
     pauseOverlayMetadata: PlayerPauseOverlayMetadata? = null,
 
     onRefresh: (() -> Unit)? = null,
-    nuvioScanning: Boolean = false,
+    onSourcesOpened: (() -> Unit)? = null,
+    sourceProviderNames: List<String> = emptyList(),
+    sourceScanning: Boolean = false,
 
     restartKey: Any? = null,
     forceDirectPlay: Boolean = false,
@@ -1282,7 +1284,11 @@ fun NativePlayerScreen(
                             horizontalArrangement = if (isTv) Arrangement.Start else Arrangement.Center,
                         ) {
                             PlayerToolbarPill(
-                                onSourcesClick       = if (sources.isNotEmpty()) {{ showSourcesSheet = true; bumpInteraction() }} else null,
+                                onSourcesClick       = if (sources.isNotEmpty()) {{
+                                    showSourcesSheet = true
+                                    onSourcesOpened?.invoke()
+                                    bumpInteraction()
+                                }} else null,
                                 isLandscape          = isLandscape,
                                 onRotate             = if (!isTv) {
                                     { isLandscape = !isLandscape; bumpInteraction() }
@@ -1428,11 +1434,12 @@ fun NativePlayerScreen(
                 sources          = sources,
                 selectedSourceId = selectedSourceId,
                 sourceErrors     = sourceErrors,
+                providerNames    = sourceProviderNames,
                 sidePanelOnPhone = isLandscape && !isTv,
                 onPick           = { src -> showSourcesSheet = false; onSwitchSource?.invoke(src) },
                 onDismiss        = { showSourcesSheet = false },
                 onRefresh        = onRefresh,
-                nuvioScanning    = nuvioScanning,
+                sourceScanning   = sourceScanning,
             )
         }
 
@@ -2117,15 +2124,18 @@ private fun PlayerSidePanel(
 private fun SourcesPickerSheet(
     sources: List<PlayerSource>, selectedSourceId: String?,
     sourceErrors: Map<String, String> = emptyMap(),
+    providerNames: List<String> = emptyList(),
     sidePanelOnPhone: Boolean = false,
     onPick: (PlayerSource) -> Unit, onDismiss: () -> Unit,
-    onRefresh: (() -> Unit)? = null, nuvioScanning: Boolean = false,
+    onRefresh: (() -> Unit)? = null, sourceScanning: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
     val isTv           = LocalUiFormFactor.current == UiFormFactor.Tv
     val showAsSidePanel = isTv || sidePanelOnPhone
     val safeSources    = remember(sources) { sources.distinctBy { it.id } }
-    val addonFilters   = remember(safeSources) { listOf("All") + safeSources.map { it.addonName }.distinct() }
+    val addonFilters   = remember(safeSources, providerNames) {
+        listOf("All") + (providerNames + safeSources.map { it.addonName }).distinct()
+    }
     var activeFilter   by remember(safeSources) { mutableStateOf("All") }
     val filtered = remember(activeFilter, safeSources) {
         if (activeFilter == "All") safeSources else safeSources.filter { it.addonName == activeFilter }
@@ -2174,22 +2184,22 @@ private fun SourcesPickerSheet(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { onRefresh?.invoke() }, enabled = onRefresh != null && !nuvioScanning) {
-                        if (nuvioScanning) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = colors.primary, strokeWidth = 2.dp)
+                    IconButton(onClick = { onRefresh?.invoke() }, enabled = onRefresh != null && !sourceScanning) {
+                        if (sourceScanning) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = colors.primary, strokeWidth = 2.dp)
                         else Icon(Icons.Default.Refresh, "Reload", tint = if (onRefresh != null) colors.onSurface else colors.onSurface.copy(alpha = 0.3f))
                     }
                     Text("Sources", color = colors.onSurface, style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f).padding(start = 8.dp))
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close", tint = colors.onSurface) }
                 }
-                AnimatedVisibility(visible = nuvioScanning) {
+                AnimatedVisibility(visible = sourceScanning) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)
                         .clip(RoundedCornerShape(8.dp)).background(colors.surfaceVariant.copy(alpha = 0.55f))
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.size(14.dp), color = colors.primary, strokeWidth = 2.dp)
                         Spacer(Modifier.width(10.dp))
-                        Text("Scanning Nuvio providers…", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                        Text("Scanning providers…", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 if (currentAddonError != null) {
@@ -2235,7 +2245,7 @@ private fun SourcesPickerSheet(
                     if (filtered.isEmpty()) {
                         item {
                             Text(when {
-                                nuvioScanning -> "Scanning for streams…"
+                                sourceScanning -> "Scanning for streams…"
                                 currentAddonError != null -> "No streams — $activeFilter returned an error."
                                 else -> "No streams from $activeFilter."
                             }, color = colors.onSurfaceVariant, modifier = Modifier.padding(20.dp))
@@ -2252,22 +2262,22 @@ private fun SourcesPickerSheet(
         ) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { onRefresh?.invoke() }, enabled = onRefresh != null && !nuvioScanning) {
-                        if (nuvioScanning) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = colors.primary, strokeWidth = 2.dp)
+                    IconButton(onClick = { onRefresh?.invoke() }, enabled = onRefresh != null && !sourceScanning) {
+                        if (sourceScanning) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = colors.primary, strokeWidth = 2.dp)
                         else Icon(Icons.Default.Refresh, "Reload", tint = if (onRefresh != null) colors.onSurface else colors.onSurface.copy(alpha = 0.3f))
                     }
                     Text("Sources", color = colors.onSurface, style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f).padding(start = 8.dp))
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close", tint = colors.onSurface) }
                 }
-                AnimatedVisibility(visible = nuvioScanning) {
+                AnimatedVisibility(visible = sourceScanning) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)
                         .clip(RoundedCornerShape(8.dp)).background(colors.surfaceVariant.copy(alpha = 0.55f))
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.size(14.dp), color = colors.primary, strokeWidth = 2.dp)
                         Spacer(Modifier.width(10.dp))
-                        Text("Scanning Nuvio providers…", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                        Text("Scanning providers…", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 // Per-addon error banner
@@ -2307,7 +2317,7 @@ private fun SourcesPickerSheet(
                     if (filtered.isEmpty()) {
                         item {
                             Text(when {
-                                nuvioScanning -> "Scanning for streams…"
+                                sourceScanning -> "Scanning for streams…"
                                 currentAddonError != null -> "No streams — $activeFilter returned an error."
                                 else -> "No streams from $activeFilter."
                             }, color = colors.onSurfaceVariant, modifier = Modifier.padding(20.dp))
