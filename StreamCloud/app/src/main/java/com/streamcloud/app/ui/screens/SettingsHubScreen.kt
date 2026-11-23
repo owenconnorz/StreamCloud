@@ -117,6 +117,8 @@ import com.streamcloud.app.data.plugins.PluginRepository
 import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.data.updater.UpdateChecker
 import com.streamcloud.app.data.updater.UpdateInfo
+import com.streamcloud.app.player.SourceLanguageFilter
+import com.streamcloud.app.player.SourceQualityFilter
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
@@ -222,6 +224,14 @@ fun SettingsHubScreen(
     var nsfw                by remember { mutableStateOf(false) }
     var videoQuality        by remember { mutableStateOf("auto") }
     var audioQuality        by remember { mutableStateOf("high") }
+    var sourceQualityFilterEnabled by remember { mutableStateOf(false) }
+    var sourceQualityFilterQualities by remember {
+        mutableStateOf(SourceQualityFilter.defaultSelected)
+    }
+    var sourceLanguageFilterEnabled by remember { mutableStateOf(false) }
+    var sourceLanguageFilterLanguages by remember {
+        mutableStateOf(SourceLanguageFilter.defaultSelected)
+    }
     var extLinks            by remember { mutableStateOf(true) }
     var autoplay            by remember { mutableStateOf(true) }
     var subs                by remember { mutableStateOf(true) }
@@ -357,6 +367,10 @@ fun SettingsHubScreen(
         nsfw                = sl.settings.nsfwEnabled.first()
         videoQuality        = sl.settings.videoQuality.first()
         audioQuality        = sl.settings.audioQuality.first()
+        sourceQualityFilterEnabled = sl.settings.sourceQualityFilterEnabled.first()
+        sourceQualityFilterQualities = sl.settings.sourceQualityFilterQualities.first()
+        sourceLanguageFilterEnabled = sl.settings.sourceLanguageFilterEnabled.first()
+        sourceLanguageFilterLanguages = sl.settings.sourceLanguageFilterLanguages.first()
         extLinks            = sl.settings.externalLinksInBrowser.first()
         autoplay            = sl.settings.autoplayNext.first()
         subs                = sl.settings.subtitlesEnabled.first()
@@ -553,6 +567,33 @@ fun SettingsHubScreen(
                         value = videoQuality.replaceFirstChar { it.uppercase() } +
                             if (videoQuality.matches(Regex("\\d+"))) "p" else "",
                         onClick = { showQualityVideoDialog = true },
+                    )
+                    SettingDivider()
+                    SubSectionLabel("Source filters")
+                    SourceQualityFilterSettings(
+                        enabled = sourceQualityFilterEnabled,
+                        selected = sourceQualityFilterQualities,
+                        onEnabledChange = { enabled ->
+                            sourceQualityFilterEnabled = enabled
+                            scope.launch { sl.settings.setSourceQualityFilterEnabled(enabled) }
+                        },
+                        onSelectedChange = { selected ->
+                            sourceQualityFilterQualities = selected
+                            scope.launch { sl.settings.setSourceQualityFilterQualities(selected) }
+                        },
+                    )
+                    SettingDivider()
+                    SourceLanguageFilterSettings(
+                        enabled = sourceLanguageFilterEnabled,
+                        selected = sourceLanguageFilterLanguages,
+                        onEnabledChange = { enabled ->
+                            sourceLanguageFilterEnabled = enabled
+                            scope.launch { sl.settings.setSourceLanguageFilterEnabled(enabled) }
+                        },
+                        onSelectedChange = { selected ->
+                            sourceLanguageFilterLanguages = selected
+                            scope.launch { sl.settings.setSourceLanguageFilterLanguages(selected) }
+                        },
                     )
                     SettingDivider()
                     SettingToggle(
@@ -1193,6 +1234,33 @@ fun SettingsHubScreen(
                         value = videoQuality.replaceFirstChar { it.uppercase() } +
                             if (videoQuality.matches(Regex("\\d+"))) "p" else "",
                         onClick = { showQualityVideoDialog = true },
+                    )
+                    SettingDivider()
+                    SubSectionLabel("Source filters")
+                    SourceQualityFilterSettings(
+                        enabled = sourceQualityFilterEnabled,
+                        selected = sourceQualityFilterQualities,
+                        onEnabledChange = { enabled ->
+                            sourceQualityFilterEnabled = enabled
+                            scope.launch { sl.settings.setSourceQualityFilterEnabled(enabled) }
+                        },
+                        onSelectedChange = { selected ->
+                            sourceQualityFilterQualities = selected
+                            scope.launch { sl.settings.setSourceQualityFilterQualities(selected) }
+                        },
+                    )
+                    SettingDivider()
+                    SourceLanguageFilterSettings(
+                        enabled = sourceLanguageFilterEnabled,
+                        selected = sourceLanguageFilterLanguages,
+                        onEnabledChange = { enabled ->
+                            sourceLanguageFilterEnabled = enabled
+                            scope.launch { sl.settings.setSourceLanguageFilterEnabled(enabled) }
+                        },
+                        onSelectedChange = { selected ->
+                            sourceLanguageFilterLanguages = selected
+                            scope.launch { sl.settings.setSourceLanguageFilterLanguages(selected) }
+                        },
                     )
                     SettingDivider()
                     SettingNav(
@@ -3990,6 +4058,82 @@ private fun SettingToggle(
         }
         Spacer(Modifier.width(8.dp))
         Switch(checked = checked, onCheckedChange = null)
+    }
+}
+
+@Composable
+private fun SourceQualityFilterSettings(
+    enabled: Boolean,
+    selected: Set<String>,
+    onEnabledChange: (Boolean) -> Unit,
+    onSelectedChange: (Set<String>) -> Unit,
+) {
+    SettingToggle(
+        icon = Icons.Default.HighQuality,
+        tint = ColourPlayer,
+        title = "Filter source quality",
+        subtitle = "Show only selected resolutions in the source picker",
+        checked = enabled,
+        onChange = onEnabledChange,
+    )
+    if (enabled) {
+        SourceFilterChoiceRow(
+            options = SourceQualityFilter.options,
+            selected = selected,
+            onSelectedChange = onSelectedChange,
+        )
+    }
+}
+
+@Composable
+private fun SourceLanguageFilterSettings(
+    enabled: Boolean,
+    selected: Set<String>,
+    onEnabledChange: (Boolean) -> Unit,
+    onSelectedChange: (Set<String>) -> Unit,
+) {
+    SettingToggle(
+        icon = Icons.Default.Language,
+        tint = ColourPlayer,
+        title = "Filter by language",
+        subtitle = "Filter source results and available audio/subtitle tracks",
+        checked = enabled,
+        onChange = onEnabledChange,
+    )
+    if (enabled) {
+        SourceFilterChoiceRow(
+            options = SourceLanguageFilter.options,
+            selected = selected,
+            onSelectedChange = onSelectedChange,
+        )
+    }
+}
+
+@Composable
+private fun SourceFilterChoiceRow(
+    options: List<String>,
+    selected: Set<String>,
+    onSelectedChange: (Set<String>) -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 76.dp, end = 12.dp)
+            .horizontalScroll(rememberScrollState())
+            .tvFocusGroup(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        options.forEach { option ->
+            FilterChip(
+                selected = option in selected,
+                onClick = {
+                    val updated = if (option in selected) selected - option else selected + option
+                    onSelectedChange(updated)
+                },
+                label = { Text(option) },
+            )
+        }
     }
 }
 

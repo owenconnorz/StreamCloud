@@ -17,6 +17,7 @@ data class PlayerSource(
     val skipIntervals: List<SkipInterval> = emptyList(),
     val sourceRoute: String? = null,
     val subtitleTracks: List<AddonSubtitle> = emptyList(),
+    val languageTag: String? = null,
 ) {
     companion object {
         private val KNOWN_DEBRID_HOSTS = setOf(
@@ -60,6 +61,7 @@ fun NuvioStream.toPlayerSource(provider: InstalledNuvioProvider): PlayerSource {
         headers = headers ?: emptyMap(),
         debridHost = PlayerSource.detectDebridHost(url),
         subtitleTracks = toAddonSubtitles(provider.name),
+        languageTag = language,
     )
 }
 

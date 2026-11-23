@@ -249,6 +249,10 @@ fun NativePlayerScreen(
     val movieAudioFormats   by sl.settings.movieAudioFormats.collectAsState(
         initial = MovieAudioPreferences.defaultIdsCsv,
     )
+    val sourceLanguageFilterEnabled by sl.settings.sourceLanguageFilterEnabled.collectAsState(initial = false)
+    val sourceLanguageFilterLanguages by sl.settings.sourceLanguageFilterLanguages.collectAsState(
+        initial = SourceLanguageFilter.defaultSelected,
+    )
 
     // ── Subtitle style ────────────────────────────────────────────────────
     var subtitleStyle by remember { mutableStateOf(SubtitleStylePrefs.load(context)) }
@@ -1454,6 +1458,25 @@ fun NativePlayerScreen(
 
         if (showSubsSheet) {
             val textGroups = ex?.currentTracks?.groups?.filter { it.type == C.TRACK_TYPE_TEXT } ?: emptyList()
+            val visibleTextTracks = textGroups.flatMap { group ->
+                (0 until group.mediaTrackGroup.length).map { trackIndex -> group to trackIndex }
+            }.filter { (group, trackIndex) ->
+                val format = group.mediaTrackGroup.getFormat(trackIndex)
+                !sourceLanguageFilterEnabled || SourceLanguageFilter.matchesTrack(
+                    sourceLanguageFilterLanguages,
+                    format.language,
+                    format.label,
+                )
+            }
+            val visibleAddonSubtitles = addonSubtitles.filter { subtitle ->
+                !sourceLanguageFilterEnabled || SourceLanguageFilter.matchesTrack(
+                    sourceLanguageFilterLanguages,
+                    subtitle.lang,
+                    subtitle.label,
+                )
+            }
+            val hasAnySubtitleTracks =
+                textGroups.any { it.mediaTrackGroup.length > 0 } || addonSubtitles.isNotEmpty()
             val subsDisabled = ex?.trackSelectionParameters?.disabledTrackTypes?.contains(C.TRACK_TYPE_TEXT) == true
             ModalBottomSheet(onDismissRequest = { showSubsSheet = false }) {
                 Column(Modifier.padding(bottom = 32.dp)) {
@@ -1465,9 +1488,12 @@ fun NativePlayerScreen(
                             Spacer(Modifier.width(4.dp)); Text("Style")
                         }
                     }
-                    if (textGroups.isEmpty() && addonSubtitles.isEmpty()) {
-                        Text("No subtitle tracks available", modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (!hasAnySubtitleTracks) {
+                        Text(
+                            "No subtitle tracks available",
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     } else {
                         ListItem(headlineContent = { Text("Off") }, leadingContent = {
                             RadioButton(selected = subsDisabled, onClick = {
@@ -1476,29 +1502,38 @@ fun NativePlayerScreen(
                                 showSubsSheet = false
                             })
                         })
-                        textGroups.forEach { group ->
-                            repeat(group.mediaTrackGroup.length) { i ->
-                                val fmt = group.mediaTrackGroup.getFormat(i)
-                                ListItem(headlineContent = { Text(fmt.label ?: fmt.language ?: "Track ${i + 1}") },
-                                    leadingContent = {
-                                        RadioButton(selected = !subsDisabled && group.isTrackSelected(i), onClick = {
-                                            ex?.trackSelectionParameters = ex?.trackSelectionParameters?.buildUpon()
-                                                ?.setDisabledTrackTypes(emptySet())
-                                                ?.addOverride(TrackSelectionOverride(group.mediaTrackGroup, i))
-                                                ?.build() ?: return@RadioButton
-                                            showSubsSheet = false
-                                        })
-                                    })
-                            }
+                        if (
+                            sourceLanguageFilterEnabled &&
+                            visibleTextTracks.isEmpty() &&
+                            visibleAddonSubtitles.isEmpty()
+                        ) {
+                            Text(
+                                "No subtitle tracks match the selected languages",
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
-                        if (addonSubtitles.isNotEmpty()) {
-                            if (textGroups.isNotEmpty()) {
+                        visibleTextTracks.forEach { (group, trackIndex) ->
+                            val fmt = group.mediaTrackGroup.getFormat(trackIndex)
+                            ListItem(headlineContent = { Text(fmt.label ?: fmt.language ?: "Track ${trackIndex + 1}") },
+                                leadingContent = {
+                                    RadioButton(selected = !subsDisabled && group.isTrackSelected(trackIndex), onClick = {
+                                        ex?.trackSelectionParameters = ex?.trackSelectionParameters?.buildUpon()
+                                            ?.setDisabledTrackTypes(emptySet())
+                                            ?.addOverride(TrackSelectionOverride(group.mediaTrackGroup, trackIndex))
+                                            ?.build() ?: return@RadioButton
+                                        showSubsSheet = false
+                                    })
+                                })
+                        }
+                        if (visibleAddonSubtitles.isNotEmpty()) {
+                            if (visibleTextTracks.isNotEmpty()) {
                                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                                 Text("From addons", style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
                             }
-                            addonSubtitles.forEach { sub ->
+                            visibleAddonSubtitles.forEach { sub ->
                                 ListItem(
                                     headlineContent = { Text(sub.label) },
                                     supportingContent = { Text(sub.addonName, style = MaterialTheme.typography.bodySmall) },
@@ -1533,27 +1568,45 @@ fun NativePlayerScreen(
 
         if (showAudioSheet) {
             val audioGroups = ex?.currentTracks?.groups?.filter { it.type == C.TRACK_TYPE_AUDIO } ?: emptyList()
+            val allAudioTracks = audioGroups.flatMap { group ->
+                (0 until group.mediaTrackGroup.length).map { trackIndex -> group to trackIndex }
+            }
+            val visibleAudioTracks = allAudioTracks.filter { (group, trackIndex) ->
+                val format = group.mediaTrackGroup.getFormat(trackIndex)
+                !sourceLanguageFilterEnabled || SourceLanguageFilter.matchesTrack(
+                    sourceLanguageFilterLanguages,
+                    format.language,
+                    format.label,
+                )
+            }
             ModalBottomSheet(onDismissRequest = { showAudioSheet = false }) {
                 Column(Modifier.padding(bottom = 32.dp)) {
                     Text("Audio Track", style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
-                    if (audioGroups.isEmpty() || (audioGroups.size == 1 && audioGroups[0].mediaTrackGroup.length <= 1)) {
+                    if (visibleAudioTracks.isEmpty()) {
+                        Text(
+                            if (sourceLanguageFilterEnabled) {
+                                "No audio tracks match the selected languages"
+                            } else {
+                                "No alternate audio tracks available"
+                            },
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else if (allAudioTracks.size <= 1) {
                         Text("No alternate audio tracks available", modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
-                        audioGroups.forEach { group ->
-                            repeat(group.mediaTrackGroup.length) { i ->
-                                val fmt = group.mediaTrackGroup.getFormat(i)
-                                ListItem(headlineContent = { Text(fmt.label ?: fmt.language ?: "Track ${i + 1}") },
-                                    leadingContent = {
-                                        RadioButton(selected = group.isTrackSelected(i), onClick = {
-                                            ex?.trackSelectionParameters = ex?.trackSelectionParameters?.buildUpon()
-                                                ?.addOverride(TrackSelectionOverride(group.mediaTrackGroup, i))
-                                                ?.build() ?: return@RadioButton
-                                            showAudioSheet = false
-                                        })
+                        visibleAudioTracks.forEach { (group, trackIndex) ->
+                            val fmt = group.mediaTrackGroup.getFormat(trackIndex)
+                            ListItem(headlineContent = { Text(fmt.label ?: fmt.language ?: "Track ${trackIndex + 1}") },
+                                leadingContent = {
+                                    RadioButton(selected = group.isTrackSelected(trackIndex), onClick = {
+                                        ex?.trackSelectionParameters = ex?.trackSelectionParameters?.buildUpon()
+                                            ?.addOverride(TrackSelectionOverride(group.mediaTrackGroup, trackIndex))
+                                            ?.build() ?: return@RadioButton
+                                        showAudioSheet = false
                                     })
-                            }
+                                })
                         }
                     }
                 }

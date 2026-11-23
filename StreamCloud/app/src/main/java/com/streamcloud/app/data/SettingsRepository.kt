@@ -114,6 +114,8 @@ object SettingsKeys {
     val VIDEO_QUALITY = stringPreferencesKey("video_quality")
     val SOURCE_QUALITY_FILTER_ENABLED = booleanPreferencesKey("source_quality_filter_enabled")
     val SOURCE_QUALITY_FILTER_QUALITIES = stringPreferencesKey("source_quality_filter_qualities")
+    val SOURCE_LANGUAGE_FILTER_ENABLED = booleanPreferencesKey("source_language_filter_enabled")
+    val SOURCE_LANGUAGE_FILTER_LANGUAGES = stringPreferencesKey("source_language_filter_languages")
     val AUDIO_QUALITY = stringPreferencesKey("audio_quality")
     val EXTERNAL_LINKS_IN_BROWSER = booleanPreferencesKey("ext_links_in_browser")
     val AUTOPLAY_NEXT = booleanPreferencesKey("autoplay_next")
@@ -364,6 +366,16 @@ class SettingsRepository(private val context: Context) {
             ?.filter(String::isNotEmpty)
             ?.toSet()
             ?: "4K,1440p,1080p".split(',').toSet()
+    }
+    val sourceLanguageFilterEnabled: Flow<Boolean> =
+        context.dataStore.data.map { it[SettingsKeys.SOURCE_LANGUAGE_FILTER_ENABLED] ?: false }
+    val sourceLanguageFilterLanguages: Flow<Set<String>> = context.dataStore.data.map {
+        it[SettingsKeys.SOURCE_LANGUAGE_FILTER_LANGUAGES]
+            ?.split(',')
+            ?.map(String::trim)
+            ?.filter(String::isNotEmpty)
+            ?.toSet()
+            ?: "English,Multi,Unknown".split(',').toSet()
     }
     val audioQuality: Flow<String> = context.dataStore.data.map { it[SettingsKeys.AUDIO_QUALITY] ?: "high" }
     val externalLinksInBrowser: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.EXTERNAL_LINKS_IN_BROWSER] ?: true }
@@ -660,6 +672,10 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { it[SettingsKeys.SOURCE_QUALITY_FILTER_ENABLED] = enabled }
     suspend fun setSourceQualityFilterQualities(qualities: Set<String>) =
         context.dataStore.edit { it[SettingsKeys.SOURCE_QUALITY_FILTER_QUALITIES] = qualities.joinToString(",") }
+    suspend fun setSourceLanguageFilterEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[SettingsKeys.SOURCE_LANGUAGE_FILTER_ENABLED] = enabled }
+    suspend fun setSourceLanguageFilterLanguages(languages: Set<String>) =
+        context.dataStore.edit { it[SettingsKeys.SOURCE_LANGUAGE_FILTER_LANGUAGES] = languages.joinToString(",") }
     suspend fun setAudioQuality(q: String) = context.dataStore.edit { it[SettingsKeys.AUDIO_QUALITY] = q }
     suspend fun setExternalLinksInBrowser(b: Boolean) = context.dataStore.edit { it[SettingsKeys.EXTERNAL_LINKS_IN_BROWSER] = b }
     suspend fun setAutoplayNext(b: Boolean) = context.dataStore.edit { it[SettingsKeys.AUTOPLAY_NEXT] = b }
