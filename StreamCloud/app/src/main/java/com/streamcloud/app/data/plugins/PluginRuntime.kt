@@ -54,6 +54,50 @@ internal data class CloudStreamSearchMatch(
     val response: SearchResponse,
 )
 
+internal data class ApiSearchOutcome(
+    val api: MainAPI,
+    val results: List<SearchResponse>,
+    val error: String?,
+)
+
+internal suspend fun searchApisForDiscovery(
+    apis: List<MainAPI>,
+    query: String,
+    maxConcurrent: Int = 4,
+    timeoutMs: Long = 15_000L,
+): List<ApiSearchOutcome> {
+    val searchLimit = Semaphore(maxConcurrent.coerceAtLeast(1))
+    return coroutineScope {
+        apis.map { api ->
+            async {
+                searchLimit.withPermit {
+                    try {
+                        withTimeoutOrNull(timeoutMs.coerceAtLeast(1L)) {
+                            ApiSearchOutcome(
+                                api = api,
+                                results = searchProviderForDiscovery(api, query),
+                                error = null,
+                            )
+                        } ?: ApiSearchOutcome(
+                            api = api,
+                            results = emptyList(),
+                            error = "${api.name}: Search timed out after ${timeoutMs / 1_000}s",
+                        )
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        ApiSearchOutcome(
+                            api = api,
+                            results = emptyList(),
+                            error = "${api.name}: ${e::class.simpleName}: ${e.message ?: "search failed"}",
+                        )
+                    }
+                }
+            }
+        }.awaitAll()
+    }
+}
+
 object PluginRuntime {
 
     private const val DEFAULT_API_LOAD_LINKS_TIMEOUT_MS = 60_000L
@@ -72,11 +116,6 @@ object PluginRuntime {
     private data class CachedSearch(
         val createdAtMs: Long,
         val results: List<CloudStreamSearchMatch>,
-    )
-    private data class ApiSearchOutcome(
-        val api: MainAPI,
-        val results: List<SearchResponse>,
-        val error: String?,
     )
     private val searchCache = ConcurrentHashMap<String, CachedSearch>()
     private const val SEARCH_CACHE_TTL_MS = 2 * 60 * 1000L
@@ -719,30 +758,7 @@ object PluginRuntime {
                 }
             return@withContext emptyList()
         }
-        val apiSearchLimit = Semaphore(2)
-        val outcomes = coroutineScope {
-            apis.map { api ->
-                async {
-                    apiSearchLimit.withPermit {
-                        try {
-                            ApiSearchOutcome(
-                                api = api,
-                                results = searchProviderForDiscovery(api, query),
-                                error = null,
-                            )
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Throwable) {
-                            ApiSearchOutcome(
-                                api = api,
-                                results = emptyList(),
-                                error = "${api.name}: ${e::class.simpleName}: ${e.message ?: "search failed"}",
-                            )
-                        }
-                    }
-                }
-            }.map { it.await() }
-        }
+        val outcomes = searchApisForDiscovery(apis, query)
         val results = outcomes.flatMap { outcome ->
             outcome.results.map { response -> CloudStreamSearchMatch(outcome.api, response) }
         }

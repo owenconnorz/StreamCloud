@@ -11,12 +11,14 @@ import com.lagradost.cloudstream3.newMovieSearchResponse
 import com.lagradost.cloudstream3.newSearchResponseList
 import com.lagradost.nicehttp.NiceResponse
 import com.lagradost.cloudstream3.utils.StringUtils
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Regression and coverage tests for the CloudStream plugin-compatibility layer.
@@ -189,6 +191,37 @@ class PluginCompatibilityTest {
             "Legacy result",
             searchProviderForDiscovery(legacyProvider, "Example").single().name,
         )
+    }
+
+    @Test
+    fun sourceDiscoverySearchesMultipleApisConcurrently() = runBlocking {
+        val activeSearches = AtomicInteger(0)
+        val maximumConcurrentSearches = AtomicInteger(0)
+        val apis = (1..6).map { index ->
+            object : MainAPI() {
+                override suspend fun search(query: String, page: Int) = try {
+                    val active = activeSearches.incrementAndGet()
+                    maximumConcurrentSearches.updateAndGet { maxOf(it, active) }
+                    delay(100)
+                    newSearchResponseList(
+                        listOf(newMovieSearchResponse(name = "Result $index", url = "/$index")),
+                        hasNext = false,
+                    )
+                } finally {
+                    activeSearches.decrementAndGet()
+                }
+            }
+        }
+
+        val outcomes = searchApisForDiscovery(
+            apis = apis,
+            query = "Example",
+            maxConcurrent = 4,
+            timeoutMs = 1_000,
+        )
+
+        assertEquals(6, outcomes.sumOf { it.results.size })
+        assertEquals(4, maximumConcurrentSearches.get())
     }
 
     @Test
