@@ -16,10 +16,14 @@ import com.lagradost.cloudstream3.utils.schemaStripRegex
 import com.lagradost.cloudstream3.utils.extractorApis
 import dalvik.system.DexClassLoader
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -53,10 +57,16 @@ object PluginRuntime {
         val apis: List<MainAPI>,
         val extractors: List<ExtractorApi>,
     )
-    private val cache = mutableMapOf<String, LoadedPlugin>()
+    private val cache = ConcurrentHashMap<String, LoadedPlugin>()
     private val lastErrors = ConcurrentHashMap<String, String>()
     private val lastLogs = ConcurrentHashMap<String, String>()
     private val fetchCountByPlugin = ConcurrentHashMap<String, AtomicInteger>()
+    private data class CachedSearch(
+        val createdAtMs: Long,
+        val results: List<SearchResponse>,
+    )
+    private val searchCache = ConcurrentHashMap<String, CachedSearch>()
+    private const val SEARCH_CACHE_TTL_MS = 2 * 60 * 1000L
 
     fun lastErrorFor(filePath: String): String? = lastErrors[filePath]
     fun lastLogFor(filePath: String): String? = lastLogs[filePath]
@@ -667,6 +677,15 @@ object PluginRuntime {
     }
 
     suspend fun search(context: Context, filePath: String, query: String): List<SearchResponse> = withContext(Dispatchers.IO) {
+        val cacheKey = "$filePath\u0000${query.trim().lowercase()}"
+        val now = System.currentTimeMillis()
+        searchCache[cacheKey]?.let { cached ->
+            if (now - cached.createdAtMs <= SEARCH_CACHE_TTL_MS) {
+                return@withContext cached.results
+            }
+            searchCache.remove(cacheKey, cached)
+        }
+
         val apis = load(context, filePath)
         if (apis.isEmpty()) {
             if (lastErrors[filePath] == null) {
@@ -674,19 +693,40 @@ object PluginRuntime {
             }
             return@withContext emptyList()
         }
-        val results = mutableListOf<SearchResponse>()
-        val failures = mutableListOf<String>()
-        apis.forEach { api ->
-            try {
-                results += searchProviderForDiscovery(api, query)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                failures += "${api.name}: ${e::class.simpleName}: ${e.message ?: "search failed"}"
-            }
+        val apiSearchLimit = Semaphore(2)
+        val outcomes = coroutineScope {
+            apis.map { api ->
+                async {
+                    apiSearchLimit.withPermit {
+                        try {
+                            searchProviderForDiscovery(api, query) to null
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Throwable) {
+                            emptyList<SearchResponse>() to
+                                "${api.name}: ${e::class.simpleName}: ${e.message ?: "search failed"}"
+                        }
+                    }
+                }
+            }.map { it.await() }
         }
+        val results = outcomes.flatMap { it.first }
+        val failures = outcomes.mapNotNull { it.second }
         if (results.isNotEmpty()) {
             lastErrors.remove(filePath)
+            searchCache[cacheKey] = CachedSearch(now, results)
+            if (searchCache.size > 128) {
+                val cutoff = now - SEARCH_CACHE_TTL_MS
+                searchCache.entries
+                    .filter { it.value.createdAtMs < cutoff }
+                    .forEach { searchCache.remove(it.key, it.value) }
+                if (searchCache.size > 128) {
+                    searchCache.entries
+                        .sortedBy { it.value.createdAtMs }
+                        .take(searchCache.size - 128)
+                        .forEach { searchCache.remove(it.key, it.value) }
+                }
+            }
         } else {
             lastErrors[filePath] = failures.joinToString("\n").ifBlank {
                 "No search results for \"$query\"."
@@ -964,6 +1004,9 @@ object PluginRuntime {
 
     fun clear(filePath: String) {
         cache.remove(filePath)
+        searchCache.keys
+            .filter { it.startsWith("$filePath\u0000") }
+            .forEach { key -> searchCache.remove(key) }
         lastErrors.remove(filePath)
         lastLogs.remove(filePath)
         fetchCountByPlugin.remove(filePath)

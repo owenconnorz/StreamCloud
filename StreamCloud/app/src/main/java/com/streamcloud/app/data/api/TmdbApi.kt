@@ -129,6 +129,7 @@ data class TmdbContentRating(
 @Serializable
 data class TmdbMovie(
     val id: Long,
+    @SerialName("adult") val adult: Boolean = false,
     val title: String? = null,
     val name: String? = null,
     @SerialName("poster_path") val posterPath: String? = null,

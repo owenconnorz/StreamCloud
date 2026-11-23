@@ -53,6 +53,11 @@ import com.streamcloud.app.data.nuvio.NuvioRuntime
 import com.streamcloud.app.data.nuvio.NuvioStream
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.plugins.PluginRuntime
+import com.streamcloud.app.data.plugins.CloudStreamContentKind
+import com.streamcloud.app.data.plugins.detectCloudStreamContentKind
+import com.streamcloud.app.data.plugins.hasPlausibleCloudStreamTitleMatch
+import com.streamcloud.app.data.plugins.searchResponseMatchesContentKind
+import com.streamcloud.app.data.plugins.supportsPickerContent
 import com.streamcloud.app.data.stremio.InstalledStremioAddon
 import com.streamcloud.app.data.stremio.StremioStream
 import com.streamcloud.app.player.PlayerSource
@@ -106,10 +111,19 @@ fun StreamPickerOverlay(
     }
     val providerOrderIsLoaded = savedProviderOrder != null
 
-    val eligibleCs = remember(installedCsPlugins) {
-        // CloudStream repo tvTypes metadata is not always complete or consistent.
-        // The plugin's own search result is the authoritative media-type check.
-        installedCsPlugins.filter { !it.isAdultPlugin() }
+    val contentKind = remember(movie, mediaType) {
+        detectCloudStreamContentKind(
+            mediaType = mediaType,
+            isAdult = movie?.adult == true,
+            genreIds = movie?.genreIds.orEmpty(),
+            genreNames = movie?.genres.orEmpty().map { it.name },
+            originalLanguage = movie?.originalLanguage,
+            originCountries = movie?.originCountry.orEmpty(),
+            title = movie?.displayTitle.orEmpty(),
+        )
+    }
+    val eligibleCs = remember(installedCsPlugins, contentKind) {
+        installedCsPlugins.filter { it.supportsPickerContent(contentKind) }
     }
 
     val providerEntries = remember(installedAddons, installedNuvio, eligibleCs) {
@@ -126,7 +140,7 @@ fun StreamPickerOverlay(
     var groups by remember(providerKeySet) {
         mutableStateOf(groupOrder.associate { (key, name) -> key to PickerGroupState(name) })
     }
-    var selectedTab by remember { mutableStateOf(0) }
+    var selectedTabKey by remember { mutableStateOf("all") }
     var revision by remember { mutableStateOf(0) }
 
     fun updateGroup(key: String, streams: List<PlayerSource>, error: String? = null) {
@@ -154,7 +168,7 @@ fun StreamPickerOverlay(
     ) {
         if (!providerOrderIsLoaded) return@LaunchedEffect
         groups = groupOrder.associate { (key, name) -> key to PickerGroupState(name) }
-        selectedTab = 0
+        selectedTabKey = "all"
 
         val stremioType = if (mediaType == "tv") "series" else "movie"
         val tt = imdbId ?: ""
@@ -217,13 +231,14 @@ fun StreamPickerOverlay(
             eligibleCs.forEach { plugin ->
                 launch {
                     val result = withContext(Dispatchers.IO) {
-                        withTimeoutOrNull(35_000L) {
+                        withTimeoutOrNull(60_000L) {
                             try {
                                 resolveCsForPicker(
                                     context = context,
                                     plugin = plugin,
                                     title = csTitle,
                                     year = csYear,
+                                    contentKind = contentKind,
                                     season = season,
                                     episode = episode,
                                 )
@@ -238,7 +253,7 @@ fun StreamPickerOverlay(
                             }
                         } ?: CloudStreamPickerResult(
                             streams = emptyList(),
-                            error = "CloudStream plugin timed out while finding sources.",
+                            error = "CloudStream plugin timed out after 60 seconds.",
                         )
                     }
                     updateGroup(
@@ -303,7 +318,7 @@ fun StreamPickerOverlay(
         prioritizeStreamPickerTabs(
             groupOrder.mapNotNull { (key, name) ->
                 val group = groups[key] ?: return@mapNotNull null
-                if (key.startsWith("cs:") || group.isLoading || group.streams.isNotEmpty()) {
+                if (group.isLoading || group.streams.isNotEmpty()) {
                     key to name
                 } else {
                     null
@@ -312,13 +327,24 @@ fun StreamPickerOverlay(
         ).map { (key, name) -> key to streamPickerTabLabel(key, name) }
     }
     val tabs = remember(providerTabs) { listOf("All") + providerTabs.map { it.second } }
-    val safeTab = selectedTab.coerceAtMost(tabs.lastIndex)
-    val selectedProviderKey = providerTabs.getOrNull(safeTab - 1)?.first
+    val selectedProviderKey = selectedTabKey.takeIf { key ->
+        key != "all" && providerTabs.any { it.first == key }
+    }
+    val safeTab = selectedProviderKey
+        ?.let { key -> providerTabs.indexOfFirst { it.first == key } + 1 }
+        ?.coerceAtMost(tabs.lastIndex)
+        ?: 0
+    LaunchedEffect(selectedTabKey, selectedProviderKey) {
+        if (selectedTabKey != "all" && selectedProviderKey == null) {
+            selectedTabKey = "all"
+        }
+    }
 
     val visibleGroups = remember(groups, safeTab, groupOrder, selectedProviderKey) {
         if (safeTab == 0) {
             groupOrder.mapNotNull { (key, name) ->
                 val g = groups[key] ?: return@mapNotNull null
+                if (!g.isLoading && g.streams.isEmpty()) return@mapNotNull null
                 Triple(key, streamPickerTabLabel(key, name), g)
             }
         } else {
@@ -454,7 +480,13 @@ fun StreamPickerOverlay(
                     tabs.forEachIndexed { i, tab ->
                         Tab(
                             selected = i == safeTab,
-                            onClick = { selectedTab = i },
+                            onClick = {
+                                selectedTabKey = if (i == 0) {
+                                    "all"
+                                } else {
+                                    providerTabs.getOrNull(i - 1)?.first ?: "all"
+                                }
+                            },
                             text = {
                                 Text(
                                     tab,
@@ -482,33 +514,6 @@ fun StreamPickerOverlay(
                 }
 
                 visibleGroups.forEach { (key, addonName, groupState) ->
-                    // Keep empty CloudStream providers visible in All so their lookup
-                    // errors aren't mistaken for a missing provider.
-                    val doneEmpty = !groupState.isLoading && groupState.streams.isEmpty()
-                    if (doneEmpty) {
-                        if (safeTab != 0 || key.startsWith("cs:")) {
-                            item(key = "empty:$key") {
-                                Column {
-                                    if (safeTab == 0) {
-                                        PickerSectionHeader(
-                                            name = addonName,
-                                            isLoading = false,
-                                        )
-                                    }
-                                    Text(
-                                        groupState.error ?: "No streams found for this title.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 8.dp, vertical = 20.dp),
-                                    )
-                                }
-                            }
-                        }
-                        return@forEach
-                    }
-
                     if (safeTab == 0) {
                         item(key = "hdr:$key") {
                             PickerSectionHeader(
@@ -865,6 +870,7 @@ private suspend fun resolveCsForPicker(
     plugin: InstalledPlugin,
     title: String,
     year: Int?,
+    contentKind: CloudStreamContentKind,
     season: Int?,
     episode: Int?,
 ): CloudStreamPickerResult {
@@ -889,7 +895,7 @@ private suspend fun resolveCsForPicker(
                     ?: "No results found for this title in ${plugin.name}.",
             )
         }
-        val best = pickerBestMatch(results, title, year)
+        val best = pickerBestMatch(results, title, year, contentKind)
             ?: return CloudStreamPickerResult(emptyList(), "No matching title found in ${plugin.name}.")
         val detail = try {
             PluginRuntime.loadDetail(context, plugin.filePath, best.url)
@@ -970,21 +976,29 @@ private fun pickerEpisodeData(
     return episodes.singleOrNull()?.data
 }
 
-private fun pickerBestMatch(results: List<SearchResponse>, title: String, year: Int?): SearchResponse? {
+private fun pickerBestMatch(
+    results: List<SearchResponse>,
+    title: String,
+    year: Int?,
+    contentKind: CloudStreamContentKind,
+): SearchResponse? {
     if (results.isEmpty()) return null
-    val clean = title.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
-    return results.map { sr ->
-        var score = 0
-        val srClean = sr.name.lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
-        if (srClean == clean) score += 50
-        else if (srClean.contains(clean)) score += 10
-        if (year != null) {
-            val srYear = (sr as? com.lagradost.cloudstream3.MovieSearchResponse)?.year
-                ?: (sr as? com.lagradost.cloudstream3.TvSeriesSearchResponse)?.year
-            if (srYear == year) score += 30
+    return results
+        .asSequence()
+        .filter { searchResponseMatchesContentKind(it, contentKind) }
+        .filter { hasPlausibleCloudStreamTitleMatch(it.name, title) }
+        .map { response ->
+            var score = if (response.name.equals(title, ignoreCase = true)) 100 else 50
+            if (year != null) {
+                val responseYear = (response as? com.lagradost.cloudstream3.MovieSearchResponse)?.year
+                    ?: (response as? com.lagradost.cloudstream3.TvSeriesSearchResponse)?.year
+                if (responseYear == year) score += 30
+            }
+            response to score
         }
-        sr to score
-    }.sortedByDescending { it.second }.firstOrNull()?.first
+        .sortedByDescending { it.second }
+        .firstOrNull()
+        ?.first
 }
 
 private fun List<ExtractorLink>.pickerToCsSources(

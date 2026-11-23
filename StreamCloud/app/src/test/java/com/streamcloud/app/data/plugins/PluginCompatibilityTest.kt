@@ -30,6 +30,86 @@ class PluginCompatibilityTest {
     }
 
     @Test
+    fun pickerClassifiesMoviesTvAnimeAndNsfwFromMetadata() {
+        assertEquals(
+            CloudStreamContentKind.MOVIE,
+            detectCloudStreamContentKind(
+                mediaType = "movie",
+                isAdult = false,
+                genreIds = listOf(28),
+                genreNames = listOf("Action"),
+                originalLanguage = "en",
+                originCountries = listOf("US"),
+                title = "Tenet",
+            ),
+        )
+        assertEquals(
+            CloudStreamContentKind.TV_SERIES,
+            detectCloudStreamContentKind(
+                mediaType = "tv",
+                isAdult = false,
+                genreIds = emptyList(),
+                genreNames = listOf("Drama"),
+                originalLanguage = "en",
+                originCountries = listOf("US"),
+                title = "Example Series",
+            ),
+        )
+        assertEquals(
+            CloudStreamContentKind.ANIME,
+            detectCloudStreamContentKind(
+                mediaType = "tv",
+                isAdult = false,
+                genreIds = listOf(16),
+                genreNames = listOf("Animation"),
+                originalLanguage = "ja",
+                originCountries = listOf("JP"),
+                title = "Example",
+            ),
+        )
+        assertEquals(
+            CloudStreamContentKind.NSFW,
+            detectCloudStreamContentKind(
+                mediaType = "movie",
+                isAdult = true,
+                genreIds = listOf(16),
+                genreNames = listOf("Animation"),
+                originalLanguage = "ja",
+                originCountries = listOf("JP"),
+                title = "Example",
+            ),
+        )
+    }
+
+    @Test
+    fun pickerKeepsUnknownPluginTypesButAvoidsExplicitlyUnrelatedProviders() {
+        val animeOnly = installedPlugin(name = "AnimeCloud", types = listOf("Anime"))
+        val untyped = installedPlugin(name = "GeneralProvider", types = emptyList())
+        val adult = installedPlugin(name = "AdultProvider", types = listOf("NSFW"))
+
+        assertFalse(animeOnly.supportsPickerContent(CloudStreamContentKind.MOVIE))
+        assertTrue(animeOnly.supportsPickerContent(CloudStreamContentKind.ANIME))
+        assertTrue(untyped.supportsPickerContent(CloudStreamContentKind.MOVIE))
+        assertFalse(adult.supportsPickerContent(CloudStreamContentKind.MOVIE))
+        assertTrue(adult.supportsPickerContent(CloudStreamContentKind.NSFW))
+        assertFalse(untyped.supportsPickerContent(CloudStreamContentKind.NSFW))
+    }
+
+    @Test
+    fun pickerRejectsUnrelatedTitlesInsteadOfChoosingTheFirstSearchResult() {
+        assertTrue(hasPlausibleCloudStreamTitleMatch("Tenet (2020)", "Tenet"))
+        assertTrue(hasPlausibleCloudStreamTitleMatch("Meet the Parents", "Meet the Parents"))
+        assertFalse(hasPlausibleCloudStreamTitleMatch("Baby Dragon I", "Tenet"))
+    }
+
+    @Test
+    fun pickerRejectsMovieSearchResponsesForTvShows() {
+        val movie = newMovieSearchResponse(name = "Tenet", url = "/tenet")
+        assertTrue(searchResponseMatchesContentKind(movie, CloudStreamContentKind.MOVIE))
+        assertFalse(searchResponseMatchesContentKind(movie, CloudStreamContentKind.TV_SERIES))
+    }
+
+    @Test
     fun legacyPluginHostActivityReferenceResolvesSafely() {
         assertEquals("com.lagradost.cloudstream3.MainActivity", MainActivity::class.java.name)
         MainActivity.afterPluginsLoadedEvent.invoke(true)
