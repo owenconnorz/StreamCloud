@@ -2124,7 +2124,9 @@ fun StreamCloudApp(
                         .distinctBy { it.url }
                     val subtitle = active?.let { "${it.addonName}${it.qualityTag?.let { q -> " Â· $q" } ?: ""}" }
                     val refreshScope = rememberCoroutineScope()
-                    var sourceProviderNames by remember(initial) { mutableStateOf(emptyList()) }
+                    var sourceProviderNames by remember(initial) {
+                        mutableStateOf<List<String>>(emptyList())
+                    }
                     var playerSourceDiscoveryAttempted by remember(initial) { mutableStateOf(false) }
 
                     fun refreshPlayerSources() {

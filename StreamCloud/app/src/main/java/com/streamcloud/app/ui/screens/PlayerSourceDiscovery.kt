@@ -151,7 +151,7 @@ internal suspend fun discoverPlayerSources(
                             }
                         }.orEmpty()
                     }
-                    onProviderResult(addon.name, sources, null, removeIfEmpty = sources.isEmpty())
+                    onProviderResult(addon.name, sources, null, sources.isEmpty())
                 })
             }
 
@@ -178,7 +178,7 @@ internal suspend fun discoverPlayerSources(
                     } else {
                         null
                     }
-                    onProviderResult(provider.name, streams, error, removeIfEmpty = streams.isEmpty())
+                    onProviderResult(provider.name, streams, error, streams.isEmpty())
                 })
             }
 
@@ -213,7 +213,7 @@ internal suspend fun discoverPlayerSources(
                         providerName,
                         result.streams,
                         result.error,
-                        removeIfEmpty = result.emptyResultConfirmed,
+                        result.emptyResultConfirmed,
                     )
                 })
             }
