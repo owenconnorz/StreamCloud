@@ -96,6 +96,19 @@ internal fun hasPlausibleCloudStreamTitleMatch(
     return matchedTokens >= requiredMatches
 }
 
+internal fun cloudStreamNoLinksConfirmed(message: String?): Boolean {
+    val normalized = message?.trim()?.lowercase().orEmpty()
+    if (normalized.isBlank()) return false
+    return normalized.startsWith("no search results for") ||
+        normalized.startsWith("no results found for this title") ||
+        normalized.startsWith("no matching title found") ||
+        normalized == "no links found" ||
+        normalized.startsWith("no streams were returned") ||
+        normalized.contains("returned 0 results") ||
+        normalized.contains("extractor returned 0 results") ||
+        normalized.contains("does not list episode")
+}
+
 private fun String.normalizedWords(): String =
     lowercase()
         .replace(Regex("[^\\p{L}\\p{N}]+"), " ")

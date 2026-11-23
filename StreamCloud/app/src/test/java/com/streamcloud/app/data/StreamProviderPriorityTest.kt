@@ -52,6 +52,38 @@ class StreamProviderPriorityTest {
     }
 
     @Test
+    fun sourcePickerKeepsLoadingAndFailedProvidersButHidesConfirmedEmptyOnes() {
+        assertTrue(
+            shouldKeepStreamPickerTab(
+                isLoading = true,
+                hasStreams = false,
+                emptyResultConfirmed = false,
+            ),
+        )
+        assertTrue(
+            shouldKeepStreamPickerTab(
+                isLoading = false,
+                hasStreams = false,
+                emptyResultConfirmed = false,
+            ),
+        )
+        assertTrue(
+            shouldKeepStreamPickerTab(
+                isLoading = false,
+                hasStreams = true,
+                emptyResultConfirmed = true,
+            ),
+        )
+        assertFalse(
+            shouldKeepStreamPickerTab(
+                isLoading = false,
+                hasStreams = false,
+                emptyResultConfirmed = true,
+            ),
+        )
+    }
+
+    @Test
       fun autoPlayWaitsForEarlierProvidersBeforeUsingAvailableStreams() {
           assertEquals(
               null,

@@ -47,6 +47,12 @@ fun prioritizeStreamPickerTabs(
     return cloudStreamTabs + otherTabs
 }
 
+fun shouldKeepStreamPickerTab(
+    isLoading: Boolean,
+    hasStreams: Boolean,
+    emptyResultConfirmed: Boolean,
+): Boolean = isLoading || hasStreams || !emptyResultConfirmed
+
 fun streamPickerTabLabel(key: String, name: String): String =
     if (key.startsWith("cs:")) "CloudStream · $name" else name
 

@@ -41,6 +41,7 @@ import com.streamcloud.app.data.firstReadyProviderItem
 import com.streamcloud.app.data.orderStreamProviderEntries
 import com.streamcloud.app.data.prioritizeStreamPickerTabs
 import com.streamcloud.app.data.shouldShowAutoPlayResolvingState
+import com.streamcloud.app.data.shouldKeepStreamPickerTab
 import com.streamcloud.app.data.streamPickerTabLabel
 import com.streamcloud.app.ui.theme.LegacyMoviesThemeWrapper
 import com.streamcloud.app.ui.theme.tvFocusBorder
@@ -53,6 +54,7 @@ import com.streamcloud.app.data.nuvio.NuvioRuntime
 import com.streamcloud.app.data.nuvio.NuvioStream
 import com.streamcloud.app.data.plugins.InstalledPlugin
 import com.streamcloud.app.data.plugins.PluginRuntime
+import com.streamcloud.app.data.plugins.cloudStreamNoLinksConfirmed
 import com.streamcloud.app.data.plugins.CloudStreamContentKind
 import com.streamcloud.app.data.plugins.detectCloudStreamContentKind
 import com.streamcloud.app.data.plugins.hasPlausibleCloudStreamTitleMatch
@@ -75,11 +77,13 @@ private data class PickerGroupState(
     val streams: List<PlayerSource> = emptyList(),
     val isLoading: Boolean = true,
     val error: String? = null,
+    val emptyResultConfirmed: Boolean = false,
 )
 
 private data class CloudStreamPickerResult(
     val streams: List<PlayerSource>,
     val error: String? = null,
+    val emptyResultConfirmed: Boolean = false,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -143,10 +147,23 @@ fun StreamPickerOverlay(
     var selectedTabKey by remember { mutableStateOf("all") }
     var revision by remember { mutableStateOf(0) }
 
-    fun updateGroup(key: String, streams: List<PlayerSource>, error: String? = null) {
+    fun updateGroup(
+        key: String,
+        streams: List<PlayerSource>,
+        error: String? = null,
+        emptyResultConfirmed: Boolean = streams.isEmpty(),
+    ) {
         groups = groups.toMutableMap().apply {
             val existing = get(key) ?: return
-            put(key, existing.copy(streams = streams, isLoading = false, error = error))
+            put(
+                key,
+                existing.copy(
+                    streams = streams,
+                    isLoading = false,
+                    error = error,
+                    emptyResultConfirmed = emptyResultConfirmed,
+                ),
+            )
         }
     }
 
@@ -231,7 +248,7 @@ fun StreamPickerOverlay(
             eligibleCs.forEach { plugin ->
                 launch {
                     val result = withContext(Dispatchers.IO) {
-                        withTimeoutOrNull(60_000L) {
+                        withTimeoutOrNull(120_000L) {
                             try {
                                 resolveCsForPicker(
                                     context = context,
@@ -253,13 +270,14 @@ fun StreamPickerOverlay(
                             }
                         } ?: CloudStreamPickerResult(
                             streams = emptyList(),
-                            error = "CloudStream plugin timed out after 60 seconds.",
+                            error = "CloudStream plugin timed out after 120 seconds.",
                         )
                     }
                     updateGroup(
                         "cs:${plugin.internalName}",
                         streams = result.streams,
                         error = result.error,
+                        emptyResultConfirmed = result.emptyResultConfirmed,
                     )
                 }
             }
@@ -318,7 +336,13 @@ fun StreamPickerOverlay(
         prioritizeStreamPickerTabs(
             groupOrder.mapNotNull { (key, name) ->
                 val group = groups[key] ?: return@mapNotNull null
-                if (group.isLoading || group.streams.isNotEmpty()) {
+                if (
+                    shouldKeepStreamPickerTab(
+                        isLoading = group.isLoading,
+                        hasStreams = group.streams.isNotEmpty(),
+                        emptyResultConfirmed = group.emptyResultConfirmed,
+                    )
+                ) {
                     key to name
                 } else {
                     null
@@ -344,7 +368,13 @@ fun StreamPickerOverlay(
         if (safeTab == 0) {
             groupOrder.mapNotNull { (key, name) ->
                 val g = groups[key] ?: return@mapNotNull null
-                if (!g.isLoading && g.streams.isEmpty()) return@mapNotNull null
+                if (
+                    !shouldKeepStreamPickerTab(
+                        isLoading = g.isLoading,
+                        hasStreams = g.streams.isNotEmpty(),
+                        emptyResultConfirmed = g.emptyResultConfirmed,
+                    )
+                ) return@mapNotNull null
                 Triple(key, streamPickerTabLabel(key, name), g)
             }
         } else {
@@ -539,6 +569,17 @@ fun StreamPickerOverlay(
                         }
                     } else {
                         val sections = groupState.streams.pickerInnerSections(addonName)
+                        val groupError = groupState.error
+                        if (groupState.streams.isEmpty() && !groupError.isNullOrBlank()) {
+                            item(key = "error:$key") {
+                                Text(
+                                    groupError,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(start = 4.dp, top = 2.dp, bottom = 8.dp),
+                                )
+                            }
+                        }
                         sections.forEachIndexed { sectionIdx, (innerName, sectionStreams) ->
                             if (sections.size > 1 || innerName != addonName) {
                                 item(key = "inner:$key:$sectionIdx:$innerName") {
@@ -889,14 +930,20 @@ private suspend fun resolveCsForPicker(
             )
         }
         if (results.isEmpty()) {
+            val message = PluginRuntime.lastErrorFor(plugin.filePath)
+                ?: "No results found for this title in ${plugin.name}."
             return CloudStreamPickerResult(
                 emptyList(),
-                PluginRuntime.lastErrorFor(plugin.filePath)
-                    ?: "No results found for this title in ${plugin.name}.",
+                message,
+                emptyResultConfirmed = cloudStreamNoLinksConfirmed(message),
             )
         }
         val best = pickerBestMatch(results, title, year, contentKind)
-            ?: return CloudStreamPickerResult(emptyList(), "No matching title found in ${plugin.name}.")
+            ?: return CloudStreamPickerResult(
+                emptyList(),
+                "No matching title found in ${plugin.name}.",
+                emptyResultConfirmed = true,
+            )
         val detail = try {
             PluginRuntime.loadDetail(context, plugin.filePath, best.url)
         } catch (e: CancellationException) {
@@ -929,7 +976,11 @@ private suspend fun resolveCsForPicker(
             } else {
                 "${plugin.name} returned an unsupported title type."
             }
-            return CloudStreamPickerResult(emptyList(), message)
+            return CloudStreamPickerResult(
+                emptyList(),
+                message,
+                emptyResultConfirmed = cloudStreamNoLinksConfirmed(message),
+            )
         }
         val (links, _) = try {
             PluginRuntime.loadLinks(context, plugin.filePath, data, isCasting = false)
@@ -943,14 +994,16 @@ private suspend fun resolveCsForPicker(
         }
         val sourceRoute = "cs:${plugin.internalName}|||${best.url}|||${best.name}|||"
         val sources = links.pickerToCsSources(plugin.name, sourceRoute)
+        val error = if (sources.isEmpty()) {
+            PluginRuntime.lastErrorFor(plugin.filePath)
+                ?: "No streams were returned by ${plugin.name}."
+        } else {
+            null
+        }
         CloudStreamPickerResult(
             streams = sources,
-            error = if (sources.isEmpty()) {
-                PluginRuntime.lastErrorFor(plugin.filePath)
-                    ?: "No streams were returned by ${plugin.name}."
-            } else {
-                null
-            },
+            error = error,
+            emptyResultConfirmed = sources.isEmpty() && cloudStreamNoLinksConfirmed(error),
         )
     } catch (e: CancellationException) {
         throw e

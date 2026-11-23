@@ -103,6 +103,15 @@ class PluginCompatibilityTest {
     }
 
     @Test
+    fun cloudStreamTabsHideOnlyAfterAnExplicitEmptyOutcome() {
+        assertTrue(cloudStreamNoLinksConfirmed("No search results for \"Tenet\"."))
+        assertTrue(cloudStreamNoLinksConfirmed("StreamPlay: API returned 0 results"))
+        assertTrue(cloudStreamNoLinksConfirmed("No streams were returned by StreamPlay."))
+        assertFalse(cloudStreamNoLinksConfirmed("Plugin timed out after 120 seconds."))
+        assertFalse(cloudStreamNoLinksConfirmed("NoSuchMethodError: missing plugin API"))
+    }
+
+    @Test
     fun pickerRejectsMovieSearchResponsesForTvShows() {
         val provider = object : MainAPI() {}
         val movie = provider.newMovieSearchResponse(name = "Tenet", url = "/tenet")
