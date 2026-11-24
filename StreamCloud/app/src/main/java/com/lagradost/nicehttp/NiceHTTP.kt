@@ -314,7 +314,7 @@ class NiceResponse(
             .message("")
             .protocol(Protocol.HTTP_1_1)
             .request(Request.Builder().url(safeUrl).build())
-            .headers(headers)
+            .headers(this.headers)
             .body(text.toResponseBody("text/plain; charset=utf-8".toMediaType()))
             .build()
     }
