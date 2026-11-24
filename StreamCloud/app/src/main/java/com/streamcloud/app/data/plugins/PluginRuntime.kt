@@ -902,6 +902,7 @@ object PluginRuntime {
         val fetchCounter = AtomicInteger(0)
         val extractors = loaded.extractors
         val extractorResolutionLimit = Semaphore(4)
+        val loadScope = this
         lastErrors.remove(filePath)
         lastLogs.remove(filePath)
 
@@ -949,7 +950,7 @@ object PluginRuntime {
                 return 1
             }
 
-            val chained = CopyOnWriteArrayList<ExtractorLink>()
+            val chainedJobs = CopyOnWriteArrayList<kotlinx.coroutines.Deferred<Int>>()
             val completed = withTimeoutOrNull(EXTRACTOR_RESOLUTION_TIMEOUT_MS) {
                 try {
                     match.getUrl(
@@ -958,7 +959,19 @@ object PluginRuntime {
                         subtitleCallback = { sub -> subs.add(sub) },
                         callback = { link ->
                             fetchCounter.incrementAndGet()
-                            chained += link
+                            // Extractors may emit a playable URL and keep working to find
+                            // more. Resolve each emission immediately so auto-play does not
+                            // wait for the extractor's entire callback pass to finish.
+                            chainedJobs += loadScope.async {
+                                try {
+                                    resolveCandidate(link, seen, match.name)
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Throwable) {
+                                    record("${match.name}: ${e::class.simpleName}: ${e.message}", asError = true)
+                                    0
+                                }
+                            }
                         },
                     )
                     true
@@ -974,16 +987,12 @@ object PluginRuntime {
                 record("${match.name}: Timed out after 30s", asError = true)
                 return 0
             }
-            if (!completed || chained.isEmpty()) {
+            if (!completed || chainedJobs.isEmpty()) {
                 record("${match.name}: Extractor returned 0 results from $owner")
                 return 0
             }
 
-            var produced = 0
-            for (next in chained) {
-                produced += resolveCandidate(next, seen, match.name)
-            }
-            return produced
+            return chainedJobs.awaitAll().sum()
         }
 
         val result = withTimeoutOrNull(TOTAL_LOAD_LINKS_TIMEOUT_MS) {
@@ -992,7 +1001,6 @@ object PluginRuntime {
                 return@withTimeoutOrNull
             }
 
-            val loadScope = this
             val apisToTry = preferredApi?.let { preferred ->
                 listOf(preferred) + loaded.apis.filter { it !== preferred }
             } ?: loaded.apis
@@ -1064,7 +1072,11 @@ object PluginRuntime {
                     type = ExtractorLinkType.VIDEO,
                     audioTracks = emptyList(),
                 )
-                val produced = resolveCandidate(directSeed, linkedSetOf(), "plugin data")
+                val produced = resolveCandidate(
+                    directSeed,
+                    ConcurrentHashMap.newKeySet(),
+                    "plugin data",
+                )
                 if (produced > 0) {
                     record("Plugin extractors resolved $produced link(s) from data")
                 }
