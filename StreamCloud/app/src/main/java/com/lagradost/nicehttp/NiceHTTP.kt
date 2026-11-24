@@ -263,11 +263,19 @@ object Requests {
 class NiceResponse(
     val code: Int,
     val text: String,
-    val headers: Map<String, List<String>>,
+    headers: Map<String, List<String>>,
     val url: String,
     val error: Throwable? = null,
     val parser: ResponseParser = DefaultResponseParser,
 ) {
+    private val responseHeaderMap = headers
+    val headers: Headers by lazy {
+        Headers.Builder().apply {
+            responseHeaderMap.forEach { (name, values) -> values.forEach { add(name, it) } }
+        }.build()
+    }
+    val headerMap: Map<String, List<String>> get() = responseHeaderMap
+
     val ok: Boolean get() = code in 200..299
     val isSuccessful: Boolean get() = ok
 
@@ -277,7 +285,7 @@ class NiceResponse(
     fun getTextLarge(): String = text
 
     val cookies: Map<String, String> by lazy {
-        (headers["set-cookie"] ?: headers["Set-Cookie"] ?: emptyList())
+        (responseHeaderMap["set-cookie"] ?: responseHeaderMap["Set-Cookie"] ?: emptyList())
             .mapNotNull { it.substringBefore(';').takeIf { c -> c.contains('=') } }
             .associate { it.substringBefore('=') to it.substringAfter('=') }
     }
@@ -300,16 +308,13 @@ class NiceResponse(
     // Plugins compiled against the real nicehttp library call getOkhttpResponse() to get
     // the raw okhttp3.Response. We reconstruct a minimal one from our stored data.
     val okhttpResponse: Response by lazy {
-        val okhttpHeaders = Headers.Builder().apply {
-            headers.forEach { (name, values) -> values.forEach { add(name, it) } }
-        }.build()
         val safeUrl = url.ifBlank { "https://stub" }
         Response.Builder()
             .code(if (code == -1) 500 else code)
             .message("")
             .protocol(Protocol.HTTP_1_1)
             .request(Request.Builder().url(safeUrl).build())
-            .headers(okhttpHeaders)
+            .headers(headers)
             .body(text.toResponseBody("text/plain; charset=utf-8".toMediaType()))
             .build()
     }

@@ -135,14 +135,21 @@ class PluginCompatibilityTest {
     @Test
     fun pluginCompatibilitySurfaceIncludesReportedCloudStreamSymbols() {
         assertEquals("two%20words", StringUtils.encodeUrl("two words"))
+        val response = NiceResponse(
+            code = 200,
+            text = "response body",
+            headers = mapOf("X-Plugin-Header" to listOf("present")),
+            url = "https://example.test",
+        )
         assertEquals(
             "response body",
-            NiceResponse(
-                code = 200,
-                text = "response body",
-                headers = emptyMap(),
-                url = "https://example.test",
-            ).getTextLarge(),
+            response.getTextLarge(),
+        )
+        assertEquals("present", response.headers["X-Plugin-Header"])
+        assertEquals("present", response.headerMap["X-Plugin-Header"]?.single())
+        assertEquals(
+            okhttp3.Headers::class.java,
+            NiceResponse::class.java.getMethod("getHeaders").returnType,
         )
 
         val cloudflareClass = Class.forName("com.lagradost.cloudstream3.network.CloudflareKiller")
