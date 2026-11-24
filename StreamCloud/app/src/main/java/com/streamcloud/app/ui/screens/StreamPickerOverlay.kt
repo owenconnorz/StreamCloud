@@ -1062,6 +1062,12 @@ internal suspend fun resolveCsForPicker(
                 "${plugin.name} returned episode data for a movie instead of a movie result.",
             )
         }
+        if (mediaType.equals("tv", ignoreCase = true) && detail is MovieLoadResponse) {
+            return CloudStreamPickerResult(
+                emptyList(),
+                "${plugin.name} returned movie details for this TV series.",
+            )
+        }
         val dataStr: String? = when (detail) {
             is MovieLoadResponse -> detail.dataUrl
             is TvSeriesLoadResponse -> {
@@ -1160,10 +1166,19 @@ private fun pickerBestMatch(
     contentKind: CloudStreamContentKind,
 ): CloudStreamSearchMatch? {
     if (results.isEmpty()) return null
-    return results
+    val titleMatches = results.filter {
+        hasPlausibleCloudStreamTitleMatch(it.response.name, title)
+    }
+    val contentMatches = titleMatches.filter {
+        searchResponseMatchesContentKind(it.response, contentKind)
+    }
+    val candidates = contentMatches.ifEmpty {
+        titleMatches.filter {
+            searchResponseMatchesPickerFallback(it.response, contentKind)
+        }
+    }
+    return candidates
         .asSequence()
-        .filter { searchResponseMatchesContentKind(it.response, contentKind) }
-        .filter { hasPlausibleCloudStreamTitleMatch(it.response.name, title) }
         .map { match ->
             var score = if (match.response.name.equals(title, ignoreCase = true)) 100 else 50
             if (year != null) {

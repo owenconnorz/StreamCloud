@@ -112,6 +112,8 @@ class PluginCompatibilityTest {
         assertFalse(animeApi.supportsPickerContent(CloudStreamContentKind.MOVIE))
         assertTrue(movieApi.supportsPickerContent(CloudStreamContentKind.MOVIE))
         assertTrue(animeApi.supportsPickerContent(CloudStreamContentKind.ANIME))
+        assertTrue(movieApi.supportsPickerSearch(CloudStreamContentKind.TV_SERIES))
+        assertFalse(animeApi.supportsPickerSearch(CloudStreamContentKind.TV_SERIES))
     }
 
     @Test
@@ -170,6 +172,8 @@ class PluginCompatibilityTest {
         val movie = provider.newMovieSearchResponse(name = "Tenet", url = "/tenet")
         assertTrue(searchResponseMatchesContentKind(movie, CloudStreamContentKind.MOVIE))
         assertFalse(searchResponseMatchesContentKind(movie, CloudStreamContentKind.TV_SERIES))
+        assertTrue(searchResponseMatchesPickerFallback(movie, CloudStreamContentKind.TV_SERIES))
+        assertFalse(searchResponseMatchesPickerFallback(movie, CloudStreamContentKind.MOVIE))
     }
 
     @Test

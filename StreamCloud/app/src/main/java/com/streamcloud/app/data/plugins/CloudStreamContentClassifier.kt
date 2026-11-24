@@ -80,6 +80,15 @@ internal fun MainAPI.supportsPickerContent(kind: CloudStreamContentKind): Boolea
     }
 }
 
+/**
+ * Some CloudStream plugins expose TV searches through a Movie-typed API. Keep those
+ * APIs available as a TV fallback, then validate the actual load response before use.
+ */
+internal fun MainAPI.supportsPickerSearch(kind: CloudStreamContentKind): Boolean =
+    supportsPickerContent(kind) ||
+        (kind == CloudStreamContentKind.TV_SERIES &&
+            supportsPickerContent(CloudStreamContentKind.MOVIE))
+
 internal fun searchResponseMatchesContentKind(
     response: SearchResponse,
     kind: CloudStreamContentKind,
@@ -95,6 +104,15 @@ internal fun searchResponseMatchesContentKind(
         CloudStreamContentKind.ANIME,
         CloudStreamContentKind.NSFW -> true
     }
+}
+
+internal fun searchResponseMatchesPickerFallback(
+    response: SearchResponse,
+    kind: CloudStreamContentKind,
+): Boolean {
+    if (kind != CloudStreamContentKind.TV_SERIES) return false
+    val typeName = response.javaClass.simpleName.lowercase()
+    return "movie" in typeName && "anime" !in typeName
 }
 
 internal fun hasPlausibleCloudStreamTitleMatch(

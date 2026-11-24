@@ -747,7 +747,7 @@ object PluginRuntime {
         }
 
         val apis = load(context, filePath).filter { api ->
-            contentKind == null || api.supportsPickerContent(contentKind)
+            contentKind == null || api.supportsPickerSearch(contentKind)
         }
         if (apis.isEmpty()) {
             lastErrors[filePath] =
