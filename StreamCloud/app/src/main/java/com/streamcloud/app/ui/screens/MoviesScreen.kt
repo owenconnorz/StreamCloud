@@ -290,6 +290,8 @@ fun MoviesScreen(
     // The TV reference uses wide, cinematic cards throughout the home shelves.
     // Keep the user's saved preference for mobile, but make TV cards consistently 16:9.
     val homeCardStyle = if (isTv) "landscape" else configuredHomeCardStyle
+    val homePortraitCardWidth = if (isTv) 220.dp else 112.dp
+    val homeLandscapeCardWidth = if (isTv) 220.dp else 160.dp
     val adultAgeGateConfirmed by settingsRepo.ageGateConfirmed.collectAsState(initial = false)
     val adultStremioRows = remember(
         state.stremioRows,
@@ -2213,7 +2215,7 @@ fun MoviesScreen(
                                 row.items,
                                 key = { _, movie -> "${row.id}_${movie.id}" },
                             ) { index, _ ->
-                                movieCardContent(index, 220.dp)
+                                movieCardContent(index, homeLandscapeCardWidth)
                             }
                             if (isTv) {
                                 item(key = "view_all_col_${row.id}") {
@@ -2289,10 +2291,20 @@ fun MoviesScreen(
                                 meta.type.equals("tv", ignoreCase = true)
                             ) "tv" else "movie"
                             val resolvedTmdbId = state.stremioTmdbIds[stremioKey]
+                            val useLandscapeCard = homeCardStyle == "landscape" ||
+                                (homeCardStyle == "auto" &&
+                                    (!meta.background.isNullOrBlank() ||
+                                        meta.posterShape.equals("landscape", ignoreCase = true)))
                             StremioPoster(
                                 meta = meta,
                                 posterStyle = homeCardStyle,
-                                cardWidth = cardWidth,
+                                cardWidth = if (isTv) {
+                                    cardWidth
+                                } else if (useLandscapeCard) {
+                                    homeLandscapeCardWidth
+                                } else {
+                                    homePortraitCardWidth
+                                },
                                 resolvedTmdbId = resolvedTmdbId,
                                 onRequestTmdbId = { vm.requestStremioTmdbId(meta) },
                                 titleLogoUrl = resolvedTmdbId?.let {
@@ -2401,7 +2413,7 @@ fun MoviesScreen(
                                 row.items,
                                 key = { _, meta -> "${row.rowKey}_${meta.id}" },
                             ) { index, _ ->
-                                stremioCardContent(index, 220.dp)
+                                stremioCardContent(index, homeLandscapeCardWidth)
                             }
                             if (isTv) {
                                 item(key = "view_all_stremio_${row.rowKey}") {
@@ -2512,7 +2524,11 @@ fun MoviesScreen(
                                     tmdbHeroBannerItem(csTmdbMovie)?.let { focusedHomeHero = it }
                                 }
                             }
-                            val defaultCardWidth = if (csLandscape) 200.dp else 120.dp
+                            val defaultCardWidth = if (csLandscape) {
+                                homeLandscapeCardWidth
+                            } else {
+                                homePortraitCardWidth
+                            }
                             CsHomePosterCard(
                                 item = sr,
                                 defaultWidth = cardWidth.takeIf { isTv } ?: defaultCardWidth,
@@ -2602,7 +2618,7 @@ fun MoviesScreen(
                                     "${row.pluginInternalName}_${row.sectionName}_${item.url}"
                                 },
                             ) { index, _ ->
-                                csCardContent(index, 220.dp)
+                                csCardContent(index, homeLandscapeCardWidth)
                             }
                             if (isTv) {
                                 item(key = "view_all_cs_${row.pluginInternalName}_${row.sectionName}") {
@@ -4826,7 +4842,7 @@ private fun MidPoster(
         (posterStyle == "auto" && m.backdropUrl != null)
     val imageUrl = if (useLandscape) m.backdropUrl ?: m.posterUrl else m.posterUrl
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
-    val width = if (useLandscape) landscapeCardWidth else 140.dp
+    val width = if (useLandscape) landscapeCardWidth else 112.dp
     val mediaType = if (m.title != null) "movie" else "tv"
     val showTitleOnThumbnail = useLandscape
     var isFocused by remember(m.id) { mutableStateOf(false) }
@@ -4964,7 +4980,7 @@ private fun StremioPoster(
     val isExpanded = isTv && posterStyle == "expanding" && isFocused
     val posterShape = RoundedCornerShape(12.dp)
     val ratio = if (useLandscape) 16f / 9f else 2f / 3f
-    val width = cardWidth ?: if (useLandscape) 220.dp else 140.dp
+    val width = cardWidth ?: if (useLandscape) 220.dp else 112.dp
     val expandedWidth = 320.dp
     val isSeries = meta.type.equals("series", ignoreCase = true) ||
         meta.type.equals("tv", ignoreCase = true)
