@@ -84,49 +84,49 @@ class StreamProviderPriorityTest {
     }
 
     @Test
-      fun autoPlayWaitsForEarlierProvidersBeforeUsingAvailableStreams() {
-          assertEquals(
-              null,
-              firstReadyProviderItem(
-                  providerOrder = listOf("first", "second"),
-                  itemsByProvider = mapOf("second" to listOf("lower-priority")),
-                  loadingProviders = setOf("first"),
-              ),
-          )
-          assertEquals(
-              "second-choice",
-              firstReadyProviderItem(
-                  providerOrder = listOf("first", "second", "third"),
-                  itemsByProvider = mapOf("second" to listOf("second-choice")),
-                  loadingProviders = setOf("third"),
-              ),
-          )
-          assertEquals(
-              "first-choice",
-              firstReadyProviderItem(
-                  providerOrder = listOf("first", "second"),
-                  itemsByProvider = mapOf(
-                      "first" to listOf("first-choice"),
-                      "second" to listOf("second-choice"),
-                  ),
-                  loadingProviders = setOf("second"),
-              ),
-          )
-      }
+    fun autoPlayWaitsForEarlierProvidersBeforeUsingAvailableStreams() {
+        assertEquals(
+            null,
+            firstReadyProviderItem(
+                providerOrder = listOf("first", "second"),
+                itemsByProvider = mapOf("second" to listOf("lower-priority")),
+                loadingProviders = setOf("first"),
+            ),
+        )
+        assertEquals(
+            "second-choice",
+            firstReadyProviderItem(
+                providerOrder = listOf("first", "second", "third"),
+                itemsByProvider = mapOf("second" to listOf("second-choice")),
+                loadingProviders = setOf("third"),
+            ),
+        )
+        assertEquals(
+            "first-choice",
+            firstReadyProviderItem(
+                providerOrder = listOf("first", "second"),
+                itemsByProvider = mapOf(
+                    "first" to listOf("first-choice"),
+                    "second" to listOf("second-choice"),
+                ),
+                loadingProviders = setOf("second"),
+            ),
+        )
+    }
 
     @Test
-    fun autoPlayWaitsForPreferredProviderToFinishBeforeUsingPartialLinks() {
+    fun autoPlayUsesPreferredProviderPartialLinksWithoutWaitingForMore() {
         val partialResults = mapOf(
             "cs:streamplay" to listOf("streamplay-link"),
             "nuvio:backup" to listOf("backup-link"),
         )
 
         assertEquals(
-            null,
+            "streamplay-link",
             firstReadyProviderItem(
                 providerOrder = listOf("cs:streamplay", "nuvio:backup"),
                 itemsByProvider = partialResults,
-                loadingProviders = setOf("cs:streamplay"),
+                loadingProviders = setOf("cs:streamplay", "nuvio:backup"),
             ),
         )
         assertEquals(
