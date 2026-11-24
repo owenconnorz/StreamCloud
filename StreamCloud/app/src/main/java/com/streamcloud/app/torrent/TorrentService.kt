@@ -34,6 +34,8 @@ class TorrentService(context: Context) {
         private const val STREAM_IDLE_TIMEOUT_MS = 30_000
         private const val WARM_TORRENT_TIMEOUT_MS = 60_000
         private const val STATS_INTERVAL_MS = 1_000L
+        private const val START_ATTEMPTS = 2
+        private const val START_RETRY_DELAY_MS = 900L
     }
 
     private val appContext = context.applicationContext
@@ -94,34 +96,46 @@ class TorrentService(context: Context) {
         operationMutex.withLock {
             streamRevision.incrementAndGet()
             stopActiveStream()
-            _state.value = TorrentState.Connecting
+            var lastError: Exception? = null
 
-            try {
-                val activeEngine = getOrCreateEngine()
-                Log.d(TAG, "Adding torrent for playback; requested file index=$fileIndex")
-                val torrentId = activeEngine.addMagnet(magnetUri)
-                val files = activeEngine.files(torrentId)
-                val selectedIndex = TorrentFileSelector.select(files, fileIndex, filename)
-                val stream = activeEngine.prepareStream(
-                    torrentId = torrentId,
-                    fileIndex = selectedIndex,
-                    filenameHint = filename,
-                )
+            for (attempt in 1..START_ATTEMPTS) {
+                _state.value = TorrentState.Connecting
+                try {
+                    val activeEngine = getOrCreateEngine()
+                    Log.d(
+                        TAG,
+                        "Adding torrent for playback; requested file index=$fileIndex " +
+                            "(attempt $attempt/$START_ATTEMPTS)",
+                    )
+                    val torrentId = activeEngine.addMagnet(magnetUri)
+                    currentTorrentId = torrentId
+                    val files = activeEngine.files(torrentId)
+                    val selectedIndex = TorrentFileSelector.select(files, fileIndex, filename)
+                    val stream = activeEngine.prepareStream(
+                        torrentId = torrentId,
+                        fileIndex = selectedIndex,
+                        filenameHint = filename,
+                    )
 
-                currentTorrentId = torrentId
-                currentStream = stream
-                _state.value = TorrentState.Streaming(localUrl = stream.url)
-                startStatsPolling(activeEngine, stream)
-                Log.d(TAG, "SC Engine stream prepared for file index ${stream.fileIndex}")
-                stream.url
-            } catch (cancelled: CancellationException) {
-                stopActiveStream()
-                throw cancelled
-            } catch (error: Exception) {
-                stopActiveStream()
-                _state.value = TorrentState.Error(error.message ?: "Torrent stream could not start")
-                throw TorrentException("SC Engine could not prepare the torrent stream", error)
+                    currentStream = stream
+                    _state.value = TorrentState.Streaming(localUrl = stream.url)
+                    startStatsPolling(activeEngine, stream)
+                    Log.d(TAG, "SC Engine stream prepared for file index ${stream.fileIndex}")
+                    return@withContext stream.url
+                } catch (cancelled: CancellationException) {
+                    stopActiveStream()
+                    throw cancelled
+                } catch (error: Exception) {
+                    lastError = error
+                    stopActiveStream()
+                    Log.w(TAG, "Torrent startup attempt $attempt/$START_ATTEMPTS failed", error)
+                    if (attempt < START_ATTEMPTS) delay(START_RETRY_DELAY_MS)
+                }
             }
+
+            val error = lastError ?: IllegalStateException("Torrent stream could not start")
+            _state.value = TorrentState.Error(error.message ?: "Torrent stream could not start")
+            throw TorrentException("SC Engine could not prepare the torrent stream", error)
         }
     }
 

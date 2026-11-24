@@ -7,6 +7,14 @@ import org.junit.Test
 
 class TorrentMagnetTest {
     @Test
+    fun detectsTorrentSourceUrlsForPlaybackRetry() {
+        assertTrue(TorrentMagnet.isTorrentSource("magnet:?xt=urn:btih:0123456789012345678901234567890123456789"))
+        assertTrue(TorrentMagnet.isTorrentSource("magnet:?xt=urn:btih:hash&_sc_fidx=2"))
+        assertTrue(TorrentMagnet.isTorrentSource("https://example.invalid/file.torrent"))
+        assertFalse(TorrentMagnet.isTorrentSource("https://example.invalid/movie.mkv"))
+    }
+
+    @Test
     fun parsesFileIndexAndPreservesV2Topic() {
         val parsed = TorrentMagnet.parse(
             "magnet:?xt=urn%3Abtmh%3A1220abcdef&_sc_fidx=3&dn=Sample",

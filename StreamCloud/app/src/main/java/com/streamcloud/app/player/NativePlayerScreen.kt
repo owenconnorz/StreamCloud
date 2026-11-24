@@ -96,6 +96,7 @@ import com.streamcloud.app.data.library.LibraryDb
 import com.streamcloud.app.data.library.WatchedEpisodeEntity
 import com.streamcloud.app.data.library.WatchedMovieEntity
 import com.streamcloud.app.torrent.TorrentService
+import com.streamcloud.app.torrent.TorrentMagnet
 import com.streamcloud.app.torrent.TorrentState
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
 import com.streamcloud.app.ui.theme.UiFormFactor
@@ -114,6 +115,7 @@ import java.util.Locale
 
 private val playerClockTimeFormatter = SimpleDateFormat("HH:mm", Locale.getDefault())
 private val playerClockDateFormatter = SimpleDateFormat("EEE, d MMM", Locale.getDefault())
+private const val TORRENT_PLAYBACK_RETRY_DELAY_MS = 900L
 
 @OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 @SuppressLint("UnsafeOptInUsageError")
@@ -170,6 +172,8 @@ fun NativePlayerScreen(
 
     val failedSourceUrls = remember(streamUrl, restartKey) { mutableStateOf<Set<String>>(emptySet()) }
     val autoSwitchIdx    = remember(streamUrl, restartKey) { mutableStateOf(-1) }
+    val retryingTorrentUrl = remember(streamUrl, restartKey) { mutableStateOf<String?>(null) }
+    val retriedTorrentUrls = remember(streamUrl, restartKey) { mutableStateOf<Set<String>>(emptySet()) }
     var autoSwitchBanner by remember { mutableStateOf<String?>(null) }
     var playbackError by remember(streamUrl, restartKey) { mutableStateOf<String?>(null) }
     var playbackAttempt by remember(streamUrl, restartKey) { mutableStateOf(0) }
@@ -180,9 +184,7 @@ fun NativePlayerScreen(
     LaunchedEffect(effectiveUrl, restartKey) {
         resolvedUrl  = null
         resolveError = null
-        val isTorrent = effectiveUrl.startsWith("magnet:", true) ||
-            effectiveUrl.contains("&_sc_fidx=", ignoreCase = true) ||
-            effectiveUrl.endsWith(".torrent", true)
+        val isTorrent = TorrentMagnet.isTorrentSource(effectiveUrl)
         if (isTorrent) {
             var lastError: String? = null
             val proxied = withContext(Dispatchers.IO) {
@@ -606,6 +608,19 @@ fun NativePlayerScreen(
         }
     }
 
+    fun advanceAfterSourceFailure(failedUrl: String) {
+        val failed = failedSourceUrls.value + failedUrl
+        failedSourceUrls.value = failed
+        val nextIdx = sources.indexOfFirst { it.url !in failed }
+        if (nextIdx >= 0) {
+            autoSwitchBanner = "Source failed · trying ${sources[nextIdx].label}…"
+            autoSwitchIdx.value = nextIdx
+        } else {
+            autoSwitchBanner = "All sources failed"
+            playbackError = "All available sources failed. Try refreshing the streams."
+        }
+    }
+
     LaunchedEffect(ex, progressKey, completionTarget, completionHandled) {
         ex ?: return@LaunchedEffect
         val listener = object : Player.Listener {
@@ -616,19 +631,43 @@ fun NativePlayerScreen(
                 if (state == Player.STATE_ENDED) markCompletedPlayback(completionTarget)
             }
             override fun onPlayerError(error: PlaybackException) {
+                val failedUrl = activeAutoSource?.url ?: streamUrl
+                if (TorrentMagnet.isTorrentSource(failedUrl)) {
+                    if (retryingTorrentUrl.value == failedUrl) return
+                    if (failedUrl !in retriedTorrentUrls.value) {
+                        retryingTorrentUrl.value = failedUrl
+                        autoSwitchBanner = "Torrent is slow to start · retrying…"
+                        resolvedUrl = null
+                        scope.launch {
+                            delay(TORRENT_PLAYBACK_RETRY_DELAY_MS)
+                            val retryUrl = try {
+                                withContext(Dispatchers.IO) {
+                                    torrentService.startStreamFromMagnet(failedUrl)
+                                }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                Log.w("NativePlayerScreen", "Torrent playback retry failed", error)
+                                null
+                            }
+                            if (retryingTorrentUrl.value != failedUrl) return@launch
+                            retryingTorrentUrl.value = null
+                            retriedTorrentUrls.value = retriedTorrentUrls.value + failedUrl
+                            if (retryUrl != null) {
+                                resolvedUrl = retryUrl
+                                playbackAttempt += 1
+                            } else {
+                                advanceAfterSourceFailure(failedUrl)
+                            }
+                        }
+                        return
+                    }
+                }
                 if (sources.size <= 1) {
                     playbackError = "This stream could not be played. It may have expired or been rejected by the provider."
                     return
                 }
-                val failedUrl = activeAutoSource?.url ?: streamUrl
-                failedSourceUrls.value = failedSourceUrls.value + failedUrl
-                val failed = failedSourceUrls.value
-                val nextIdx = sources.indexOfFirst { it.url !in failed }
-                if (nextIdx >= 0) { autoSwitchBanner = "Source failed · trying ${sources[nextIdx].label}…"; autoSwitchIdx.value = nextIdx }
-                else {
-                    autoSwitchBanner = "All sources failed"
-                    playbackError = "All available sources failed. Try refreshing the streams."
-                }
+                advanceAfterSourceFailure(failedUrl)
             }
         }
         ex.addListener(listener)

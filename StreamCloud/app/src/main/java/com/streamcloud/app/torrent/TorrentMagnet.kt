@@ -23,6 +23,11 @@ internal object TorrentMagnet {
     private val hex64 = Regex("[0-9a-fA-F]{64}")
     private val base32Hash = Regex("[A-Z2-7]{32}", RegexOption.IGNORE_CASE)
 
+    fun isTorrentSource(url: String): Boolean =
+        url.startsWith("magnet:", ignoreCase = true) ||
+            url.contains("&_sc_fidx=", ignoreCase = true) ||
+            url.endsWith(".torrent", ignoreCase = true)
+
     fun fromInfoHash(infoHash: String, trackers: List<String>): PreparedMagnet {
         val rawHash = infoHash.trim()
         val v2Topic = when {
