@@ -274,6 +274,7 @@ fun StreamPickerOverlay(
                                     plugin = plugin,
                                     title = csTitle,
                                     year = csYear,
+                                    mediaType = mediaType,
                                     contentKind = contentKind,
                                     season = season,
                                     episode = episode,
@@ -985,6 +986,7 @@ internal suspend fun resolveCsForPicker(
     plugin: InstalledPlugin,
     title: String,
     year: Int?,
+    mediaType: String,
     contentKind: CloudStreamContentKind,
     season: Int?,
     episode: Int?,
@@ -1014,11 +1016,24 @@ internal suspend fun resolveCsForPicker(
             )
         }
         val best = pickerBestMatch(results, title, year, contentKind)
-            ?: return CloudStreamPickerResult(
-                emptyList(),
-                "No matching title found in ${plugin.name}.",
-                emptyResultConfirmed = true,
-            )
+            ?: run {
+                val titleMatchWithWrongType = results.firstOrNull { match ->
+                    hasPlausibleCloudStreamTitleMatch(match.response.name, title) &&
+                        !searchResponseMatchesContentKind(match.response, contentKind)
+                }
+                val message = if (titleMatchWithWrongType != null) {
+                    "${plugin.name} found this title as a " +
+                        "${pickerSearchResponseType(titleMatchWithWrongType.response)}, not a " +
+                        "${contentKind.pickerLabel()}."
+                } else {
+                    "No matching title found in ${plugin.name}."
+                }
+                return CloudStreamPickerResult(
+                    emptyList(),
+                    message,
+                    emptyResultConfirmed = false,
+                )
+            }
         val detail = try {
             PluginRuntime.loadDetail(
                 context = context,
@@ -1035,6 +1050,18 @@ internal suspend fun resolveCsForPicker(
             PluginRuntime.lastErrorFor(plugin.filePath)
                 ?: "Could not load the matching title from ${plugin.name}.",
         )
+        val episodeResponse = detail is TvSeriesLoadResponse || detail is AnimeLoadResponse
+        if (
+            episodeResponse &&
+            mediaType.equals("movie", ignoreCase = true) &&
+            season == null &&
+            episode == null
+        ) {
+            return CloudStreamPickerResult(
+                emptyList(),
+                "${plugin.name} returned episode data for a movie instead of a movie result.",
+            )
+        }
         val dataStr: String? = when (detail) {
             is MovieLoadResponse -> detail.dataUrl
             is TvSeriesLoadResponse -> {
@@ -1149,6 +1176,23 @@ private fun pickerBestMatch(
         .sortedByDescending { it.second }
         .firstOrNull()
         ?.first
+}
+
+private fun pickerSearchResponseType(response: com.lagradost.cloudstream3.SearchResponse): String {
+    val typeName = response.javaClass.simpleName.lowercase()
+    return when {
+        "anime" in typeName -> "anime"
+        "series" in typeName || "tv" in typeName -> "TV series"
+        "movie" in typeName -> "movie"
+        else -> "an unsupported content type"
+    }
+}
+
+private fun CloudStreamContentKind.pickerLabel(): String = when (this) {
+    CloudStreamContentKind.MOVIE -> "movie"
+    CloudStreamContentKind.TV_SERIES -> "TV series"
+    CloudStreamContentKind.ANIME -> "anime"
+    CloudStreamContentKind.NSFW -> "adult content"
 }
 
 private fun List<ExtractorLink>.pickerToCsSources(

@@ -126,6 +126,8 @@ class PluginCompatibilityTest {
         assertTrue(cloudStreamNoLinksConfirmed("No search results for \"Tenet\"."))
         assertTrue(cloudStreamNoLinksConfirmed("StreamPlay: API returned 0 results"))
         assertTrue(cloudStreamNoLinksConfirmed("No streams were returned by StreamPlay."))
+        assertFalse(cloudStreamNoLinksConfirmed("No matching title found in MovieBoxProvider."))
+        assertFalse(cloudStreamNoLinksConfirmed("No provider API declares support for movie."))
         assertFalse(cloudStreamNoLinksConfirmed("Plugin timed out after 120 seconds."))
         assertFalse(cloudStreamNoLinksConfirmed("NoSuchMethodError: missing plugin API"))
         assertFalse(cloudStreamNoLinksConfirmed("JsonSyntaxException: expected object but got array"))

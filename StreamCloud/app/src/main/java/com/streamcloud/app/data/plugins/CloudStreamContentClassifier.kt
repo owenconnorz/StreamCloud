@@ -120,7 +120,6 @@ internal fun cloudStreamNoLinksConfirmed(message: String?): Boolean {
     if (normalized.isBlank()) return false
     return normalized.startsWith("no search results for") ||
         normalized.startsWith("no results found for this title") ||
-        normalized.startsWith("no matching title found") ||
         normalized == "no links found" ||
         normalized.startsWith("no streams were returned") ||
         normalized.contains("returned 0 results") ||

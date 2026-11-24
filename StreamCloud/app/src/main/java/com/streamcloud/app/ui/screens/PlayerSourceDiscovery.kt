@@ -191,6 +191,7 @@ internal suspend fun discoverPlayerSources(
                                 plugin = plugin,
                                 title = searchTitle,
                                 year = year,
+                                mediaType = mediaType,
                                 contentKind = contentKind,
                                 season = season,
                                 episode = episode,

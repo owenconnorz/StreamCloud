@@ -754,7 +754,7 @@ object PluginRuntime {
                 if (contentKind == null) {
                     "This extension does not register a searchable media provider."
                 } else {
-                    "No search results for \"$query\"."
+                    "No provider API declares support for ${contentKind.name.lowercase().replace('_', ' ')}."
                 }
             return@withContext emptyList()
         }
