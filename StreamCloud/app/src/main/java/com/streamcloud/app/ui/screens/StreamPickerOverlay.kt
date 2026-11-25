@@ -58,6 +58,7 @@ import com.streamcloud.app.data.plugins.cloudStreamNoLinksConfirmed
 import com.streamcloud.app.data.plugins.CloudStreamContentKind
 import com.streamcloud.app.data.plugins.detectCloudStreamContentKind
 import com.streamcloud.app.data.plugins.hasPlausibleCloudStreamTitleMatch
+import com.streamcloud.app.data.plugins.allowsPickerMovieApiFallback
 import com.streamcloud.app.data.plugins.searchResponseMatchesContentKind
 import com.streamcloud.app.data.plugins.searchResponseMatchesPickerFallback
 import com.streamcloud.app.data.plugins.supportsPickerContent
