@@ -4381,7 +4381,7 @@ private fun SectionTitleWithViewAll(title: String, onViewAll: () -> Unit) {
             modifier = Modifier.weight(1f),
         )
         Text(
-            "View all â",
+            "View all →",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier
@@ -4427,7 +4427,7 @@ private fun AddonSectionTitleWithViewAll(
             )
         }
         Text(
-            "View all â",
+            "View all →",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier

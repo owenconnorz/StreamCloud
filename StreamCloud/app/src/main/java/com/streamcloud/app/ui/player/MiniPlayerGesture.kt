@@ -88,8 +88,10 @@ internal fun shouldCollapsePlayerFromBottomSwipe(
     totalY: Float,
     minimumDistancePx: Float,
     surfaceProgress: Float,
+    contentAtTop: Boolean,
 ): Boolean {
-    return surfaceHeight > 0f &&
+    return contentAtTop &&
+        surfaceHeight > 0f &&
         startY >= surfaceHeight * PLAYER_SURFACE_BOTTOM_SWIPE_START_RATIO &&
         surfaceProgress > 0.05f &&
         totalY >= minimumDistancePx &&

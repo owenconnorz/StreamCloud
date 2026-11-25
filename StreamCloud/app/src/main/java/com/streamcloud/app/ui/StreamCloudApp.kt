@@ -2536,7 +2536,6 @@ fun StreamCloudApp(
                 val encoded = URLEncoder.encode(searchUrl, "UTF-8")
                 nav.navigate("artist/$encoded")
             },
-            onDismissPlayback = { dismissedMiniPlayerId = miniNowPlayingId },
         )
     }
 
