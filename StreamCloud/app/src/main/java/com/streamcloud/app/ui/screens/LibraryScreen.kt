@@ -85,6 +85,8 @@ import com.streamcloud.app.data.ytmusic.YtMusicLibrary
 import com.streamcloud.app.data.ytmusic.YtmLibraryArtist
 import com.streamcloud.app.data.ytmusic.YtmPlaylist
 import com.streamcloud.app.data.ytmusic.YtmSong
+import com.streamcloud.app.data.ytmusic.isLikedMusicPlaylist
+import com.streamcloud.app.data.ytmusic.prioritizeLikedMusicPlaylist
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import kotlinx.coroutines.Dispatchers
@@ -124,7 +126,7 @@ fun LibraryScreen(
 ) {
     val context = LocalContext.current
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    val gridColumns = if (isTv) 4 else 2
+    val gridColumns = if (isTv) 4 else 3
     val sl = remember(context) { com.streamcloud.app.data.ServiceLocator.get(context) }
     val activeProfile by sl.profiles.activeProfile.collectAsState(initial = null)
     val nuvioUserId by sl.settings.nuvioUserId.collectAsState(initial = "")
@@ -217,6 +219,17 @@ fun LibraryScreen(
                 }
             }
         }
+    }
+
+    val orderedYtPlaylists = remember(ytLibrary.playlists) {
+        ytLibrary.playlists.prioritizeLikedMusicPlaylist()
+    }
+    val ytLikedPlaylist = orderedYtPlaylists.firstOrNull()
+        ?.takeIf { it.isLikedMusicPlaylist() }
+    val remainingYtPlaylists = if (ytLikedPlaylist == null) {
+        orderedYtPlaylists
+    } else {
+        orderedYtPlaylists.drop(1)
     }
 
     val combined by remember(dao) {
@@ -816,6 +829,13 @@ fun LibraryScreen(
             ) {
                 when (tab) {
                     LibTab.Playlists -> {
+                        ytLikedPlaylist?.let { pl ->
+                            item(key = "yp_${pl.id}") {
+                                YtPlaylistTile(pl, customThumb = playlistThumbs[pl.id]) {
+                                    onOpenPlaylist(pl.id, pl.title)
+                                }
+                            }
+                        }
                         item { LocalSystemTile("Downloaded", Icons.Default.DownloadDone,
                             downloaded.size, downloaded.mapNotNull { it.thumbnail }) { openTile = "downloaded" } }
                         item { LocalSystemTile("My top 50", Icons.Default.TrendingUp,
@@ -843,7 +863,7 @@ fun LibraryScreen(
                                 )
                             }
                         }
-                        items(ytLibrary.playlists, key = { "yp_${it.id}" }) { pl ->
+                        items(remainingYtPlaylists, key = { "yp_${it.id}" }) { pl ->
                             YtPlaylistTile(pl, customThumb = playlistThumbs[pl.id]) { onOpenPlaylist(pl.id, pl.title) }
                         }
                     }

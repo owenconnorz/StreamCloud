@@ -18,6 +18,26 @@ data class YtmPlaylist(
     val cachedTrackCount: Int? = null,
 )
 
+internal fun YtmPlaylist.isLikedMusicPlaylist(): Boolean {
+    if (isAlbum) return false
+
+    val browseId = id.trim().uppercase().removePrefix("VL")
+    val title = title.trim()
+    return browseId == "LM" ||
+        title.equals("Liked", ignoreCase = true) ||
+        title.equals("Liked Music", ignoreCase = true) ||
+        title.equals("Liked Songs", ignoreCase = true)
+}
+
+internal fun List<YtmPlaylist>.prioritizeLikedMusicPlaylist(): List<YtmPlaylist> {
+    val likedPlaylist = firstOrNull { it.isLikedMusicPlaylist() } ?: return this
+    val otherPlaylists = filterNot { it.isLikedMusicPlaylist() }
+    return buildList(size) {
+        add(likedPlaylist)
+        addAll(otherPlaylists)
+    }
+}
+
 data class YtmLibraryArtist(
     val channelId: String,
     val name: String,
