@@ -108,12 +108,49 @@ class PluginCompatibilityTest {
         val movieApi = object : MainAPI() {
             override val supportedTypes = setOf(TvType.Movie)
         }
+        val misdeclaredMovieApi = object : MainAPI() {
+            override val supportedTypes = setOf(TvType.AsianDrama)
+        }
 
         assertFalse(animeApi.supportsPickerContent(CloudStreamContentKind.MOVIE))
         assertTrue(movieApi.supportsPickerContent(CloudStreamContentKind.MOVIE))
         assertTrue(animeApi.supportsPickerContent(CloudStreamContentKind.ANIME))
         assertTrue(movieApi.supportsPickerSearch(CloudStreamContentKind.TV_SERIES))
         assertFalse(animeApi.supportsPickerSearch(CloudStreamContentKind.TV_SERIES))
+        assertTrue(
+            selectPickerSearchApis(
+                apis = listOf(misdeclaredMovieApi, animeApi),
+                kind = CloudStreamContentKind.MOVIE,
+            ).isEmpty(),
+        )
+        assertEquals(
+            listOf(misdeclaredMovieApi),
+            selectPickerSearchApis(
+                apis = listOf(misdeclaredMovieApi, animeApi),
+                kind = CloudStreamContentKind.MOVIE,
+                allowMovieApiFallback = true,
+            ),
+        )
+        assertEquals(
+            listOf(movieApi),
+            selectPickerSearchApis(
+                apis = listOf(movieApi, misdeclaredMovieApi),
+                kind = CloudStreamContentKind.MOVIE,
+                allowMovieApiFallback = true,
+            ),
+        )
+    }
+
+    @Test
+    fun repositoryFallbackRequiresAnExplicitMovieLabelAndExcludesAdultPlugins() {
+        assertTrue(installedPlugin(name = "MovieProvider", types = listOf("Movie", "TvSeries"))
+            .allowsPickerMovieApiFallback())
+        assertFalse(installedPlugin(name = "AnimeProvider", types = listOf("AnimeMovie"))
+            .allowsPickerMovieApiFallback())
+        assertFalse(installedPlugin(name = "GeneralProvider", types = listOf("All"))
+            .allowsPickerMovieApiFallback())
+        assertFalse(installedPlugin(name = "AdultProvider", types = listOf("Movie", "NSFW"))
+            .allowsPickerMovieApiFallback())
     }
 
     @Test

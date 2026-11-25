@@ -63,6 +63,14 @@ internal fun InstalledPlugin.supportsPickerContent(kind: CloudStreamContentKind)
     return true
 }
 
+/**
+ * Repository labels are only allowed to widen movie searches when they explicitly name a
+ * movie-like type. Broad labels such as "All" and "Anime Movie" are not sufficient.
+ */
+internal fun InstalledPlugin.allowsPickerMovieApiFallback(): Boolean =
+    !isAdultPlugin() &&
+        tvTypes.orEmpty().any { it.normalizedWords() in setOf("movie", "movies", "film", "films") }
+
 internal fun MainAPI.supportsPickerContent(kind: CloudStreamContentKind): Boolean {
     val types = runCatching { supportedTypes }.getOrNull().orEmpty()
     if (types.isEmpty()) return true
@@ -88,6 +96,27 @@ internal fun MainAPI.supportsPickerSearch(kind: CloudStreamContentKind): Boolean
     supportsPickerContent(kind) ||
         (kind == CloudStreamContentKind.TV_SERIES &&
             supportsPickerContent(CloudStreamContentKind.MOVIE))
+
+internal fun MainAPI.isExplicitlyAnimeOnlyForPicker(): Boolean {
+    val types = runCatching { supportedTypes }.getOrNull().orEmpty()
+    return types.isNotEmpty() &&
+        types.all { it == TvType.Anime || it == TvType.AnimeMovie || it == TvType.OVA }
+}
+
+/**
+ * Use repository metadata only as a guarded fallback when no runtime API declares movie support.
+ * Explicitly anime-only APIs remain excluded; result title and content-type checks still run later.
+ */
+internal fun selectPickerSearchApis(
+    apis: List<MainAPI>,
+    kind: CloudStreamContentKind,
+    allowMovieApiFallback: Boolean = false,
+): List<MainAPI> {
+    val declaredApis = apis.filter { it.supportsPickerSearch(kind) }
+    if (declaredApis.isNotEmpty()) return declaredApis
+    if (kind != CloudStreamContentKind.MOVIE || !allowMovieApiFallback) return emptyList()
+    return apis.filterNot(MainAPI::isExplicitlyAnimeOnlyForPicker)
+}
 
 internal fun searchResponseMatchesContentKind(
     response: SearchResponse,

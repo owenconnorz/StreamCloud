@@ -998,7 +998,15 @@ internal suspend fun resolveCsForPicker(
             return CloudStreamPickerResult(emptyList(), "A title is required to search this plugin.")
         }
         val results: List<CloudStreamSearchMatch> = try {
-            PluginRuntime.searchWithApi(context, plugin.filePath, title, contentKind)
+            PluginRuntime.searchWithApi(
+                context = context,
+                filePath = plugin.filePath,
+                query = title,
+                contentKind = contentKind,
+                allowMovieApiFallback =
+                    contentKind == CloudStreamContentKind.MOVIE &&
+                        plugin.allowsPickerMovieApiFallback(),
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {

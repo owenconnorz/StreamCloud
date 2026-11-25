@@ -736,8 +736,10 @@ object PluginRuntime {
         filePath: String,
         query: String,
         contentKind: CloudStreamContentKind? = null,
+        allowMovieApiFallback: Boolean = false,
     ): List<CloudStreamSearchMatch> = withContext(Dispatchers.IO) {
-        val cacheKey = "$filePath\u0000${contentKind?.name.orEmpty()}\u0000${query.trim().lowercase()}"
+        val cacheKey =
+            "$filePath\u0000${contentKind?.name.orEmpty()}\u0000$allowMovieApiFallback\u0000${query.trim().lowercase()}"
         val now = System.currentTimeMillis()
         searchCache[cacheKey]?.let { cached ->
             if (now - cached.createdAtMs <= SEARCH_CACHE_TTL_MS) {
@@ -746,9 +748,10 @@ object PluginRuntime {
             searchCache.remove(cacheKey, cached)
         }
 
-        val apis = load(context, filePath).filter { api ->
-            contentKind == null || api.supportsPickerSearch(contentKind)
-        }
+        val loadedApis = load(context, filePath)
+        val apis = contentKind?.let { kind ->
+            selectPickerSearchApis(loadedApis, kind, allowMovieApiFallback)
+        } ?: loadedApis
         if (apis.isEmpty()) {
             lastErrors[filePath] =
                 if (contentKind == null) {
