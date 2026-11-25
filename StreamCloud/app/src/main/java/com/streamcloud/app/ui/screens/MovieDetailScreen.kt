@@ -106,10 +106,8 @@ import com.streamcloud.app.player.StreamCacheRepository
 import com.streamcloud.app.player.WatchProgressKey
 import com.streamcloud.app.player.sourceSelectionRoute
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
-import com.streamcloud.app.ui.theme.LegacyMoviesThemeWrapper
+import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.theme.UiFormFactor
-import com.streamcloud.app.ui.theme.normalizeAppColorPaletteId
-import com.streamcloud.app.ui.theme.rememberBannerPalette
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import kotlinx.coroutines.Dispatchers
@@ -263,9 +261,7 @@ fun MovieDetailScreen(
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
     val scope = rememberCoroutineScope()
-    val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "modern_blue")
     val appColorPalette by sl.settings.colorPalette.collectAsState(initial = "modern_blue")
-    val useMonochromePalette = normalizeAppColorPaletteId(appColorPalette) == "monochrome"
     val autoplayBestStream by sl.settings.autoplayBestStream.collectAsState(initial = false)
 
     var movie by remember { mutableStateOf<TmdbMovie?>(null) }
@@ -771,48 +767,13 @@ fun MovieDetailScreen(
         }
     }
 
-    LegacyMoviesThemeWrapper(
-        if (useMonochromePalette) "monochrome" else moviesThemeName,
-    ) {
-    val bannerPalette = rememberBannerPalette(
-        imageUrl = movie?.backdropUrl?.takeIf { it.isNotBlank() }
-            ?: movie?.posterUrl?.takeIf { it.isNotBlank() },
-        fallbackAccent = MaterialTheme.colorScheme.primary,
-        fallbackOnAccent = MaterialTheme.colorScheme.onPrimary,
-        fallbackBackground = MaterialTheme.colorScheme.background,
-        fallbackSurface = MaterialTheme.colorScheme.surface,
-    )
+    MoviesThemeWrapper(appColorPalette) {
     val detailBaseColors = MaterialTheme.colorScheme
-    val detailArtworkTint = if (useMonochromePalette) Color.Black else bannerPalette.artworkColor
-    val detailBackdropShade = when {
-        useMonochromePalette -> Color.Black
-        isTv -> Color(0xFF071522)
-        else -> Color(0xFF07080D)
-    }
-    val detailBackdropEdgeShade = when {
-        useMonochromePalette -> Color.Black
-        isTv -> Color(0xFF071522)
-        else -> Color(0xFF05070A)
-    }
+    val detailArtworkTint = detailBaseColors.primaryContainer
+    val detailBackdropShade = detailBaseColors.background
+    val detailBackdropEdgeShade = detailBaseColors.background
     MaterialTheme(
-        colorScheme = detailBaseColors.copy(
-            primary = if (useMonochromePalette) detailBaseColors.primary
-            else if (isTv) detailBaseColors.primary else bannerPalette.accent,
-            onPrimary = if (useMonochromePalette) detailBaseColors.onPrimary
-            else if (isTv) detailBaseColors.onPrimary else bannerPalette.onAccent,
-            secondary = if (useMonochromePalette) detailBaseColors.secondary
-            else if (isTv) detailBaseColors.secondary else bannerPalette.accent,
-            onSecondary = if (useMonochromePalette) detailBaseColors.onSecondary
-            else if (isTv) detailBaseColors.onSecondary else bannerPalette.onAccent,
-            primaryContainer = if (useMonochromePalette) detailBaseColors.primaryContainer
-            else if (isTv) detailBaseColors.primaryContainer else bannerPalette.accentContainer,
-            onPrimaryContainer = detailBaseColors.onPrimaryContainer,
-            background = if (isTv) detailBackdropShade else Color.Black,
-            surface = if (useMonochromePalette) detailBaseColors.surface
-            else if (isTv) detailBaseColors.surface else bannerPalette.surfaceTint,
-            surfaceVariant = if (useMonochromePalette) detailBaseColors.surfaceVariant
-            else if (isTv) detailBaseColors.surfaceVariant else bannerPalette.surfaceTint,
-        ),
+        colorScheme = detailBaseColors,
     ) {
     val scrollState = rememberScrollState()
     val scrollScope = rememberCoroutineScope()
@@ -1279,7 +1240,7 @@ fun MovieDetailScreen(
         }
     }
     BoxWithConstraints(
-        Modifier.fillMaxSize().background(if (isTv) detailBackdropShade else Color.Black)
+        Modifier.fillMaxSize().background(detailBackdropShade)
             .focusRequester(focusRequester)
             .then(
                 if (!isTv) {
@@ -1918,7 +1879,7 @@ fun MovieDetailScreen(
             IconButton(
                 onClick = onBack,
                 modifier = Modifier.padding(12.dp).clip(RoundedCornerShape(50))
-                    .background(bannerPalette.surfaceTint.copy(alpha = 0.92f))
+                    .background(detailBaseColors.surface.copy(alpha = 0.92f))
             ) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
             }

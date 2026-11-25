@@ -219,10 +219,12 @@ fun StreamCloudApp(
     var libraryMoviePaletteActive by remember(isTvFormFactor) {
         mutableStateOf(isTvFormFactor)
     }
-    val useMonochromeDetailPalette =
-        normalizeAppColorPaletteId(appearancePalette) == "monochrome" &&
-            (currentRoute?.startsWith("movie/") == true ||
-                currentRoute?.startsWith("tv/") == true)
+    val isMovieDetailRoute = currentRoute?.startsWith("movie/") == true ||
+        currentRoute?.startsWith("tv/") == true
+    val isMovieCollectionRoute = currentRoute?.startsWith("collection-folder/") == true ||
+        currentRoute?.startsWith("collection-tabbed/") == true ||
+        currentRoute?.startsWith("catalog/") == true
+    val isMoviePlayerRoute = currentRoute?.startsWith("player/movie/") == true
     val useCinematicPaletteOnMediaPages =
         normalizeAppColorPaletteId(appearancePalette) != "monochrome" &&
             (currentRoute == Tab.LiveTv.route ||
@@ -232,7 +234,9 @@ fun StreamCloudApp(
         currentRoute?.startsWith("ai-search") == true ||
         (currentRoute == Tab.Library.route && libraryMoviePaletteActive) ||
         currentRoute == Tab.Settings.route ||
-        useMonochromeDetailPalette ||
+        isMovieDetailRoute ||
+        isMovieCollectionRoute ||
+        isMoviePlayerRoute ||
         useCinematicPaletteOnMediaPages
     var adultHomeNavigationVisible by remember { mutableStateOf(false) }
     var settingsHasSubPage by remember { mutableStateOf(false) }
@@ -402,15 +406,13 @@ fun StreamCloudApp(
     val hazeState = remember { HazeState() }
 
     val showNavLabels by sl.settings.navLabels.collectAsState(initial = true)
-    val moviesThemeNameForPill by sl.settings.moviesTheme.collectAsState(initial = "modern_blue")
     val navAccentColor = remember(
         appearancePalette,
-        moviesThemeNameForPill,
         useSelectedAppPalette,
     ) {
         val selectedPaletteId = normalizeAppColorPaletteId(appearancePalette)
         val navPaletteId = if (selectedPaletteId == "monochrome" && !useSelectedAppPalette) {
-            normalizeAppColorPaletteId(moviesThemeNameForPill)
+            "modern_blue"
         } else {
             selectedPaletteId
         }
@@ -821,10 +823,7 @@ fun StreamCloudApp(
                     arguments = listOf(navArgument("folderId") { type = NavType.LongType }),
                 ) { entry ->
                     val folderId = entry.arguments!!.getLong("folderId")
-                    com.streamcloud.app.ui.theme.MoviesThemeWrapper(
-                        moviesThemeNameForPill,
-                        useLegacyPalette = !useSelectedAppPalette,
-                    ) {
+                    com.streamcloud.app.ui.theme.MoviesThemeWrapper(appearancePalette) {
                         com.streamcloud.app.ui.screens.CollectionFolderPageScreen(
                             folderId = folderId,
                             onBack = { nav.popBackStack() },
@@ -865,10 +864,7 @@ fun StreamCloudApp(
                     arguments = listOf(navArgument("collectionId") { type = NavType.LongType }),
                 ) { entry ->
                     val collectionId = entry.arguments!!.getLong("collectionId")
-                    com.streamcloud.app.ui.theme.MoviesThemeWrapper(
-                        moviesThemeNameForPill,
-                        useLegacyPalette = !useSelectedAppPalette,
-                    ) {
+                    com.streamcloud.app.ui.theme.MoviesThemeWrapper(appearancePalette) {
                         com.streamcloud.app.ui.screens.CollectionTabbedScreen(
                             collectionId = collectionId,
                             onBack = { nav.popBackStack() },
@@ -935,10 +931,7 @@ fun StreamCloudApp(
                     val src = URLDecoder.decode(entry.arguments!!.getString("src")!!, "UTF-8")
                     val t = URLDecoder.decode(entry.arguments!!.getString("title")!!, "UTF-8")
                     val sub = URLDecoder.decode(entry.arguments!!.getString("subtitle")!!, "UTF-8")
-                    com.streamcloud.app.ui.theme.MoviesThemeWrapper(
-                        moviesThemeNameForPill,
-                        useLegacyPalette = !useSelectedAppPalette,
-                    ) {
+                    com.streamcloud.app.ui.theme.MoviesThemeWrapper(appearancePalette) {
                         com.streamcloud.app.ui.screens.CatalogPageScreen(
                             source = src,
                             title = t,

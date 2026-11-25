@@ -205,7 +205,6 @@ object SettingsKeys {
     val MUSIC_SPEED_DIAL      = stringPreferencesKey("music_speed_dial")
 
     // Movies / video
-    val MOVIES_THEME          = stringPreferencesKey("movies_theme")
     val INTRO_DB_API_KEY      = stringPreferencesKey("intro_db_api_key")
     val SUBTITLE_SOURCE       = stringPreferencesKey("subtitle_source")
     val PARENTAL_GUIDE        = booleanPreferencesKey("parental_guide_enabled")
@@ -1088,9 +1087,6 @@ class SettingsRepository(private val context: Context) {
     }
 
     // ── Movies / video settings ─────────────────────────────────────────────
-    val moviesTheme: Flow<String> = context.dataStore.data.map {
-        it[SettingsKeys.MOVIES_THEME] ?: "modern_blue"
-    }
     val introDbApiKey: Flow<String> = context.dataStore.data.map { it[SettingsKeys.INTRO_DB_API_KEY] ?: "" }
     val subtitleSource: Flow<String> = context.dataStore.data.map { it[SettingsKeys.SUBTITLE_SOURCE] ?: "opensubtitles" }
     val parentalGuideEnabled: Flow<Boolean> = context.dataStore.data.map { it[SettingsKeys.PARENTAL_GUIDE] ?: false }
@@ -1100,7 +1096,6 @@ class SettingsRepository(private val context: Context) {
     val movieAudioFormats: Flow<String> =
         context.dataStore.data.map { it[SettingsKeys.MOVIE_AUDIO_FORMATS] ?: MovieAudioPreferences.defaultIdsCsv }
 
-    suspend fun setMoviesTheme(theme: String) = context.dataStore.edit { it[SettingsKeys.MOVIES_THEME] = theme }
     suspend fun setIntroDbApiKey(key: String) = context.dataStore.edit { it[SettingsKeys.INTRO_DB_API_KEY] = key }
     suspend fun setSubtitleSource(src: String) = context.dataStore.edit { it[SettingsKeys.SUBTITLE_SOURCE] = src }
     suspend fun setParentalGuideEnabled(b: Boolean) = context.dataStore.edit { it[SettingsKeys.PARENTAL_GUIDE] = b }

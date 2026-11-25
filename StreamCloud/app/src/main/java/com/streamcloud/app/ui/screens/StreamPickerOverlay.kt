@@ -42,7 +42,7 @@ import com.streamcloud.app.data.prioritizeStreamPickerTabs
 import com.streamcloud.app.data.shouldShowAutoPlayResolvingState
 import com.streamcloud.app.data.shouldKeepStreamPickerTab
 import com.streamcloud.app.data.streamPickerTabLabel
-import com.streamcloud.app.ui.theme.LegacyMoviesThemeWrapper
+import com.streamcloud.app.ui.theme.MoviesThemeWrapper
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
 import com.streamcloud.app.ui.theme.LocalUiFormFactor
@@ -112,7 +112,7 @@ fun StreamPickerOverlay(
 ) {
     val context = LocalContext.current
     val sl = remember { ServiceLocator.get(context) }
-    val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "modern_blue")
+    val appearancePalette by sl.settings.colorPalette.collectAsState(initial = "modern_blue")
     val qualityFilterEnabled by sl.settings.sourceQualityFilterEnabled.collectAsState(initial = false)
     val selectedQualities by sl.settings.sourceQualityFilterQualities.collectAsState(
         initial = SourceQualityFilter.defaultSelected,
@@ -441,7 +441,7 @@ fun StreamPickerOverlay(
         }
     }
 
-    LegacyMoviesThemeWrapper(moviesThemeName) {
+    MoviesThemeWrapper(appearancePalette) {
     if (showAutoPlayProgress) {
         val playbackTitle = buildString {
             append(movie?.displayTitle ?: "Finding a stream")

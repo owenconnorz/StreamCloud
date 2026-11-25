@@ -264,7 +264,6 @@ fun SettingsHubScreen(
     var canvasEnabled       by remember { mutableStateOf(false) }
     var ytMusicCanvasEnabled by remember { mutableStateOf(false) }
     var posterStyle         by remember { mutableStateOf("portrait") }
-    var moviesTheme         by remember { mutableStateOf("modern_blue") }
     var pluginsCacheBytes   by remember { mutableStateOf(0L) }
     var smartTrimmer        by remember { mutableStateOf(false) }
     var videoCacheMaxMb     by remember { mutableStateOf("unlimited") }
@@ -398,7 +397,6 @@ fun SettingsHubScreen(
         canvasEnabled       = sl.settings.canvasEnabled.first()
         ytMusicCanvasEnabled = sl.settings.ytMusicCanvasEnabled.first()
         posterStyle         = sl.settings.posterStyle.first()
-        moviesTheme         = normalizeAppColorPaletteId(sl.settings.moviesTheme.first())
         safeSearch          = sl.settings.safeSearch.first()
         explicitContent     = sl.settings.explicitContent.first()
         contentLanguage     = sl.settings.contentLanguage.first()
@@ -866,22 +864,6 @@ fun SettingsHubScreen(
                                 }
                         }
                     }
-                    SettingDivider()
-                    MoviesThemePicker(
-                        selected = moviesTheme,
-                        onSelect = { id ->
-                            val paletteId = normalizeAppColorPaletteId(id)
-                            moviesTheme = paletteId
-                            scope.launch { sl.settings.setMoviesTheme(paletteId) }
-                        },
-                        showMonochrome = false,
-                    )
-                    Text(
-                        "Controls movie-screen accents and the TV focus pill.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
                 }
             }
 
@@ -1118,7 +1100,7 @@ fun SettingsHubScreen(
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
-                            "Cinematic palettes apply to Movies, Search, Library, TV, actors and Settings.",
+                            "Cinematic palettes apply throughout Movies, Search, Library, TV, actors and Settings.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 4.dp),

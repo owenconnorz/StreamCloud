@@ -148,12 +148,11 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
     val hasArtwork      by AlbumArtThemeBus.hasArtwork.collectAsState()
     val themeMode       by sl.settings.theme.collectAsState(initial = "dark")
     val colorPaletteId  by sl.settings.colorPalette.collectAsState(initial = "modern_blue")
-    val moviesThemeName by sl.settings.moviesTheme.collectAsState(initial = "modern_blue")
     val appPaletteId = normalizeAppColorPaletteId(colorPaletteId)
-    // Black & White is a scoped app palette. Routes that do not opt into the
-    // palette keep their existing base theme and artwork-derived colors.
+    // Black & White stays scoped to opted-in screens; other routes retain the
+    // app's default base palette when that palette is selected.
     val inheritedPaletteId = if (appPaletteId == "monochrome") {
-        normalizeAppColorPaletteId(moviesThemeName)
+        "modern_blue"
     } else {
         appPaletteId
     }
@@ -241,10 +240,9 @@ fun StreamCloudTheme(content: @Composable () -> Unit) {
             ) else scheme
         }
     }
-    // TV controller focus follows the same Color Theme used by the movie
-    // navigation pill, so the selected theme stays visually consistent across
-    // content, settings, navigation, and updater surfaces.
-    val tvFocusColor = legacyAppColorScheme(moviesThemeName, light = false).primary
+    // Movie routes override this with the selected Appearance palette; this
+    // inherited color remains the fallback for routes that do not opt in.
+    val tvFocusColor = legacyAppColorScheme(inheritedPaletteId, light = false).primary
     val usesLightBars = when {
         useAlbumArtDynamicTheme -> false
         useSystemDynamicTheme -> !useDark
