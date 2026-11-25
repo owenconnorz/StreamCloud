@@ -142,10 +142,14 @@ class PluginCompatibilityTest {
     }
 
     @Test
-    fun repositoryFallbackRequiresAnExplicitMovieLabelAndExcludesAdultPlugins() {
+    fun repositoryFallbackAllowsMovieLabelsOrUnknownLegacyMetadata() {
         assertTrue(installedPlugin(name = "MovieProvider", types = listOf("Movie", "TvSeries"))
             .allowsPickerMovieApiFallback())
+        assertTrue(installedPlugin(name = "LegacyProvider", types = emptyList())
+            .allowsPickerMovieApiFallback())
         assertFalse(installedPlugin(name = "AnimeProvider", types = listOf("AnimeMovie"))
+            .allowsPickerMovieApiFallback())
+        assertFalse(installedPlugin(name = "SeriesProvider", types = listOf("TvSeries"))
             .allowsPickerMovieApiFallback())
         assertFalse(installedPlugin(name = "GeneralProvider", types = listOf("All"))
             .allowsPickerMovieApiFallback())

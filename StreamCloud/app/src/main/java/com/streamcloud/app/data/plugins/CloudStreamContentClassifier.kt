@@ -64,12 +64,17 @@ internal fun InstalledPlugin.supportsPickerContent(kind: CloudStreamContentKind)
 }
 
 /**
- * Repository labels are only allowed to widen movie searches when they explicitly name a
- * movie-like type. Broad labels such as "All" and "Anime Movie" are not sufficient.
+ * Explicit movie labels enable the fallback. Legacy installs with no labels stay eligible,
+ * but broad labels such as "All" and "Anime Movie" are not enough on their own.
  */
-internal fun InstalledPlugin.allowsPickerMovieApiFallback(): Boolean =
-    !isAdultPlugin() &&
-        tvTypes.orEmpty().any { it.normalizedWords() in setOf("movie", "movies", "film", "films") }
+internal fun InstalledPlugin.allowsPickerMovieApiFallback(): Boolean {
+    if (isAdultPlugin()) return false
+    val catalogTypes = tvTypes.orEmpty()
+        .map { it.normalizedWords() }
+        .filter { it.isNotBlank() }
+    if (catalogTypes.isEmpty()) return true
+    return catalogTypes.any { it in setOf("movie", "movies", "film", "films") }
+}
 
 internal fun MainAPI.supportsPickerContent(kind: CloudStreamContentKind): Boolean {
     val types = runCatching { supportedTypes }.getOrNull().orEmpty()
