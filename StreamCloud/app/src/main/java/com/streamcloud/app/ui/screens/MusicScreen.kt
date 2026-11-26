@@ -835,6 +835,7 @@ fun YouTubeMusicHome(
                                         is MusicSpeedDialEntry.Playlist -> {
                                             YtHomePlaylistCard(
                                                 pl = entry.value,
+                                                cookie = if (isTv) "" else ytMusicCookie,
                                                 overlayTitle = true,
                                                 onClick = {
                                                     openPlaylistOrPlay(entry.value)
@@ -899,6 +900,7 @@ fun YouTubeMusicHome(
                                                             is MusicSpeedDialEntry.Playlist -> {
                                                                 YtHomePlaylistCard(
                                                                     pl = entry.value,
+                                                                    cookie = if (isTv) "" else ytMusicCookie,
                                                                     overlayTitle = true,
                                                                     onClick = {
                                                                         openPlaylistOrPlay(entry.value)
@@ -1044,6 +1046,7 @@ fun YouTubeMusicHome(
                                             items(section.items) { pl ->
                                                 YtHomePlaylistCard(
                                                     pl = pl,
+                                                    cookie = if (isTv) "" else ytMusicCookie,
                                                     modifier = Modifier.width(cardWidth),
                                                     landscape = true,
                                                 ) {
@@ -1059,7 +1062,10 @@ fun YouTubeMusicHome(
                                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     ) {
                                         items(section.items) { pl ->
-                                            YtHomePlaylistCard(pl) {
+                                            YtHomePlaylistCard(
+                                                pl = pl,
+                                                cookie = if (isTv) "" else ytMusicCookie,
+                                            ) {
                                                 openPlaylistOrPlay(pl)
                                             }
                                         }
@@ -2236,11 +2242,39 @@ private fun MusicSpeedDialShuffleCard(
 @Composable
 private fun YtHomePlaylistCard(
     pl: YtmPlaylist,
+    cookie: String = "",
     modifier: Modifier = Modifier.width(150.dp),
     landscape: Boolean = false,
     overlayTitle: Boolean = false,
     onClick: () -> Unit = {},
 ) {
+    val hasArtworkSource = !pl.thumbnail.isNullOrBlank() ||
+        pl.thumbnailCandidates.isNotEmpty() ||
+        (pl.isVideo && pl.id.length == 11)
+    var needsTrackArtwork by remember(
+        pl.id,
+        pl.thumbnail,
+        pl.thumbnailCandidates,
+    ) {
+        mutableStateOf(!hasArtworkSource)
+    }
+    var previewTracks by remember(pl.id, cookie) { mutableStateOf<List<YtmSong>?>(null) }
+    LaunchedEffect(pl.id, cookie, needsTrackArtwork) {
+        if (!needsTrackArtwork) return@LaunchedEffect
+        previewTracks = if (cookie.isBlank()) {
+            emptyList()
+        } else {
+            try {
+                com.streamcloud.app.data.ytmusic.YtMusicLibraryRepository
+                    .playlistPreviewTracks(cookie, pl.id)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                emptyList()
+            }
+        }
+    }
+
     Column(
         modifier
             .tvFocusBorder(RoundedCornerShape(12.dp))
@@ -2253,18 +2287,47 @@ private fun YtHomePlaylistCard(
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
-            HomeThumbnail(
-                primary = pl.thumbnail,
-                fallback = if (pl.isVideo && pl.id.length == 11) {
-                    "https://i.ytimg.com/vi/${pl.id}/hqdefault.jpg"
-                } else {
-                    null
-                },
-                candidates = pl.thumbnailCandidates,
-                contentDescription = pl.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
+            when {
+                !needsTrackArtwork -> {
+                    HomeThumbnail(
+                        primary = pl.thumbnail,
+                        fallback = if (pl.isVideo && pl.id.length == 11) {
+                            "https://i.ytimg.com/vi/${pl.id}/hqdefault.jpg"
+                        } else {
+                            null
+                        },
+                        candidates = pl.thumbnailCandidates,
+                        contentDescription = pl.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                        onAllModelsFailed = { needsTrackArtwork = true },
+                    )
+                }
+                previewTracks == null && cookie.isNotBlank() -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .align(Alignment.Center),
+                        strokeWidth = 2.dp,
+                    )
+                }
+                !previewTracks.isNullOrEmpty() -> {
+                    MixArtworkMosaic(
+                        tracks = previewTracks.orEmpty(),
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                else -> {
+                    Icon(
+                        Icons.Default.MusicNote,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                        modifier = Modifier
+                            .size(34.dp)
+                            .align(Alignment.Center),
+                    )
+                }
+            }
             if (overlayTitle) {
                 SpeedDialTextOverlay(
                     title = pl.title,
@@ -2298,6 +2361,59 @@ private fun YtHomePlaylistCard(
             }
         }
     }
+}
+
+@Composable
+private fun MixArtworkMosaic(
+    tracks: List<YtmSong>,
+    modifier: Modifier = Modifier,
+) {
+    val selected = tracks.take(4)
+    when (selected.size) {
+        0 -> Unit
+        1 -> MixArtworkTile(selected[0], modifier)
+        2 -> Row(modifier, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            MixArtworkTile(selected[0], Modifier.weight(1f).fillMaxHeight())
+            MixArtworkTile(selected[1], Modifier.weight(1f).fillMaxHeight())
+        }
+        3 -> Row(modifier, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            MixArtworkTile(selected[0], Modifier.weight(1f).fillMaxHeight())
+            Column(
+                Modifier.weight(1f).fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                MixArtworkTile(selected[1], Modifier.weight(1f).fillMaxWidth())
+                MixArtworkTile(selected[2], Modifier.weight(1f).fillMaxWidth())
+            }
+        }
+        else -> Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            selected.chunked(2).forEach { row ->
+                Row(
+                    Modifier.weight(1f).fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    row.forEach { track ->
+                        MixArtworkTile(track, Modifier.weight(1f).fillMaxHeight())
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MixArtworkTile(
+    track: YtmSong,
+    modifier: Modifier = Modifier,
+) {
+    HomeThumbnail(
+        primary = track.thumbnail,
+        fallback = "https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg",
+        candidates = track.thumbnailCandidates,
+        contentDescription = track.title,
+        contentScale = ContentScale.Crop,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -2686,6 +2802,7 @@ private fun HomeThumbnail(
     contentDescription: String?,
     contentScale: ContentScale,
     modifier: Modifier,
+    onAllModelsFailed: (() -> Unit)? = null,
 ) {
     val models = remember(primary, fallback, candidates) {
         listOfNotNull(
@@ -2700,7 +2817,11 @@ private fun HomeThumbnail(
         contentDescription = contentDescription,
         contentScale = contentScale,
         onError = {
-            if (modelIndex < models.lastIndex) modelIndex += 1
+            if (modelIndex < models.lastIndex) {
+                modelIndex += 1
+            } else {
+                onAllModelsFailed?.invoke()
+            }
         },
         modifier = modifier,
     )
