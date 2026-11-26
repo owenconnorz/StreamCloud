@@ -1465,7 +1465,13 @@ private suspend fun applyMovieWatchlistMutation(
         }
 
         is MovieWatchlistMutation.Move -> {
-            if (mutation.sourceListId == null && mutation.destinationListId != null) {
+            val isNuvioLibraryItem = mutation.entry.mediaType.lowercase() in
+                setOf("movie", "tv", "series")
+            if (
+                mutation.sourceListId == null &&
+                mutation.destinationListId != null &&
+                isNuvioLibraryItem
+            ) {
                 val result = com.streamcloud.app.data.nuvio.NuvioAutoSync
                     .deleteLibraryItemAndSyncNow(
                         context = context.applicationContext,
