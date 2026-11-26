@@ -2260,6 +2260,7 @@ private fun YtHomePlaylistCard(
                 } else {
                     null
                 },
+                candidates = pl.thumbnailCandidates,
                 contentDescription = pl.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -2631,6 +2632,7 @@ private fun YtHomeSongCard(
             HomeThumbnail(
                 primary = song.thumbnail,
                 fallback = "https://i.ytimg.com/vi/${song.videoId}/hqdefault.jpg",
+                candidates = song.thumbnailCandidates,
                 contentDescription = song.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
@@ -2680,17 +2682,19 @@ private fun YtHomeSongCard(
 private fun HomeThumbnail(
     primary: String?,
     fallback: String?,
+    candidates: List<String> = emptyList(),
     contentDescription: String?,
     contentScale: ContentScale,
     modifier: Modifier,
 ) {
-    val models = remember(primary, fallback) {
+    val models = remember(primary, fallback, candidates) {
         listOfNotNull(
             primary?.takeIf { it.isNotBlank() },
+            *candidates.filter(String::isNotBlank).toTypedArray(),
             fallback?.takeIf { it.isNotBlank() },
         ).distinct()
     }
-    var modelIndex by remember(primary, fallback) { mutableIntStateOf(0) }
+    var modelIndex by remember(primary, fallback, candidates) { mutableIntStateOf(0) }
     AsyncImage(
         model = models.getOrNull(modelIndex),
         contentDescription = contentDescription,

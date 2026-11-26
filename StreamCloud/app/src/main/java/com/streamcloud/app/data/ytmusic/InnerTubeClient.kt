@@ -341,6 +341,17 @@ internal fun JsonElement?.bestThumbnail(): String? {
  * (depth-first order means deepest / latest = generally the highest quality).
  */
 internal fun JsonElement.bestThumbnailAnywhere(): String? {
+    return thumbnailCandidatesAnywhere().firstOrNull()
+}
+
+/**
+ * Returns usable artwork URLs from a renderer in preferred order.
+ *
+ * Generated YouTube Music mixes can expose a multi-image thumbnail whose first URL is stale or
+ * unavailable. Keeping all of the leaf artwork URLs lets the UI try another cover rather than
+ * leaving the whole card blank.
+ */
+internal fun JsonElement.thumbnailCandidatesAnywhere(): List<String> {
     val urls = mutableListOf<String>()
     walk { element ->
         val obj = element as? JsonObject ?: return@walk
@@ -349,7 +360,9 @@ internal fun JsonElement.bestThumbnailAnywhere(): String? {
             urls += url
         }
     }
-    return urls.lastOrNull()?.upgradeToHqSize()
+    return urls.asReversed()
+        .map(String::upgradeToHqSize)
+        .distinct()
 }
 
 private fun isThumbnailUrl(url: String): Boolean {

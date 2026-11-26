@@ -16,6 +16,8 @@ data class YtmPlaylist(
     val isTrack: Boolean = false,
 
     val cachedTrackCount: Int? = null,
+    /** Alternate artwork URLs used when a generated mix's primary cover is unavailable. */
+    val thumbnailCandidates: List<String> = emptyList(),
 )
 
 internal fun YtmPlaylist.isLikedMusicPlaylist(): Boolean {
@@ -61,6 +63,8 @@ data class YtmSong(
     val playlistSetVideoId: String? = null,
     /** Spotify source identity for account actions while the matched YouTube Music audio plays. */
     val spotifyTrackId: String? = null,
+    /** Alternate artwork URLs extracted from composite YouTube Music thumbnails. */
+    val thumbnailCandidates: List<String> = emptyList(),
 )
 
 /**

@@ -1,11 +1,45 @@
 package com.streamcloud.app.data.ytmusic
 
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class YtMusicHomeTaxonomyTest {
+
+    @Test
+    fun thumbnailCandidatesAnywhere_keepsAlternateImagesFromCompositeMixes() {
+        val renderer = Json.parseToJsonElement(
+            """
+            {
+              "thumbnailRenderer": {
+                "musicMultiThumbnailRenderer": {
+                  "thumbnails": [
+                    {"musicThumbnailRenderer":{"thumbnail":{"thumbnails":[
+                      {"url":"https://lh3.googleusercontent.com/first=w120-h120"},
+                      {"url":"https://lh3.googleusercontent.com/first=w544-h544"}
+                    ]}}},
+                    {"musicThumbnailRenderer":{"thumbnail":{"thumbnails":[
+                      {"url":"https://lh3.googleusercontent.com/second=w120-h120"}
+                    ]}}}
+                  ]
+                }
+              }
+            }
+            """.trimIndent(),
+        )
+
+        val candidates = renderer.thumbnailCandidatesAnywhere()
+
+        assertEquals(
+            listOf(
+                "https://lh3.googleusercontent.com/second=w544-h544-l90-rj",
+                "https://lh3.googleusercontent.com/first=w544-h544-l90-rj",
+            ),
+            candidates,
+        )
+    }
 
     @Test
     fun mapSections_returnsApprovedOrder() {

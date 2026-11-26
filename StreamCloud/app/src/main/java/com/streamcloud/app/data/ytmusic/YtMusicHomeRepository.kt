@@ -207,6 +207,7 @@ object YtMusicHomeRepository {
             isAlbum = isAlbum,
             isVideo = isVideo,
             isTrack = isTrack,
+            thumbnailCandidates = renderer.thumbnailCandidatesAnywhere(),
         )
     }
 
@@ -232,6 +233,7 @@ object YtMusicHomeRepository {
         return YtmSong(
             videoId = videoId, title = title, artist = artist,
             album = null, thumbnail = thumb, durationSeconds = null,
+            thumbnailCandidates = item.thumbnailCandidatesAnywhere(),
         )
     }
 }
