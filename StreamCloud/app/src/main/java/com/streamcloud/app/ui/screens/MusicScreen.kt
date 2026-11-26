@@ -285,6 +285,7 @@ fun YouTubeMusicHome(
     onSearchClick: () -> Unit = {},
     onSearchWithQuery: (String) -> Unit = {},
     tvNavFocusRequester: FocusRequester? = null,
+    providerPickerContent: (@Composable () -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val services = remember(context) { ServiceLocator.get(context) }
@@ -742,6 +743,7 @@ fun YouTubeMusicHome(
                     isTv = isTv,
                     tvNavFocusRequester =
                         if (isTv && query.isNotBlank()) tvNavFocusRequester else null,
+                    providerPickerContent = providerPickerContent,
                     onSearchClick = onSearchClick,
                     onDjClick = {
                         if (!djQuickMixLoading && !djStarting) {
@@ -803,13 +805,15 @@ fun YouTubeMusicHome(
 
 
             if (query.isBlank()) {
-                item {
-                    SuggestionsRow(
-                        quickChips = quickChips,
-                        onPick = { query = it; vm.search(it) },
-                        focusRequester =
-                            if (isTv) tvNavFocusRequester else null,
-                    )
+                if (isTv) {
+                    item {
+                        SuggestionsRow(
+                            quickChips = quickChips,
+                            onPick = { query = it; vm.search(it) },
+                            focusRequester =
+                                if (isTv) tvNavFocusRequester else null,
+                        )
+                    }
                 }
 
                 if (speedDialEntries.isNotEmpty()) {
@@ -1505,12 +1509,13 @@ private fun MusicHeader(
     tvNavFocusRequester: FocusRequester? = null,
     onDjClick: () -> Unit = {},
     onDjLongClick: () -> Unit = {},
+    providerPickerContent: (@Composable () -> Unit)? = null,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(
-                start = if (isTv) 0.dp else 20.dp,
+                start = if (isTv) 0.dp else if (providerPickerContent != null) 4.dp else 20.dp,
                 top = 8.dp,
                 end = if (isTv) 0.dp else 4.dp,
                 bottom = 4.dp,
@@ -1519,11 +1524,17 @@ private fun MusicHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = if (isTv) 16.dp else 12.dp),
+                .padding(
+                    horizontal = when {
+                        isTv -> 16.dp
+                        providerPickerContent != null -> 0.dp
+                        else -> 12.dp
+                    },
+                ),
             horizontalArrangement = if (isTv) Arrangement.Center else Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (!isTv) {
+            if (!isTv && providerPickerContent == null) {
                 Text(
                     "Music",
                     style = MaterialTheme.typography.headlineLarge,
@@ -1531,6 +1542,10 @@ private fun MusicHeader(
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
                 )
+            }
+            if (!isTv && providerPickerContent != null) {
+                providerPickerContent()
+                Spacer(Modifier.weight(1f))
             }
             if (!isTv && LocalUiFormFactor.current != UiFormFactor.Mobile) {
                 MusicHeaderAction(

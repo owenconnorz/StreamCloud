@@ -68,6 +68,8 @@ fun MusicScreen(
     // Wait for the persisted choice instead of briefly opening the online provider.
     val selected by services.settings.musicHomeProvider
         .collectAsState(initial = null)
+    val inlineMusicPicker = LocalUiFormFactor.current == UiFormFactor.Mobile &&
+        selected == MusicProvider.YouTubeMusic
     val providerOrder by services.settings.musicProviderOrder
         .collectAsState(initial = MusicProvider.entries)
     val installed by services.settings.installedMusicProviders.collectAsState(initial = emptyMap())
@@ -140,29 +142,18 @@ fun MusicScreen(
         )
             .statusBarsPadding(),
     ) {
-        TextButton(
-            onClick = { showProviders = true },
-            colors = if (activeProvider == MusicProvider.Spotify) {
-                ButtonDefaults.textButtonColors(contentColor = SpotifyGreen)
-            } else {
-                ButtonDefaults.textButtonColors()
-            },
-            modifier = Modifier
-                .padding(start = 16.dp, end = 16.dp, top = if (isTv) 68.dp else 4.dp)
-                .then(
-                    if (isTv && tvNavFocusRequester != null) Modifier.focusRequester(tvNavFocusRequester)
-                    else Modifier,
+        if (!inlineMusicPicker) {
+            MusicProviderPickerButton(
+                activeProvider = activeProvider,
+                isTv = isTv,
+                tvNavFocusRequester = tvNavFocusRequester,
+                modifier = Modifier.padding(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = if (isTv) 68.dp else 4.dp,
                 ),
-        ) {
-            if (activeProvider != null) {
-                MusicProviderLogo(activeProvider, Modifier.size(22.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(activeProvider.title)
-            } else {
-                Text("Music providers")
-            }
-            Spacer(Modifier.width(4.dp))
-            Icon(Icons.Default.ExpandMore, contentDescription = "Switch music provider")
+                onClick = { showProviders = true },
+            )
         }
         error?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) }
         Box(Modifier.weight(1f)) {
@@ -173,6 +164,19 @@ fun MusicScreen(
                     onProfileClick = onProfileClick,
                     onSearchClick = onSearchClick,
                     onSearchWithQuery = onSearchWithQuery,
+                    providerPickerContent = if (inlineMusicPicker) {
+                        {
+                            MusicProviderPickerButton(
+                                activeProvider = activeProvider,
+                                isTv = false,
+                                tvNavFocusRequester = null,
+                                modifier = Modifier.padding(start = 8.dp),
+                                onClick = { showProviders = true },
+                            )
+                        }
+                    } else {
+                        null
+                    },
                 )
                 MusicProvider.Offline -> OfflineMusicHome()
                 MusicProvider.Spotify -> {
@@ -489,6 +493,41 @@ fun MusicScreen(
                 TextButton(onClick = { showAddRepository = false }) { Text("Cancel") }
             },
         )
+    }
+}
+
+@Composable
+private fun MusicProviderPickerButton(
+    activeProvider: MusicProvider?,
+    isTv: Boolean,
+    tvNavFocusRequester: FocusRequester?,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        colors = if (activeProvider == MusicProvider.Spotify) {
+            ButtonDefaults.textButtonColors(contentColor = SpotifyGreen)
+        } else {
+            ButtonDefaults.textButtonColors()
+        },
+        modifier = modifier.then(
+            if (isTv && tvNavFocusRequester != null) {
+                Modifier.focusRequester(tvNavFocusRequester)
+            } else {
+                Modifier
+            },
+        ),
+    ) {
+        if (activeProvider != null) {
+            MusicProviderLogo(activeProvider, Modifier.size(22.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(activeProvider.title)
+        } else {
+            Text("Music providers")
+        }
+        Spacer(Modifier.width(4.dp))
+        Icon(Icons.Default.ExpandMore, contentDescription = "Switch music provider")
     }
 }
 

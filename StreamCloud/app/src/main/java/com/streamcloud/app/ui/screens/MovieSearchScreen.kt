@@ -1633,8 +1633,7 @@ private fun CombinedResultsList(
     }
 
     if (!isTv) {
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
+        LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 start = 16.dp,
@@ -1642,11 +1641,10 @@ private fun CombinedResultsList(
                 top = padding.calculateTopPadding() + 8.dp,
                 bottom = 32.dp,
             ),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             state.searchCorrection?.let { correctedQuery ->
-                item(key = "search-correction", span = { GridItemSpan(maxLineSpan) }) {
+                item(key = "search-correction") {
                     Text(
                         "Showing results for \"$correctedQuery\"",
                         modifier = Modifier.padding(bottom = 2.dp),
@@ -1659,29 +1657,32 @@ private fun CombinedResultsList(
             if (state.tvSearchResults.isNotEmpty() || state.seriesLoading ||
                 state.tvPagination.error != null
             ) {
-                item(key = "mobile-series-heading", span = { GridItemSpan(maxLineSpan) }) {
-                    NuvioGridSectionHeader("TV Series", state.seriesLoading)
-                }
-                gridItems(
-                    items = state.tvSearchResults,
-                    key = { "tv-${it.id}" },
-                ) { movie ->
-                    NuvioCard(
-                        imageUrl = movie.posterUrl,
-                        fallbackImageUrl = movie.backdropUrl,
-                        title = movie.displayTitle,
-                        isWatched = movie.id in watchedTmdbIds,
-                        fillAvailableWidth = true,
-                        onClick = { onTvClick(movie.id) },
-                    )
+                item(key = "mobile-series-provider") {
+                    MobileSearchSection(
+                        title = "TV Series",
+                        loading = state.seriesLoading,
+                        results = state.tvSearchResults,
+                        itemKey = { "tv-${it.id}" },
+                    ) { movie ->
+                        NuvioCard(
+                            imageUrl = movie.posterUrl,
+                            fallbackImageUrl = movie.backdropUrl,
+                            title = movie.displayTitle,
+                            isWatched = movie.id in watchedTmdbIds,
+                            cardWidthOverride = 120.dp,
+                            onClick = { onTvClick(movie.id) },
+                        )
+                    }
                 }
                 if (!state.seriesLoading && !state.tvPagination.endReached) {
-                    item(key = "mobile-tv-pagination", span = { GridItemSpan(maxLineSpan) }) {
-                        PaginationCard(
-                            loading = state.tvPagination.isLoading,
-                            error = state.tvPagination.error,
-                            onClick = onLoadMoreTv,
-                        )
+                    item(key = "mobile-tv-pagination") {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                            PaginationCard(
+                                loading = state.tvPagination.isLoading,
+                                error = state.tvPagination.error,
+                                onClick = onLoadMoreTv,
+                            )
+                        }
                     }
                 }
             }
@@ -1689,95 +1690,104 @@ private fun CombinedResultsList(
             if (state.searchResults.isNotEmpty() || state.moviesLoading ||
                 state.moviePagination.error != null
             ) {
-                item(key = "mobile-movies-heading", span = { GridItemSpan(maxLineSpan) }) {
-                    NuvioGridSectionHeader("Movies", state.moviesLoading)
-                }
-                gridItems(
-                    items = state.searchResults,
-                    key = { "movie-${it.id}" },
-                ) { movie ->
-                    NuvioCard(
-                        imageUrl = movie.posterUrl,
-                        fallbackImageUrl = movie.backdropUrl,
-                        title = movie.displayTitle,
-                        isWatched = movie.id in watchedTmdbIds,
-                        fillAvailableWidth = true,
-                        onClick = { onMovieClick(movie.id) },
-                    )
+                item(key = "mobile-movie-provider") {
+                    MobileSearchSection(
+                        title = "Movies",
+                        loading = state.moviesLoading,
+                        results = state.searchResults,
+                        itemKey = { "movie-${it.id}" },
+                    ) { movie ->
+                        NuvioCard(
+                            imageUrl = movie.posterUrl,
+                            fallbackImageUrl = movie.backdropUrl,
+                            title = movie.displayTitle,
+                            isWatched = movie.id in watchedTmdbIds,
+                            cardWidthOverride = 120.dp,
+                            onClick = { onMovieClick(movie.id) },
+                        )
+                    }
                 }
                 if (!state.moviesLoading && !state.moviePagination.endReached) {
-                    item(key = "mobile-movie-pagination", span = { GridItemSpan(maxLineSpan) }) {
-                        PaginationCard(
-                            loading = state.moviePagination.isLoading,
-                            error = state.moviePagination.error,
-                            onClick = onLoadMoreMovies,
-                        )
+                    item(key = "mobile-movie-pagination") {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                            PaginationCard(
+                                loading = state.moviePagination.isLoading,
+                                error = state.moviePagination.error,
+                                onClick = onLoadMoreMovies,
+                            )
+                        }
                     }
                 }
             }
 
             csGrouped.forEach { (pluginName, results) ->
-                item(
-                    key = "mobile-cs-heading-$pluginName",
-                    span = { GridItemSpan(maxLineSpan) },
-                ) {
-                    NuvioGridSectionHeader("$pluginName · Search", loading = false)
-                }
-                gridItems(
-                    items = results,
-                    key = { "cs-$pluginName-${it.item.url}" },
-                ) { result ->
-                    NuvioCard(
-                        imageUrl = result.item.posterUrl,
-                        title = result.item.name,
-                        fillAvailableWidth = true,
-                        onClick = {
-                            onOpenCsItem(
-                                result.pluginInternalName,
-                                result.item.url,
-                                result.item.name,
-                                result.item.posterUrl,
-                            )
-                        },
-                    )
+                item(key = "mobile-cs-provider-$pluginName") {
+                    MobileSearchSection(
+                        title = "$pluginName · Search",
+                        loading = false,
+                        results = results,
+                        itemKey = { "cs-$pluginName-${it.item.url}" },
+                    ) { result ->
+                        NuvioCard(
+                            imageUrl = result.item.posterUrl,
+                            title = result.item.name,
+                            cardWidthOverride = 120.dp,
+                            onClick = {
+                                onOpenCsItem(
+                                    result.pluginInternalName,
+                                    result.item.url,
+                                    result.item.name,
+                                    result.item.posterUrl,
+                                )
+                            },
+                        )
+                    }
                 }
             }
             if (state.csLoading && csGrouped.isEmpty()) {
-                item(key = "mobile-cs-loading", span = { GridItemSpan(maxLineSpan) }) {
-                    NuvioGridSectionHeader("CloudStream · Search", loading = true)
+                item(key = "mobile-cs-loading") {
+                    MobileSearchSection(
+                        title = "CloudStream · Search",
+                        loading = true,
+                        results = emptyList<String>(),
+                        itemKey = { it },
+                    ) {}
                 }
             }
 
             stremioGrouped.forEach { (addonName, results) ->
-                item(
-                    key = "mobile-stremio-heading-$addonName",
-                    span = { GridItemSpan(maxLineSpan) },
-                ) {
-                    NuvioGridSectionHeader("$addonName · Search", loading = false)
-                }
-                gridItems(
-                    items = results,
-                    key = { "stremio-$addonName-${it.item.id}" },
-                ) { result ->
-                    NuvioCard(
-                        imageUrl = result.item.poster,
-                        title = result.item.name,
-                        fillAvailableWidth = true,
-                        onClick = {
-                            onOpenStremio(
-                                result.addonId,
-                                result.item.type,
-                                result.item.id,
-                                result.item.name,
-                                result.item.poster,
-                            )
-                        },
-                    )
+                item(key = "mobile-stremio-provider-$addonName") {
+                    MobileSearchSection(
+                        title = "$addonName · Search",
+                        loading = false,
+                        results = results,
+                        itemKey = { "stremio-$addonName-${it.item.id}" },
+                    ) { result ->
+                        NuvioCard(
+                            imageUrl = result.item.poster,
+                            title = result.item.name,
+                            cardWidthOverride = 120.dp,
+                            onClick = {
+                                onOpenStremio(
+                                    result.addonId,
+                                    result.item.type,
+                                    result.item.id,
+                                    result.item.name,
+                                    result.item.poster,
+                                )
+                            },
+                        )
+                    }
                 }
             }
             if (state.stremioLoading && stremioGrouped.isEmpty()) {
-                item(key = "mobile-stremio-loading", span = { GridItemSpan(maxLineSpan) }) {
-                    NuvioGridSectionHeader("Stremio · Search", loading = true)
+                item(key = "mobile-stremio-loading") {
+                    MobileSearchSection(
+                        title = "Stremio · Search",
+                        loading = true,
+                        results = emptyList<String>(),
+                        itemKey = { it },
+                    ) {}
                 }
             }
         }
@@ -1939,6 +1949,29 @@ private fun CombinedResultsList(
 }
 
 @Composable
+private fun <T> MobileSearchSection(
+    title: String,
+    loading: Boolean,
+    results: List<T>,
+    itemKey: (T) -> Any,
+    card: @Composable (T) -> Unit,
+) {
+    Column {
+        NuvioGridSectionHeader(title, loading)
+        if (results.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(results, key = itemKey) { result ->
+                    card(result)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun NuvioGridSectionHeader(
     title: String,
     loading: Boolean,
@@ -2022,11 +2055,12 @@ private fun NuvioCard(
     fallbackImageUrl: String? = null,
     isWatched: Boolean = false,
     fillAvailableWidth: Boolean = false,
+    cardWidthOverride: Dp? = null,
     focusRequester: FocusRequester? = null,
     returnToKeyboardFocusRequester: FocusRequester? = null,
 ) {
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    val cardWidth = if (isTv) 224.dp else 154.dp
+    val cardWidth = cardWidthOverride ?: if (isTv) 224.dp else 154.dp
     Column(
         modifier = if (fillAvailableWidth) {
             Modifier.fillMaxWidth()

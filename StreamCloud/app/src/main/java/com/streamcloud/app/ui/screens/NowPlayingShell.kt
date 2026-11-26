@@ -7,6 +7,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -1075,21 +1076,52 @@ fun NowPlayingShell(
 }
 
 @Composable
+private fun BouncyClick(
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val scale = remember { Animatable(1f) }
+    val scope = rememberCoroutineScope()
+    Box(
+        modifier = modifier
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+            }
+            .clickable {
+                scope.launch {
+                    scale.snapTo(0.88f)
+                    scale.animateTo(
+                        targetValue = 1f,
+                        animationSpec = spring(
+                            dampingRatio = 0.28f,
+                            stiffness = Spring.StiffnessMediumLow,
+                        ),
+                    )
+                }
+                onClick()
+            },
+        contentAlignment = Alignment.Center,
+        content = content,
+    )
+}
+
+@Composable
 private fun PillButton(
     icon: ImageVector,
     contentDescription: String,
     loading: Boolean = false,
     onClick: () -> Unit,
 ) {
-    Box(
-        Modifier
+    BouncyClick(
+        modifier = Modifier
             .height(46.dp)
             .widthIn(min = 70.dp)
             .clip(RoundedCornerShape(50))
             .background(Color.White.copy(alpha = 0.95f))
-            .clickable(onClick = onClick)
             .padding(horizontal = 22.dp),
-        contentAlignment = Alignment.Center,
+        onClick = onClick,
     ) {
         if (loading) {
             CircularProgressIndicator(
@@ -1107,13 +1139,12 @@ private fun DarkCapsule(
     contentDescription: String,
     onClick: () -> Unit,
 ) {
-    Box(
-        Modifier
+    BouncyClick(
+        modifier = Modifier
             .size(width = 78.dp, height = 56.dp)
             .clip(RoundedCornerShape(50))
-            .background(Color.Black.copy(alpha = 0.45f))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+            .background(Color.Black.copy(alpha = 0.45f)),
+        onClick = onClick,
     ) {
         Icon(icon, contentDescription, tint = Color.White, modifier = Modifier.size(28.dp))
     }
@@ -1121,28 +1152,32 @@ private fun DarkCapsule(
 
 @Composable
 private fun PlayPill(playing: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
+    BouncyClick(
         modifier = modifier
             .height(56.dp)
             .clip(RoundedCornerShape(50))
-            .background(Color.White)
-            .clickable(onClick = onClick),
+            .background(Color.White),
+        onClick = onClick,
     ) {
-        Icon(
-            if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-            if (playing) "Pause" else "Play",
-            tint = Color(0xFF111111),
-            modifier = Modifier.size(28.dp),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            if (playing) "Pause" else "Play",
-            color = Color(0xFF111111),
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-            fontSize = 22.sp,
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+        ) {
+            Icon(
+                if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                if (playing) "Pause" else "Play",
+                tint = Color(0xFF111111),
+                modifier = Modifier.size(28.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (playing) "Pause" else "Play",
+                color = Color(0xFF111111),
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                fontSize = 22.sp,
+            )
+        }
     }
 }
 
@@ -1152,12 +1187,11 @@ private fun NpIconButton(
     tint: Color,
     content: @Composable () -> Unit,
 ) {
-    Box(
-        Modifier
+    BouncyClick(
+        modifier = Modifier
             .size(40.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+            .clip(CircleShape),
+        onClick = onClick,
     ) {
         CompositionLocalProvider(LocalContentColor provides tint) { content() }
     }
@@ -1204,13 +1238,12 @@ private fun ToolbarChip(
         else -> Color.Black.copy(alpha = 0.4f)
     }
     val fg = if (solid) Color(0xFF111111) else Color.White
-    Box(
-        modifier
+    BouncyClick(
+        modifier = modifier
             .height(48.dp)
             .clip(RoundedCornerShape(50))
-            .background(bg)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+            .background(bg),
+        onClick = onClick,
     ) {
         Icon(icon, contentDescription, tint = fg, modifier = Modifier.size(20.dp))
     }

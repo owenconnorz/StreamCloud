@@ -60,6 +60,7 @@ import coil.compose.AsyncImage
 import com.streamcloud.app.audio.PlaybackBus
 import com.streamcloud.app.data.ServiceLocator
 import com.streamcloud.app.data.newpipe.YtTrack
+import com.streamcloud.app.data.ytmusic.HomeSection
 import com.streamcloud.app.data.ytmusic.YtmSong
 import com.streamcloud.app.ui.components.SongRowMenu
 import com.streamcloud.app.ui.components.PlayingBars
@@ -103,6 +104,15 @@ fun MusicSearchScreen(
     val playbackIsPlaying by PlaybackBus.isPlaying.collectAsState()
     val searchHistory by sl.settings.musicSearchHistory.collectAsState(initial = emptyList())
     val formFactor = LocalUiFormFactor.current
+    val trendingSearches = remember(state.ytHome.sections) {
+        buildCombinedMusicSuggestions(
+            buildMusicQuickChips(
+                state.ytHome.sections
+                    .filterIsInstance<HomeSection.MoodChips>()
+                    .flatMap { it.chips },
+            ),
+        )
+    }
     var query by remember { mutableStateOf(initialQuery) }
 
     // "View all" toggles per section
@@ -531,6 +541,26 @@ fun MusicSearchScreen(
                 .tvFocusGroup(),
         ) {
             if (query.isBlank()) {
+                if (formFactor != UiFormFactor.Tv && trendingSearches.isNotEmpty()) {
+                    item(key = "mobile-trending-search-buttons") {
+                        LazyRow(
+                            modifier = Modifier.tvFocusGroup(),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            itemsIndexed(trendingSearches) { _, suggestion ->
+                                SuggestionChip(
+                                    onClick = {
+                                        query = suggestion
+                                        submitSearch(suggestion)
+                                    },
+                                    label = { Text(suggestion) },
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // ── Search history ──
                 if (searchHistory.isNotEmpty()) {
                     item {
@@ -603,8 +633,8 @@ fun MusicSearchScreen(
                     item { HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
                 }
 
-                // ── Suggestions ──
-                if (state.suggestions.isNotEmpty()) {
+                // The TV search screen retains its existing query suggestion heading.
+                if (formFactor == UiFormFactor.Tv && state.suggestions.isNotEmpty()) {
                     item {
                         Text(
                             "Try searching for",
