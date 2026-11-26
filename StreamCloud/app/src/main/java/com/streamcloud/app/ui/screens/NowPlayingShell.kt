@@ -3,8 +3,11 @@ package com.streamcloud.app.ui.screens
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -633,12 +636,18 @@ fun NowPlayingShell(
                                 .clip(RoundedCornerShape(20.dp))
                                 .background(Color.Black.copy(alpha = 0.25f)),
                         ) {
-                            AsyncImage(
-                                model = artwork,
-                                contentDescription = title,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                            )
+                            Crossfade(
+                                targetState = mediaId to artwork,
+                                animationSpec = tween(durationMillis = 360),
+                                label = "now-playing-artwork",
+                            ) { trackArtwork ->
+                                AsyncImage(
+                                    model = trackArtwork.second,
+                                    contentDescription = title,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
                         }
                     }
                 }
@@ -722,22 +731,30 @@ fun NowPlayingShell(
                             Spacer(Modifier.width(12.dp))
                         }
                         Column(Modifier.weight(1f)) {
-                            Text(
-                                title.ifBlank { "—" },
-                                color = onBg,
-                                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
-                            )
-                            Text(
-                                artist.ifBlank { "Unknown artist" },
-                                color = onBg.copy(alpha = 0.8f),
-                                style = MaterialTheme.typography.titleMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
-                            )
+                            Crossfade(
+                                targetState = title to artist,
+                                animationSpec = tween(durationMillis = 240),
+                                label = "now-playing-track-info",
+                            ) { trackInfo ->
+                                Column {
+                                    Text(
+                                        trackInfo.first.ifBlank { "—" },
+                                        color = onBg,
+                                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
+                                    )
+                                    Text(
+                                        trackInfo.second.ifBlank { "Unknown artist" },
+                                        color = onBg.copy(alpha = 0.8f),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
+                                    )
+                                }
+                            }
                             if (isNetworkCasting) {
                                 Spacer(Modifier.height(6.dp))
                                 Row(
@@ -1318,6 +1335,11 @@ private fun LyricsCard(
                                     }
                                 }
                             }
+                            val activeLineProgress by animateFloatAsState(
+                                targetValue = if (i == activeIdx) 1f else 0f,
+                                animationSpec = tween(durationMillis = 220),
+                                label = "lyric-line-$i",
+                            )
                             Text(
                                 lyricText,
                                 color = onTextColor,
@@ -1326,7 +1348,14 @@ private fun LyricsCard(
                                 else
                                     MaterialTheme.typography.bodyLarge,
                                 textAlign = TextAlign.Start,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .animateContentSize(animationSpec = tween(durationMillis = 220))
+                                    .graphicsLayer {
+                                        alpha = 0.62f + (0.38f * activeLineProgress)
+                                        scaleX = 0.985f + (0.015f * activeLineProgress)
+                                        scaleY = 0.985f + (0.015f * activeLineProgress)
+                                    },
                             )
                         }
                     }
