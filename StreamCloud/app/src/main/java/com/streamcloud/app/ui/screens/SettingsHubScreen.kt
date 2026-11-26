@@ -4855,6 +4855,7 @@ private fun NavOrderDialog(onDismiss: () -> Unit) {
             NavItem("music",       "Music",       Icons.Default.MusicNote),
             NavItem("library",     "Library",     Icons.Default.FormatListBulleted),
             NavItem("movies",      "Movies",      Icons.Default.PlayArrow),
+            NavItem("search",      "Search",      Icons.Default.Search),
             NavItem("local_files", "Local Files", Icons.Default.Folder),
             NavItem("live_tv",     "Live TV",     Icons.Default.LiveTv),
             NavItem("adult",       "Adult",       Icons.Default.Visibility),
@@ -4874,9 +4875,24 @@ private fun NavOrderDialog(onDismiss: () -> Unit) {
         }
         val nsfw    = sl.settings.nsfwEnabled.first()
         val adultIds = setOf("adult")
-        val saved   = csv?.split(",")?.mapNotNull { byId[it.trim()] } ?: emptyList()
+        val savedIds = csv?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }.orEmpty()
+        val saved = savedIds.mapNotNull { byId[it] }
         val remaining = all.filter { it.id !in saved.map { s -> s.id } }
-        order = (saved + remaining).distinctBy { it.id }.map { item ->
+        val restoredOrder = (saved + remaining).distinctBy { it.id }
+        val searchWasConfigured = savedIds.any { it == "search" }
+        val orderWithSearch = if (searchWasConfigured) {
+            restoredOrder
+        } else {
+            val searchItem = restoredOrder.firstOrNull { it.id == "search" }
+            val withoutSearch = restoredOrder.filterNot { it.id == "search" }
+            val moviesIndex = withoutSearch.indexOfFirst { it.id == "movies" }
+            searchItem?.let {
+                withoutSearch.toMutableList().apply {
+                    add(if (moviesIndex >= 0) moviesIndex + 1 else size, it)
+                }
+            } ?: restoredOrder
+        }
+        order = orderWithSearch.map { item ->
             item.copy(
                 enabled = item.id !in hidden &&
                           (item.id !in adultIds || nsfw)

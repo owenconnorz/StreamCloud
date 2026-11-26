@@ -123,6 +123,8 @@ fun LibraryScreen(
     onAdultProviderClick: (provider: String, url: String, title: String) -> Unit = { _, _, _ -> },
     tvNavFocusRequester: FocusRequester? = null,
     onMoviePaletteModeChanged: (Boolean) -> Unit = {},
+    selectedSectionMode: String? = null,
+    onSectionModeChange: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
@@ -266,9 +268,7 @@ fun LibraryScreen(
     var spotifyCreateError by remember { mutableStateOf<String?>(null) }
     var spotifyCreateCooldownSeconds by remember { mutableLongStateOf(0L) }
     var spotifyLibraryRefreshGeneration by remember { mutableIntStateOf(0) }
-    var sectionMode by remember(isTv) {
-        mutableStateOf(if (isTv) "Movies" else "Music")
-    }
+    val sectionMode = selectedSectionMode ?: if (isTv) "Movies" else "Music"
     LaunchedEffect(sectionMode) {
         onMoviePaletteModeChanged(sectionMode == "Movies")
     }
@@ -470,7 +470,12 @@ fun LibraryScreen(
     val libraryBackground = if (isSpotifyMusicLibrary) SpotifyBlack else animatedLibraryBackground
     val vibrantRaw by AlbumArtThemeBus.vibrant.collectAsState()
     val animVibrant by animateColorAsState(vibrantRaw, animationSpec = tween(700), label = "libVibrant")
-    Column(Modifier.fillMaxSize().background(libraryBackground)) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(libraryBackground)
+            .then(if (isTv) Modifier else Modifier.padding(bottom = 60.dp)),
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -518,44 +523,46 @@ fun LibraryScreen(
                     }
                 }
             }
-            Row(
-                modifier = Modifier.tvFocusGroup(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                listOf("Music" to Icons.Default.MusicNote, "Movies" to Icons.Default.Movie).forEachIndexed { idx, (label, icon) ->
-                    val selected = sectionMode == label
-                    val defaultTvSectionIndex = if (isTv) 1 else 0
-                    Box(
-                        Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            // Focus the default section when moving down from the TV navigation bar.
-                            .then(
-                                if (tvNavFocusRequester != null && idx == defaultTvSectionIndex) {
-                                    Modifier
-                                        .focusRequester(tvNavFocusRequester)
-                                        .onFocusChanged { movieSectionFocused = it.isFocused }
-                                } else {
-                                    Modifier
-                                },
+            if (isTv) {
+                Row(
+                    modifier = Modifier.tvFocusGroup(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    listOf("Music" to Icons.Default.MusicNote, "Movies" to Icons.Default.Movie).forEachIndexed { idx, (label, icon) ->
+                        val selected = sectionMode == label
+                        val defaultTvSectionIndex = 1
+                        Box(
+                            Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                // Focus the default section when moving down from the TV navigation bar.
+                                .then(
+                                    if (tvNavFocusRequester != null && idx == defaultTvSectionIndex) {
+                                        Modifier
+                                            .focusRequester(tvNavFocusRequester)
+                                            .onFocusChanged { movieSectionFocused = it.isFocused }
+                                    } else {
+                                        Modifier
+                                    },
+                                )
+                                .tvFocusBorder(CircleShape)
+                                .background(
+                                    if (selected && isSpotifyMusicLibrary) SpotifyGreen
+                                    else if (selected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surfaceVariant
+                                )
+                                .clickable { onSectionModeChange(label) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                icon, label,
+                                tint = if (selected && isSpotifyMusicLibrary) Color.Black
+                                       else if (selected) MaterialTheme.colorScheme.onPrimary
+                                       else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
                             )
-                            .tvFocusBorder(CircleShape)
-                            .background(
-                                if (selected && isSpotifyMusicLibrary) SpotifyGreen
-                                else if (selected) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.surfaceVariant
-                            )
-                            .clickable { sectionMode = label },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            icon, label,
-                            tint = if (selected && isSpotifyMusicLibrary) Color.Black
-                                   else if (selected) MaterialTheme.colorScheme.onPrimary
-                                   else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp),
-                        )
+                        }
                     }
                 }
             }

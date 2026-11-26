@@ -228,6 +228,9 @@ fun StreamCloudApp(
     val sl = remember { ServiceLocator.get(context) }
     val appearancePalette by sl.settings.colorPalette.collectAsState(initial = "modern_blue")
     val isTvFormFactor = LocalUiFormFactor.current == UiFormFactor.Tv
+    var librarySectionMode by remember(isTvFormFactor) {
+        mutableStateOf(if (isTvFormFactor) "Movies" else "Music")
+    }
     var libraryMoviePaletteActive by remember(isTvFormFactor) {
         mutableStateOf(isTvFormFactor)
     }
@@ -286,6 +289,10 @@ fun StreamCloudApp(
     val nsfwEnabled by sl.settings.nsfwEnabled.collectAsState(initial = false)
     val navOrderCsv by sl.settings.navTabOrderCsv.collectAsState(initial = null)
     val navHiddenCsv by sl.settings.navHiddenTabsCsv.collectAsState(initial = null)
+    val mobileSearchEnabled = navHiddenCsv
+        ?.split(",")
+        ?.none { it.trim() == MobileNavEntry.Search.key }
+        ?: true
     val activeProfile by sl.profiles.activeProfile.collectAsState(initial = null)
     val nuvioUserId by sl.settings.nuvioUserId.collectAsState(initial = "")
     var libraryScopeReady by remember { mutableStateOf(false) }
@@ -435,9 +442,10 @@ fun StreamCloudApp(
     } else {
         MaterialTheme.colorScheme.surface
     }
-    val isMusicRoute = remember(currentRoute) {
+    val isMusicRoute = remember(currentRoute, librarySectionMode) {
         val r = currentRoute ?: return@remember false
-        r == Tab.Music.route ||
+        (r == Tab.Library.route && librarySectionMode == "Music") ||
+            r == Tab.Music.route ||
             r == "music-search" ||
             r == "spotify-search" ||
             r.startsWith("spotify-artist/") ||
@@ -1528,6 +1536,8 @@ fun StreamCloudApp(
                 composable(Tab.Library.route)  {
                     LibraryScreen(
                         tvNavFocusRequester = tvNavHeroFocus,
+                        selectedSectionMode = librarySectionMode,
+                        onSectionModeChange = { librarySectionMode = it },
                         onMoviePaletteModeChanged = { libraryMoviePaletteActive = it },
                         onOpenPlaylist = { id, title ->
                             val i = URLEncoder.encode(id, "UTF-8")
@@ -2475,6 +2485,16 @@ fun StreamCloudApp(
                                     (currentRoute != Tab.Adult.route || adultHomeNavigationVisible)
                             )
                         if (showBar) {
+                            if (currentRoute == Tab.Library.route && !isTvFormFactor) {
+                                LibraryModeBottomSelector(
+                                    selectedMode = librarySectionMode,
+                                    navPillColor = navPillColor,
+                                    movieAccentColor = navAccentColor,
+                                    musicAccentColor = musicNavAccentColor,
+                                    spotifyMusic = isSpotifyScreen,
+                                    onSelect = { librarySectionMode = it },
+                                )
+                            }
                             val effectiveShowLabel = navExpanded && showNavLabels
                             Box(
                                 Modifier
@@ -2507,10 +2527,17 @@ fun StreamCloudApp(
                                     ) {
                                         MobileNavTabScroller(
                                             tabs = tabs,
+                                            navOrderCsv = navOrderCsv,
+                                            searchEnabled = mobileSearchEnabled,
                                             currentRoute = currentRoute,
                                             showLabel = effectiveShowLabel,
                                             navAccentColor = navAccentColor,
                                             musicNavAccentColor = musicNavAccentColor,
+                                            searchAccentColor = if (isMusicRoute) {
+                                                musicNavAccentColor
+                                            } else {
+                                                navAccentColor
+                                            },
                                             navPillVPad = navPillVPad,
                                             onSearchClick = openContextualSearch,
                                             onTabSelected = { route -> navigateToTab(nav, route) },
@@ -2526,10 +2553,17 @@ fun StreamCloudApp(
                                     ) {
                                         MobileNavTabScroller(
                                             tabs = tabs,
+                                            navOrderCsv = navOrderCsv,
+                                            searchEnabled = mobileSearchEnabled,
                                             currentRoute = currentRoute,
                                             showLabel = effectiveShowLabel,
                                             navAccentColor = navAccentColor,
                                             musicNavAccentColor = musicNavAccentColor,
+                                            searchAccentColor = if (isMusicRoute) {
+                                                musicNavAccentColor
+                                            } else {
+                                                navAccentColor
+                                            },
                                             navPillVPad = navPillVPad,
                                             onSearchClick = openContextualSearch,
                                             onTabSelected = { route -> navigateToTab(nav, route) },
@@ -4150,27 +4184,52 @@ private fun navigateToTab(nav: NavHostController, route: String) {
 @Composable
 private fun MobileNavTabScroller(
     tabs: List<Tab>,
+    navOrderCsv: String?,
+    searchEnabled: Boolean,
     currentRoute: String?,
     showLabel: Boolean,
     navAccentColor: Color,
     musicNavAccentColor: Color,
+    searchAccentColor: Color,
     navPillVPad: androidx.compose.ui.unit.Dp,
     onSearchClick: () -> Unit,
     onTabSelected: (String) -> Unit,
 ) {
     val listState = rememberLazyListState()
-    val entries = remember(tabs) {
-        buildList<MobileNavEntry> {
-            tabs.forEach { tab ->
-                add(MobileNavEntry.Destination(tab))
-                if (tab.route == Tab.Movies.route) {
-                    add(MobileNavEntry.Search)
-                }
+    val entries = remember(tabs, navOrderCsv, searchEnabled) {
+        val tabsByRoute = tabs.associateBy { it.route }
+        val savedOrder = navOrderCsv
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() && it != Tab.Settings.route }
+            ?.distinct()
+            .orEmpty()
+        val orderedIds = (savedOrder.ifEmpty {
+            tabs.filterNot { it.route == Tab.Settings.route }.map { it.route }
+        }).toMutableList()
+        if (searchEnabled && MobileNavEntry.Search.key !in orderedIds) {
+            val moviesIndex = orderedIds.indexOf(Tab.Movies.route)
+            orderedIds.add(
+                if (moviesIndex >= 0) moviesIndex + 1 else orderedIds.size,
+                MobileNavEntry.Search.key,
+            )
+        }
+        val orderedEntries = orderedIds.mapNotNull { id ->
+            when (id) {
+                MobileNavEntry.Search.key ->
+                    MobileNavEntry.Search.takeIf { searchEnabled }
+                else -> tabsByRoute[id]?.let { MobileNavEntry.Destination(it) }
             }
-            if (tabs.none { it.route == Tab.Movies.route }) {
-                add(MobileNavEntry.Search)
+        }.distinctBy { it.key }.toMutableList()
+        val representedKeys = orderedEntries.mapTo(mutableSetOf()) { it.key }
+        tabs.filter { it.route != Tab.Settings.route && it.route !in representedKeys }
+            .forEach { orderedEntries += MobileNavEntry.Destination(it) }
+        tabs.firstOrNull { it.route == Tab.Settings.route }?.let { settingsTab ->
+            if (settingsTab.route !in representedKeys) {
+                orderedEntries += MobileNavEntry.Destination(settingsTab)
             }
         }
+        orderedEntries
     }
     LaunchedEffect(entries, currentRoute) {
         val selectedIndex = entries.indexOfFirst {
@@ -4180,7 +4239,7 @@ private fun MobileNavTabScroller(
         val firstVisibleIndex = if (
             currentRoute == Tab.Movies.route || currentRoute == Tab.Music.route
         ) {
-            minOf(selectedIndex, searchIndex)
+            listOf(selectedIndex, searchIndex).filter { it >= 0 }.minOrNull() ?: -1
         } else {
             selectedIndex
         }
@@ -4207,11 +4266,7 @@ private fun MobileNavTabScroller(
                         label = "Search",
                         selected = false,
                         showLabel = showLabel,
-                        accentColor = if (currentRoute == Tab.Music.route) {
-                            musicNavAccentColor
-                        } else {
-                            navAccentColor
-                        },
+                        accentColor = searchAccentColor,
                         modifier = Modifier.width(itemWidth),
                         onClick = onSearchClick,
                     )
@@ -4245,6 +4300,67 @@ private fun MobileNavTabScroller(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryModeBottomSelector(
+    selectedMode: String,
+    navPillColor: Color,
+    movieAccentColor: Color,
+    musicAccentColor: Color,
+    spotifyMusic: Boolean,
+    onSelect: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        listOf(
+            Triple("Music", Tab.Music.icon, musicAccentColor),
+            Triple("Movies", Tab.Movies.icon, movieAccentColor),
+        ).forEachIndexed { index, (label, icon, accentColor) ->
+            if (index > 0) Spacer(Modifier.width(10.dp))
+            val selected = selectedMode == label
+            val shape = RoundedCornerShape(50)
+            val contentColor = when {
+                !selected -> MaterialTheme.colorScheme.onSurface
+                label == "Music" && spotifyMusic -> Color.Black
+                else -> Color.White
+            }
+            Row(
+                modifier = Modifier
+                    .width(124.dp)
+                    .clip(shape)
+                    .background(if (selected) accentColor else navPillColor)
+                    .border(
+                        width = 1.dp,
+                        color = if (selected) accentColor else Color.White.copy(alpha = 0.16f),
+                        shape = shape,
+                    )
+                    .clickable { onSelect(label) }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.width(7.dp))
+                Text(
+                    text = label,
+                    color = contentColor,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                )
             }
         }
     }
