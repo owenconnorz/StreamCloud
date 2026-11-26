@@ -784,7 +784,9 @@ fun MovieDetailScreen(
     LaunchedEffect(Unit) {
         if (!isTv) try { focusRequester.requestFocus() } catch (_: Exception) {}
     }
-    val detailHeader: @Composable () -> Unit = {
+    // Split title and actions so mobile can place controls below the artwork.
+    val detailHeader: @Composable (Boolean, Boolean) -> Unit = { showTitle, showActions ->
+        if (showTitle) {
         if (!titleLogoUrl.isNullOrBlank()) {
             AsyncImage(
                 model = titleLogoUrl,
@@ -881,8 +883,10 @@ fun MovieDetailScreen(
             )
         }
 
-        Spacer(Modifier.height(16.dp))
+        }
 
+        if (showActions) {
+        Spacer(Modifier.height(16.dp))
         if (isTv) {
             Row(
                 modifier = Modifier.widthIn(max = 680.dp).fillMaxWidth(),
@@ -1126,18 +1130,6 @@ fun MovieDetailScreen(
                         },
                     )
                 }
-                TrailerBannerToggle(
-                    enabled = movie != null,
-                    isTv = isTv,
-                    modifier = if (isTv) {
-                        Modifier
-                            .focusRequester(trailerBtnFocus)
-                            .onFocusChanged { trailerActionHasFocus.value = it.isFocused }
-                    } else {
-                        Modifier
-                    },
-                    onClick = { showTrailerFullscreen = true },
-                )
                 if (isTv) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         MovieActionCircle(
@@ -1198,11 +1190,6 @@ fun MovieDetailScreen(
                         onClick = { playMovie(restart = true) },
                     )
                 }
-                TrailerBannerToggle(
-                    enabled = movie != null,
-                    isTv = isTv,
-                    onClick = { showTrailerFullscreen = true },
-                )
                 if (isTv) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         MovieActionCircle(
@@ -1237,6 +1224,7 @@ fun MovieDetailScreen(
         resolverMessage?.let {
             Spacer(Modifier.height(8.dp))
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+        }
         }
     }
     BoxWithConstraints(
@@ -1437,7 +1425,7 @@ fun MovieDetailScreen(
                                 .fillMaxHeight(),
                             verticalArrangement = Arrangement.Center,
                         ) {
-                            detailHeader()
+                            detailHeader(true, true)
                         }
                         TvDetailRatingCastPanel(
                             movie = movie,
@@ -1460,7 +1448,7 @@ fun MovieDetailScreen(
                             .fillMaxWidth()
                             .padding(horizontal = 20.dp, vertical = 18.dp),
                     ) {
-                        detailHeader()
+                        detailHeader(true, false)
                     }
                 }
             }
@@ -1471,6 +1459,9 @@ fun MovieDetailScreen(
                     .fillMaxWidth()
                     .padding(horizontal = if (isTv) 40.dp else 20.dp),
             ) {
+                if (!isTv) {
+                    detailHeader(false, true)
+                }
                 Spacer(Modifier.height(16.dp))
 
                 // Put series episodes directly after the hero actions, before
@@ -2366,11 +2357,16 @@ private fun MovieActionCircle(
     description: String? = null,
     onClick: () -> Unit,
 ) {
+    val actionShape = if (LocalUiFormFactor.current == UiFormFactor.Mobile) {
+        CircleShape
+    } else {
+        RoundedCornerShape(14.dp)
+    }
     Box(
         modifier = Modifier
             .size(52.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .tvFocusBorder(RoundedCornerShape(14.dp))
+            .clip(actionShape)
+            .tvFocusBorder(actionShape)
             .background(
                 if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
                 else MaterialTheme.colorScheme.surfaceVariant,
