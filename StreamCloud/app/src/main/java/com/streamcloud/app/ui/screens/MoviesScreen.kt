@@ -416,11 +416,19 @@ fun MoviesScreen(
         } else state.continueWatching
     }
     var pendingCwRemoval by remember { mutableStateOf<WatchProgressEntity?>(null) }
-    LaunchedEffect(cwSheetEntry, pendingCwRemoval, tvNavSafeFocusRequester, tvNavSafeFocusReceived) {
+    LaunchedEffect(
+        isTv,
+        cwSheetEntry,
+        pendingCwRemoval,
+        tvNavSafeFocusRequester,
+        tvNavSafeFocusReceived,
+    ) {
         val entry = pendingCwRemoval ?: return@LaunchedEffect
         if (cwSheetEntry != null) return@LaunchedEffect
 
-        if (tvNavSafeFocusRequester == null) {
+        // The app passes this requester on phones too, but TV navigation never
+        // receives focus there. Do not wait for a TV-only handoff on mobile.
+        if (!isTv || tvNavSafeFocusRequester == null) {
             vm.deleteWatchProgress(entry.tmdbId, entry.mediaType, entry.seasonNumber, entry.episodeNumber)
             pendingCwRemoval = null
             return@LaunchedEffect
