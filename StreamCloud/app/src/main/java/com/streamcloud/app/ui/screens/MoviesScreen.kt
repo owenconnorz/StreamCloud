@@ -2884,8 +2884,8 @@ private fun MoviesHeader(
             modifier = Modifier.weight(1f),
         )
 
-        val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-        if (!isTv) {
+        val isMobile = LocalUiFormFactor.current == UiFormFactor.Mobile
+        if (!isMobile) {
             IconButton(
                 onClick = onSearchClick,
                 modifier = Modifier
@@ -2899,7 +2899,6 @@ private fun MoviesHeader(
                 )
             }
         }
-
         if (hasPlugins) {
             IconButton(
                 onClick = onPluginsClick,

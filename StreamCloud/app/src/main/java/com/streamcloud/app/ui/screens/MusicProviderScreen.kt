@@ -168,8 +168,11 @@ fun MusicScreen(
         Box(Modifier.weight(1f)) {
             when (activeProvider) {
                 MusicProvider.YouTubeMusic -> YouTubeMusicHome(
-                    onArtistClick, onOpenPlaylist, onProfileClick, onSearchClick,
-                    onSearchWithQuery, null,
+                    onArtistClick = onArtistClick,
+                    onOpenPlaylist = onOpenPlaylist,
+                    onProfileClick = onProfileClick,
+                    onSearchClick = onSearchClick,
+                    onSearchWithQuery = onSearchWithQuery,
                 )
                 MusicProvider.Offline -> OfflineMusicHome()
                 MusicProvider.Spotify -> {

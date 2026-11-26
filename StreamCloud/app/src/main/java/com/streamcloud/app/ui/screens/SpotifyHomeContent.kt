@@ -69,6 +69,8 @@ import com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
 import com.streamcloud.app.data.spotify.SpotifyTrack
 import com.streamcloud.app.data.spotify.SpotifyWebPlayerRepository
 import com.streamcloud.app.data.ytmusic.YtMusicSearchRepository
+import com.streamcloud.app.ui.theme.LocalUiFormFactor
+import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.data.ytmusic.YtPlayback
 import com.streamcloud.app.data.ytmusic.YtmSong
 import kotlinx.coroutines.CancellationException
@@ -108,6 +110,7 @@ internal fun SpotifyHomeContent(
     onSearchClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val isMobile = LocalUiFormFactor.current == UiFormFactor.Mobile
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var feed by remember { mutableStateOf<SpotifyHomeFeed?>(null) }
@@ -212,7 +215,7 @@ internal fun SpotifyHomeContent(
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onBackground,
             )
-            IconButton(
+            if (!isMobile) IconButton(
                 onClick = onSearchClick,
                 modifier = Modifier.size(42.dp).clip(CircleShape).background(SpotifyGreen),
             ) {

@@ -196,6 +196,18 @@ private sealed class Tab(
     data object Settings : Tab("settings", "Settings", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
+private sealed interface MobileNavEntry {
+    val key: String
+
+    data class Destination(val tab: Tab) : MobileNavEntry {
+        override val key: String = tab.route
+    }
+
+    data object Search : MobileNavEntry {
+        override val key: String = "search"
+    }
+}
+
 private data class AppStartupPreferences(
     val navOrderCsv: String?,
     val nsfwEnabled: Boolean,
@@ -434,6 +446,15 @@ fun StreamCloudApp(
             r.startsWith("yt-playlist/") ||
             r.startsWith("artist/")
     }
+    val openContextualSearch = {
+        val route = when {
+            isMusicRoute && musicHomeProvider == com.streamcloud.app.data.music.MusicProvider.Spotify ->
+                "spotify-search"
+            isMusicRoute -> "music-search"
+            else -> "movie-search"
+        }
+        nav.navigate(route)
+    }
     val albumArtAccent by AlbumArtThemeBus.accent.collectAsState()
     val hasAlbumArt by AlbumArtThemeBus.hasArtwork.collectAsState()
     val musicNavAccentColor = if (isSpotifyScreen) {
@@ -662,8 +683,9 @@ fun StreamCloudApp(
                     .fillMaxSize()
                     .hazeSource(hazeState)
                     .nestedScroll(navScrollConnection)
-                    .pointerInput(swipeableTabs, currentRoute, settingsHasSubPage) {
+                    .pointerInput(swipeableTabs, currentRoute, settingsHasSubPage, showMiniPlayer, useRail) {
                         val edgePx = 52.dp.toPx()
+                        val bottomNavGestureHeight = if (showMiniPlayer) 176.dp.toPx() else 100.dp.toPx()
                         val isRootTab = swipeableTabs.any { it.route == currentRoute } &&
                             !(currentRoute == Tab.Settings.route && settingsHasSubPage)
 
@@ -672,6 +694,10 @@ fun StreamCloudApp(
                             val down = awaitFirstDown(requireUnconsumed = false)
                             val startX = down.position.x
                             val startY = down.position.y
+
+                            if (!useRail && startY >= size.height - bottomNavGestureHeight) {
+                                return@awaitEachGesture
+                            }
 
                             // Only fire from the left or right edge strip
                             if (startX > edgePx && startX < size.width - edgePx) return@awaitEachGesture
@@ -2486,6 +2512,7 @@ fun StreamCloudApp(
                                             navAccentColor = navAccentColor,
                                             musicNavAccentColor = musicNavAccentColor,
                                             navPillVPad = navPillVPad,
+                                            onSearchClick = openContextualSearch,
                                             onTabSelected = { route -> navigateToTab(nav, route) },
                                         )
                                     }
@@ -2504,6 +2531,7 @@ fun StreamCloudApp(
                                             navAccentColor = navAccentColor,
                                             musicNavAccentColor = musicNavAccentColor,
                                             navPillVPad = navPillVPad,
+                                            onSearchClick = openContextualSearch,
                                             onTabSelected = { route -> navigateToTab(nav, route) },
                                         )
                                     }
@@ -4127,13 +4155,37 @@ private fun MobileNavTabScroller(
     navAccentColor: Color,
     musicNavAccentColor: Color,
     navPillVPad: androidx.compose.ui.unit.Dp,
+    onSearchClick: () -> Unit,
     onTabSelected: (String) -> Unit,
 ) {
     val listState = rememberLazyListState()
-    LaunchedEffect(tabs, currentRoute) {
-        val selectedIndex = tabs.indexOfFirst { it.route == currentRoute }
-        if (selectedIndex >= 0) {
-            listState.animateScrollToItem(selectedIndex)
+    val entries = remember(tabs) {
+        buildList<MobileNavEntry> {
+            tabs.forEach { tab ->
+                add(MobileNavEntry.Destination(tab))
+                if (tab.route == Tab.Movies.route) {
+                    add(MobileNavEntry.Search)
+                }
+            }
+            if (tabs.none { it.route == Tab.Movies.route }) {
+                add(MobileNavEntry.Search)
+            }
+        }
+    }
+    LaunchedEffect(entries, currentRoute) {
+        val selectedIndex = entries.indexOfFirst {
+            (it as? MobileNavEntry.Destination)?.tab?.route == currentRoute
+        }
+        val searchIndex = entries.indexOf(MobileNavEntry.Search)
+        val firstVisibleIndex = if (
+            currentRoute == Tab.Movies.route || currentRoute == Tab.Music.route
+        ) {
+            minOf(selectedIndex, searchIndex)
+        } else {
+            selectedIndex
+        }
+        if (firstVisibleIndex >= 0) {
+            listState.animateScrollToItem(firstVisibleIndex)
         }
     }
 
@@ -4143,36 +4195,55 @@ private fun MobileNavTabScroller(
             state = listState,
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 4.dp, vertical = navPillVPad),
-            userScrollEnabled = tabs.size > 5,
+            userScrollEnabled = entries.size > 5,
         ) {
             itemsIndexed(
-                items = tabs,
-                key = { _, tab -> tab.route },
-            ) { _, tab ->
-                val selected = currentRoute == tab.route
-                val tabAccentColor = if (tab.route == Tab.Music.route || tab.route == Tab.Library.route) {
-                    musicNavAccentColor
-                } else {
-                    navAccentColor
-                }
-                if (tab.route == Tab.Settings.route) {
-                    ProfileNavItem(
-                        selected = selected,
+                items = entries,
+                key = { _, entry -> entry.key },
+            ) { _, entry ->
+                when (entry) {
+                    MobileNavEntry.Search -> NuvioNavItem(
+                        icon = MaterialIcons.Filled.Search,
+                        label = "Search",
+                        selected = false,
                         showLabel = showLabel,
-                        accentColor = tabAccentColor,
+                        accentColor = if (currentRoute == Tab.Music.route) {
+                            musicNavAccentColor
+                        } else {
+                            navAccentColor
+                        },
                         modifier = Modifier.width(itemWidth),
-                        onClick = { onTabSelected(tab.route) },
+                        onClick = onSearchClick,
                     )
-                } else {
-                    NuvioNavItem(
-                        icon = if (selected) tab.icon else tab.outlinedIcon,
-                        label = tab.label,
-                        selected = selected,
-                        showLabel = showLabel,
-                        accentColor = tabAccentColor,
-                        modifier = Modifier.width(itemWidth),
-                        onClick = { onTabSelected(tab.route) },
-                    )
+                    is MobileNavEntry.Destination -> {
+                        val tab = entry.tab
+                        val selected = currentRoute == tab.route
+                        val tabAccentColor =
+                            if (tab.route == Tab.Music.route || tab.route == Tab.Library.route) {
+                                musicNavAccentColor
+                            } else {
+                                navAccentColor
+                            }
+                        if (tab.route == Tab.Settings.route) {
+                            ProfileNavItem(
+                                selected = selected,
+                                showLabel = showLabel,
+                                accentColor = tabAccentColor,
+                                modifier = Modifier.width(itemWidth),
+                                onClick = { onTabSelected(tab.route) },
+                            )
+                        } else {
+                            NuvioNavItem(
+                                icon = if (selected) tab.icon else tab.outlinedIcon,
+                                label = tab.label,
+                                selected = selected,
+                                showLabel = showLabel,
+                                accentColor = tabAccentColor,
+                                modifier = Modifier.width(itemWidth),
+                                onClick = { onTabSelected(tab.route) },
+                            )
+                        }
+                    }
                 }
             }
         }

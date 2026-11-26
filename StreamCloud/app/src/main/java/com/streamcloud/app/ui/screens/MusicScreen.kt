@@ -1532,7 +1532,7 @@ private fun MusicHeader(
                     modifier = Modifier.weight(1f),
                 )
             }
-            if (!isTv) {
+            if (!isTv && LocalUiFormFactor.current != UiFormFactor.Mobile) {
                 MusicHeaderAction(
                     icon = Icons.Default.Search,
                     contentDescription = "Search music",
