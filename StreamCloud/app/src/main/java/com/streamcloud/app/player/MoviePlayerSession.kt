@@ -152,6 +152,7 @@ data class BingeEpisode(
     val posterUrl: String? = null,
     val episodeTitle: String? = null,
     val progressKey: WatchProgressKey? = null,
+    val overview: String? = null,
 )
 
 data class PlayerPauseOverlayMetadata(

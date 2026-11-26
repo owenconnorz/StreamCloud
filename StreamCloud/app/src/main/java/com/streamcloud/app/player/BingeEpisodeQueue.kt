@@ -60,6 +60,7 @@ internal fun buildBingeEpisodeQueue(
             posterUrl = posterUrl,
             episodeTitle = episodeTitle,
             progressKey = progressKey,
+            overview = details?.overview?.takeIf { it.isNotBlank() },
         )
     }
 

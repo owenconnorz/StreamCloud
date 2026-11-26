@@ -19,13 +19,19 @@ class BingeEpisodeQueueTest {
             episodeDetails = listOf(
                 TmdbEpisode(seasonNumber = 1, episodeNumber = 1, name = "First"),
                 TmdbEpisode(seasonNumber = 1, episodeNumber = 2, name = "Second"),
-                TmdbEpisode(seasonNumber = 1, episodeNumber = 3, name = "Third"),
+                TmdbEpisode(
+                    seasonNumber = 1,
+                    episodeNumber = 3,
+                    name = "Third",
+                    overview = "The next chapter begins.",
+                ),
             ),
         )
 
         assertEquals(1, result.currentIndex)
         assertEquals(3, result.episodes[result.currentIndex + 1].episodeNumber)
         assertEquals("Third", result.episodes[result.currentIndex + 1].episodeTitle)
+        assertEquals("The next chapter begins.", result.episodes[result.currentIndex + 1].overview)
     }
 
     @Test
