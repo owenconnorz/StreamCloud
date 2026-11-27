@@ -157,7 +157,7 @@ fun NativePlayerScreen(
     // ── Per-provider stream errors ────────────────────────────────────────
     sourceErrors: Map<String, String> = emptyMap(),
     onWatchPartyMedia: ((com.streamcloud.app.data.watchparty.PartyMedia) -> Unit)? = null,
-    onOpenRecommendation: ((mediaType: String, tmdbId: Long) -> Unit)? = null,
+    onOpenRecommendation: ((String, Long) -> Unit)? = null,
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
@@ -590,6 +590,8 @@ fun NativePlayerScreen(
     var isPlaying         by remember { mutableStateOf(true) }
     var positionMs        by remember { mutableStateOf(0L) }
     var durationMs        by remember { mutableStateOf(0L) }
+    var progressBarFocused by remember { mutableStateOf(false) }
+    var seekPreviewPositionMs by remember { mutableStateOf<Long?>(null) }
     var playbackEnded     by remember(streamUrl, restartKey) { mutableStateOf(false) }
     var controlsVisible   by remember { mutableStateOf(true) }
     var lastInteractionTs by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -773,14 +775,14 @@ fun NativePlayerScreen(
         val increment = seekIncrementSec.toIntOrNull() ?: 10
         delay(400)
         while (true) {
-            p.seekTo(
-                movieSeekTargetPosition(
-                    currentPositionMs = p.currentPosition,
-                    durationMs = p.duration,
-                    seekIncrementSeconds = increment,
-                    direction = direction,
-                ),
+            val targetPosition = movieSeekTargetPosition(
+                currentPositionMs = p.currentPosition,
+                durationMs = p.duration,
+                seekIncrementSeconds = increment,
+                direction = direction,
             )
+            p.seekTo(targetPosition)
+            if (progressBarFocused) seekPreviewPositionMs = targetPosition
             bumpInteraction()
             delay(250)
         }
@@ -826,25 +828,6 @@ fun NativePlayerScreen(
     val allSkipIntervals = (activeSource?.skipIntervals.orEmpty() + introDbSkipIntervals)
         .distinctBy { Triple(it.startMs, it.endMs, it.type) }
         .sortedBy(SkipInterval::startMs)
-    val availablePlaybackChapters = remember(allSkipIntervals, durationMs) {
-        allSkipIntervals
-            .filter { interval ->
-                interval.startMs >= 0L &&
-                    interval.endMs > interval.startMs &&
-                    (durationMs <= 0L || interval.startMs < durationMs)
-            }
-            .distinctBy(SkipInterval::startMs)
-            .map { interval ->
-                val label = when (interval.type.lowercase()) {
-                    "intro" -> "Intro"
-                    "recap" -> "Recap"
-                    "outro" -> "Outro"
-                    "credits" -> "Credits"
-                    else -> null
-                }
-                PlaybackChapter(timestampMs = interval.startMs, title = label)
-            }
-    }
     var dismissedIntervalEnd by remember(progressKey, seasonNumber, episodeNumber) {
         mutableStateOf(-1L)
     }
@@ -897,19 +880,26 @@ fun NativePlayerScreen(
     val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
     val playerFocusRequester = remember { FocusRequester() }
     val primaryPlaybackFocusRequester = remember { FocusRequester() }
-    val tvDetailsInitialFocusRequester = remember { FocusRequester() }
-    var showTvPlaybackDetails by remember { mutableStateOf(false) }
-    var tvPlaybackDetailsTab by remember { mutableStateOf(PlaybackInfoTab.CHAPTERS) }
-    var tvRecommendationMediaType by remember { mutableStateOf("tv") }
-    var tvRecommendations by remember { mutableStateOf<List<com.streamcloud.app.data.api.TmdbMovie>>(emptyList()) }
-    var tvRecommendationsLoading by remember { mutableStateOf(false) }
-    var tvResolvedOverview by remember(pauseOverlayMetadata, progressKey, title) {
-        mutableStateOf(pauseOverlayMetadata?.overview?.takeIf { it.isNotBlank() })
+    val seekBarFocusRequester = remember { FocusRequester() }
+    val seekPreviewTabsFocusRequester = remember { FocusRequester() }
+    var seekPreviewStripFocused by remember { mutableStateOf(false) }
+    var seekPreviewDragging by remember { mutableStateOf(false) }
+    var seekPreviewHold by remember { mutableStateOf(false) }
+    var seekPreviewExpandedTv by remember { mutableStateOf(false) }
+    var requestSeekBarFocusAfterPreview by remember { mutableStateOf(false) }
+    var seekPreviewTab by remember { mutableStateOf(SeekPreviewTab.CHAPTERS) }
+    var seekPreviewFrames by remember { mutableStateOf<List<SeekPreviewFrame>>(emptyList()) }
+    var seekPreviewLoading by remember { mutableStateOf(false) }
+    var seekPreviewUnavailable by remember { mutableStateOf(false) }
+    var seekPreviewRecommendations by remember { mutableStateOf<List<com.streamcloud.app.data.api.TmdbMovie>>(emptyList()) }
+    var seekPreviewRecommendationsLoading by remember { mutableStateOf(false) }
+    var seekPreviewStats by remember(ex) {
+        mutableStateOf(ex?.readSeekPreviewStats() ?: unavailableSeekPreviewStats)
     }
-    var tvPlaybackStats by remember(ex) {
-        mutableStateOf(ex?.readTvPlaybackStats() ?: unavailableTvPlaybackStats)
+    val seekPreviewLoader = remember(context) { SeekPreviewLoader(context) }
+    DisposableEffect(seekPreviewLoader) {
+        onDispose { seekPreviewLoader.close() }
     }
-    var progressBarFocused by remember { mutableStateOf(false) }
     val progressBarScale by animateFloatAsState(
         targetValue = if (isTv && progressBarFocused) 1.06f else 1f,
         animationSpec = tween(durationMillis = 180),
@@ -924,99 +914,131 @@ fun NativePlayerScreen(
     var showSidePanel     by remember { mutableStateOf(false) }
     var sidePanelTab      by remember { mutableStateOf(0) }
     val playerOverlayOpen = showSourcesSheet || showSpeedSheet || showSubsSheet ||
-        showAudioSheet || showSubtitleStyle || showTvPlaybackDetails
+        showAudioSheet || showSubtitleStyle
+    val seekPreviewPosition = (seekPreviewPositionMs ?: positionMs)
+        .coerceIn(0L, (durationMs - 1L).coerceAtLeast(0L))
+    val showSeekPreview = controlsVisible && !locked && !needsWebView &&
+        !anyDeviceCasting && !showNextEpisodeDialog && durationMs > 0L &&
+        ex?.isCurrentMediaItemSeekable == true &&
+        (progressBarFocused || seekPreviewStripFocused || seekPreviewDragging || seekPreviewHold)
+    val showSeekPreviewPanel = showSeekPreview && isTv && seekPreviewExpandedTv
+
+    LaunchedEffect(progressBarFocused) {
+        if (progressBarFocused) {
+            seekPreviewPositionMs = positionMs
+            seekPreviewHold = true
+        }
+    }
+    LaunchedEffect(progressBarFocused, seekPreviewStripFocused, seekPreviewDragging) {
+        if (progressBarFocused || seekPreviewStripFocused || seekPreviewDragging) {
+            seekPreviewHold = true
+            return@LaunchedEffect
+        }
+        delay(700L)
+        if (!progressBarFocused && !seekPreviewStripFocused && !seekPreviewDragging) {
+            seekPreviewHold = false
+        }
+    }
+    LaunchedEffect(
+        showSeekPreview,
+        resolvedUrl,
+        effectiveHeaders,
+        durationMs,
+        seekPreviewPositionMs,
+        ex,
+    ) {
+        if (!showSeekPreview) {
+            seekPreviewLoading = false
+            return@LaunchedEffect
+        }
+        val sourceUrl = resolvedUrl?.takeIf { it.isNotBlank() }
+            ?: return@LaunchedEffect
+        val currentPlayer = ex ?: return@LaunchedEffect
+        if (!currentPlayer.isCurrentMediaItemSeekable || durationMs <= 0L) return@LaunchedEffect
+
+        val centerPositionMs = seekPreviewPosition.coerceIn(0L, (durationMs - 1L).coerceAtLeast(0L))
+        seekPreviewFrames = seekPreviewPositions(durationMs, centerPositionMs)
+            .map { SeekPreviewFrame(positionMs = it, bitmap = null) }
+        seekPreviewUnavailable = false
+        seekPreviewLoading = true
+        delay(450L)
+        val frames = try {
+            seekPreviewLoader.loadFrames(
+                sourceUrl = sourceUrl,
+                headers = effectiveHeaders,
+                durationMs = durationMs,
+                centerPositionMs = centerPositionMs,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emptyList()
+        }
+        seekPreviewFrames = frames
+        seekPreviewUnavailable = frames.none { it.bitmap != null }
+        seekPreviewLoading = false
+    }
 
     LaunchedEffect(
         isTv,
         progressKey?.tmdbId,
         progressKey?.mediaType,
         title,
-        seasonNumber,
-        episodeNumber,
     ) {
-        tvRecommendations = emptyList()
-        tvResolvedOverview = pauseOverlayMetadata?.overview?.takeIf { it.isNotBlank() }
+        seekPreviewRecommendations = emptyList()
         if (!isTv) return@LaunchedEffect
-        tvRecommendationsLoading = true
+        val identity = progressKey
+            ?.takeIf { it.tmdbId > 0L && it.mediaType in setOf("movie", "tv") }
+            ?: return@LaunchedEffect
+        val apiKey = sl.tmdbApiKey
+        if (apiKey.isBlank()) return@LaunchedEffect
 
+        seekPreviewRecommendationsLoading = true
         try {
-            val apiKey = sl.tmdbApiKey
-            val knownIdentity = progressKey
-                ?.takeIf { it.tmdbId > 0L && it.mediaType in setOf("movie", "tv") }
-                ?.let { it.mediaType to it.tmdbId }
-            val mediaType = knownIdentity?.first
-            val tmdbId = knownIdentity?.second
-            if (mediaType != null) tvRecommendationMediaType = mediaType
-
-            if (apiKey.isNotBlank() && mediaType == "tv" && tmdbId != null && tmdbId > 0L) {
-                val season = seasonNumber ?: progressKey?.seasonNumber
-                val episode = episodeNumber ?: progressKey?.episodeNumber
-                if (season != null && season > 0 && episode != null && episode > 0 &&
-                    tvResolvedOverview.isNullOrBlank()
-                ) {
-                    tvResolvedOverview = try {
-                        sl.tmdb.tvSeasonDetail(tmdbId, season, apiKey).episodes
-                            .firstOrNull { it.episodeNumber == episode }
-                            ?.overview
-                            ?.takeIf { it.isNotBlank() }
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) {
-                        null
-                    }
+            val results = when (identity.mediaType) {
+                "tv" -> {
+                    val recommended = sl.tmdb.tvRecommendations(identity.tmdbId, apiKey).results
+                    recommended.ifEmpty { sl.tmdb.tvSimilar(identity.tmdbId, apiKey).results }
+                }
+                else -> {
+                    val recommended = sl.tmdb.movieRecommendations(identity.tmdbId, apiKey).results
+                    recommended.ifEmpty { sl.tmdb.movieSimilar(identity.tmdbId, apiKey).results }
                 }
             }
-
-            if (mediaType != null && tmdbId != null && tmdbId > 0L && apiKey.isNotBlank()) {
-                if (tvResolvedOverview.isNullOrBlank()) {
-                    tvResolvedOverview = try {
-                        when (mediaType) {
-                            "tv" -> sl.tmdb.tvDetails(tmdbId, apiKey).overview
-                            "movie" -> sl.tmdb.details(tmdbId, apiKey).overview
-                            else -> null
-                        }?.takeIf { it.isNotBlank() }
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) {
-                        null
-                    }
-                }
-                val recommendations = try {
-                    when (mediaType) {
-                        "tv" -> {
-                            val recommended = sl.tmdb.tvRecommendations(tmdbId, apiKey).results
-                            if (recommended.isNotEmpty()) recommended
-                            else sl.tmdb.tvSimilar(tmdbId, apiKey).results
-                        }
-                        "movie" -> {
-                            val recommended = sl.tmdb.movieRecommendations(tmdbId, apiKey).results
-                            if (recommended.isNotEmpty()) recommended
-                            else sl.tmdb.movieSimilar(tmdbId, apiKey).results
-                        }
-                        else -> emptyList()
-                    }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    emptyList()
-                }
-                tvRecommendations = recommendations
-                    .filterNot { it.id == tmdbId }
-                    .distinctBy { it.id }
-                    .take(12)
-            }
+            seekPreviewRecommendations = results
+                .filterNot { it.id == identity.tmdbId }
+                .distinctBy { it.id }
+                .take(12)
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (error: Exception) {
+            Log.w("NativePlayerScreen", "Could not load playback recommendations", error)
+            seekPreviewRecommendations = emptyList()
         } finally {
-            tvRecommendationsLoading = false
+            seekPreviewRecommendationsLoading = false
         }
     }
 
-    LaunchedEffect(ex, showTvPlaybackDetails, tvPlaybackDetailsTab) {
-        if (!isTv || !showTvPlaybackDetails || tvPlaybackDetailsTab != PlaybackInfoTab.DETAILS) return@LaunchedEffect
+    LaunchedEffect(seekPreviewExpandedTv, requestSeekBarFocusAfterPreview) {
+        if (seekPreviewExpandedTv) {
+            repeat(10) {
+                delay(80)
+                if (runCatching { seekPreviewTabsFocusRequester.requestFocus() }.isSuccess) {
+                    return@LaunchedEffect
+                }
+            }
+        } else if (requestSeekBarFocusAfterPreview) {
+            delay(80)
+            runCatching { seekBarFocusRequester.requestFocus() }
+            requestSeekBarFocusAfterPreview = false
+        }
+    }
+
+    LaunchedEffect(isTv, showSeekPreviewPanel, seekPreviewTab, ex) {
+        if (!showSeekPreviewPanel || seekPreviewTab != SeekPreviewTab.STATS) return@LaunchedEffect
         val currentPlayer = ex ?: return@LaunchedEffect
         while (true) {
-            tvPlaybackStats = currentPlayer.readTvPlaybackStats()
+            seekPreviewStats = currentPlayer.readSeekPreviewStats()
             delay(1_000L)
         }
     }
@@ -1037,21 +1059,10 @@ fun NativePlayerScreen(
         lastInteractionTs,
         anyDeviceCasting,
         showCastDialog,
-        showTvPlaybackDetails,
     ) {
-        if (controlsVisible && !anyDeviceCasting && !showCastDialog && !showTvPlaybackDetails) {
+        if (controlsVisible && !anyDeviceCasting && !showCastDialog) {
             delay(5_000)
             if (System.currentTimeMillis() - lastInteractionTs >= 4_900) controlsVisible = false
-        }
-    }
-    LaunchedEffect(isTv, showTvPlaybackDetails) {
-        if (!isTv || !showTvPlaybackDetails) return@LaunchedEffect
-        controlsVisible = true
-        repeat(10) {
-            delay(120)
-            if (runCatching { tvDetailsInitialFocusRequester.requestFocus() }.isSuccess) {
-                return@LaunchedEffect
-            }
         }
     }
 
@@ -1071,6 +1082,13 @@ fun NativePlayerScreen(
             progressKey.episodeTitle?.takeIf { it.isNotBlank() }?.let { append(" · $it") }
         }
         else -> null
+    }
+
+    BackHandler(enabled = isTv && seekPreviewExpandedTv) {
+        requestSeekBarFocusAfterPreview = true
+        seekPreviewExpandedTv = false
+        seekPreviewStripFocused = false
+        bumpInteraction()
     }
 
     Box(
@@ -1097,19 +1115,34 @@ fun NativePlayerScreen(
                 // Any overlay sheet owns D-pad focus — don't intercept.
                 if (showSourcesSheet || showSpeedSheet || showSubsSheet || showAudioSheet || showSubtitleStyle) return@onPreviewKeyEvent false
                 val p = player.value ?: return@onPreviewKeyEvent false
+                if (isTv && event.key == Key.DirectionDown && progressBarFocused) {
+                    seekPreviewTab = SeekPreviewTab.CHAPTERS
+                    seekPreviewExpandedTv = true
+                    bumpInteraction()
+                    return@onPreviewKeyEvent true
+                }
+                if (isTv && event.key == Key.DirectionUp &&
+                    seekPreviewExpandedTv && seekPreviewStripFocused
+                ) {
+                    requestSeekBarFocusAfterPreview = true
+                    seekPreviewExpandedTv = false
+                    seekPreviewStripFocused = false
+                    bumpInteraction()
+                    return@onPreviewKeyEvent true
+                }
                 if (seekDirection != 0) {
                     val alreadySeekingInDirection = heldSeekDirection == seekDirection
                     if (!controlsVisible || progressBarFocused || alreadySeekingInDirection) {
                         if (!alreadySeekingInDirection) {
                             heldSeekDirection = seekDirection
-                            p.seekTo(
-                                movieSeekTargetPosition(
-                                    currentPositionMs = p.currentPosition,
-                                    durationMs = p.duration,
-                                    seekIncrementSeconds = seekIncrementSec.toIntOrNull() ?: 10,
-                                    direction = seekDirection,
-                                ),
+                            val targetPosition = movieSeekTargetPosition(
+                                currentPositionMs = p.currentPosition,
+                                durationMs = p.duration,
+                                seekIncrementSeconds = seekIncrementSec.toIntOrNull() ?: 10,
+                                direction = seekDirection,
                             )
+                            p.seekTo(targetPosition)
+                            if (progressBarFocused) seekPreviewPositionMs = targetPosition
                             bumpInteraction()
                         }
                         return@onPreviewKeyEvent true
@@ -1320,13 +1353,7 @@ fun NativePlayerScreen(
             }
         }
 
-        // TV details owns Back before the player/PiP handler.
-        if (showTvPlaybackDetails) {
-            BackHandler {
-                showTvPlaybackDetails = false
-                bumpInteraction()
-            }
-        } else if (showNextEpisodeDialog) {
+        if (showNextEpisodeDialog) {
             BackHandler { nextEpisodeDismissed = true }
         } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && pipEnabledOn) {
             BackHandler {
@@ -1444,7 +1471,22 @@ fun NativePlayerScreen(
                         }
                         Slider(
                             value = if (durationMs > 0) positionMs / durationMs.toFloat() else 0f,
-                            onValueChange = { v -> ex?.seekTo((v * durationMs).toLong()); bumpInteraction() },
+                            onValueChange = { value ->
+                                val targetPosition = (value * durationMs).toLong()
+                                    .coerceIn(0L, (durationMs - 1L).coerceAtLeast(0L))
+                                seekPreviewPositionMs = targetPosition
+                                seekPreviewFrames = seekPreviewPositions(durationMs, targetPosition)
+                                    .map { SeekPreviewFrame(positionMs = it, bitmap = null) }
+                                seekPreviewUnavailable = false
+                                seekPreviewLoading = true
+                                seekPreviewDragging = true
+                                seekPreviewHold = true
+                                ex?.seekTo(targetPosition)
+                                bumpInteraction()
+                            },
+                            onValueChangeFinished = {
+                                seekPreviewDragging = false
+                            },
                             colors = SliderDefaults.colors(
                                 thumbColor = MaterialTheme.colorScheme.primary,
                                 activeTrackColor = MaterialTheme.colorScheme.primary,
@@ -1452,7 +1494,17 @@ fun NativePlayerScreen(
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .onFocusChanged { progressBarFocused = it.isFocused }
+                                .focusRequester(seekBarFocusRequester)
+                                .onFocusChanged {
+                                    progressBarFocused = it.isFocused
+                                    if (it.isFocused) {
+                                        seekPreviewPositionMs = positionMs
+                                        seekPreviewFrames = seekPreviewPositions(durationMs, positionMs)
+                                            .map { position -> SeekPreviewFrame(positionMs = position, bitmap = null) }
+                                        seekPreviewUnavailable = false
+                                        seekPreviewLoading = true
+                                    }
+                                }
                                 .then(if (isTv) Modifier.focusable() else Modifier)
                                 .graphicsLayer {
                                     scaleX = progressBarScale
@@ -1466,6 +1518,78 @@ fun NativePlayerScreen(
                             } else {
                                 TimestampChip(formatTime(positionMs))
                                 TimestampChip(formatTime((durationMs - positionMs).coerceAtLeast(0L)))
+                            }
+                        }
+                        if (isTv) {
+                            AnimatedVisibility(
+                                visible = showSeekPreviewPanel,
+                                enter = fadeIn(),
+                                exit = fadeOut(),
+                            ) {
+                                SeekPreviewPanel(
+                                    selectedTab = seekPreviewTab,
+                                    onTabSelected = { seekPreviewTab = it; bumpInteraction() },
+                                    frames = seekPreviewFrames,
+                                    centerPositionMs = seekPreviewPosition,
+                                    framesLoading = seekPreviewLoading,
+                                    framesUnavailable = seekPreviewUnavailable,
+                                    recommendations = seekPreviewRecommendations,
+                                    recommendationsLoading = seekPreviewRecommendationsLoading,
+                                    stats = seekPreviewStats,
+                                    onFocusChanged = { focused ->
+                                        seekPreviewStripFocused = focused
+                                        if (focused) bumpInteraction()
+                                    },
+                                    onSeek = { targetPosition ->
+                                        val boundedPosition = targetPosition.coerceIn(
+                                            0L,
+                                            (durationMs - 1L).coerceAtLeast(0L),
+                                        )
+                                        ex?.seekTo(boundedPosition)
+                                        seekPreviewPositionMs = boundedPosition
+                                        seekPreviewHold = true
+                                        bumpInteraction()
+                                    },
+                                    onOpenRecommendation = { item ->
+                                        val recommendationType = progressKey?.mediaType
+                                            ?.takeIf { it == "movie" || it == "tv" }
+                                            ?: "movie"
+                                        if (item.id > 0L) {
+                                            onOpenRecommendation?.invoke(recommendationType, item.id)
+                                        }
+                                    },
+                                    initialFocusRequester = seekPreviewTabsFocusRequester,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        } else {
+                            AnimatedVisibility(
+                                visible = showSeekPreview,
+                                enter = fadeIn(),
+                                exit = fadeOut(),
+                            ) {
+                                SeekPreviewStrip(
+                                    frames = seekPreviewFrames,
+                                    centerPositionMs = seekPreviewPosition,
+                                    isLoading = seekPreviewLoading,
+                                    previewUnavailable = seekPreviewUnavailable,
+                                    isTv = false,
+                                    onFocusChanged = { focused ->
+                                        seekPreviewStripFocused = focused
+                                        if (focused) bumpInteraction()
+                                    },
+                                    onSeek = { targetPosition ->
+                                        val boundedPosition = targetPosition.coerceIn(
+                                            0L,
+                                            (durationMs - 1L).coerceAtLeast(0L),
+                                        )
+                                        ex?.seekTo(boundedPosition)
+                                        seekPreviewPositionMs = boundedPosition
+                                        seekPreviewHold = true
+                                        bumpInteraction()
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
                             }
                         }
                         Spacer(Modifier.height(14.dp))
@@ -1509,13 +1633,6 @@ fun NativePlayerScreen(
                                 onPartyClick         = if (partyMedia != null) {
                                     { showWatchParty = true; bumpInteraction() }
                                 } else null,
-                                onDetailsClick       = if (isTv) {
-                                    {
-                                        showTvPlaybackDetails = !showTvPlaybackDetails
-                                        tvPlaybackDetailsTab = PlaybackInfoTab.CHAPTERS
-                                        bumpInteraction()
-                                    }
-                                } else null,
                                 primaryFocusRequester = primaryPlaybackFocusRequester,
                             )
                         }
@@ -1524,65 +1641,10 @@ fun NativePlayerScreen(
             }
         }
 
-        if (showTvPlaybackDetails && isTv && !needsWebView && !anyDeviceCasting &&
-            !showNextEpisodeDialog
-        ) {
-            PlaybackInfoPanel(
-                metadata = PlaybackInfoMetadata(
-                    title = pauseOverlayMetadata?.displayTitle
-                        ?.takeIf { it.isNotBlank() }
-                        ?: progressKey?.showTitle?.takeIf { it.isNotBlank() }
-                        ?: title,
-                    episodeLabel = pauseEpisodeLabel,
-                    overview = tvResolvedOverview,
-                    artworkUrl = pauseOverlayMetadata?.episodeStillUrl
-                        ?: pauseOverlayMetadata?.backdropUrl
-                        ?: artworkUrl,
-                    durationMs = durationMs.takeIf { it > 0L },
-                ),
-                chapters = availablePlaybackChapters,
-                recommendations = tvRecommendations,
-                recommendationsLoading = tvRecommendationsLoading,
-                playbackStats = PlaybackInfoStats(
-                    positionMs = positionMs,
-                    durationMs = durationMs,
-                    bufferedPositionMs = ex?.bufferedPosition ?: positionMs,
-                    isPlaying = isPlaying,
-                    playbackSpeed = ex?.playbackParameters?.speed ?: 1f,
-                    resolution = tvPlaybackStats.resolution,
-                    frameRate = tvPlaybackStats.frameRate,
-                    videoCodec = tvPlaybackStats.videoCodec,
-                    videoBitrate = tvPlaybackStats.videoBitrate,
-                    audio = tvPlaybackStats.audio,
-                    subtitles = tvPlaybackStats.subtitles,
-                    state = tvPlaybackStats.state,
-                ),
-                selectedTab = tvPlaybackDetailsTab,
-                onTabChange = { tab ->
-                    tvPlaybackDetailsTab = tab
-                    bumpInteraction()
-                },
-                onSeekTo = { position ->
-                    ex?.seekTo(position.coerceAtLeast(0L))
-                    showTvPlaybackDetails = false
-                    bumpInteraction()
-                },
-                onClose = {
-                    showTvPlaybackDetails = false
-                    bumpInteraction()
-                },
-                onOpenRecommendation = { item ->
-                    if (item.id > 0L) onOpenRecommendation?.invoke(tvRecommendationMediaType, item.id)
-                },
-                initialFocusRequester = tvDetailsInitialFocusRequester,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-
         // ── Skip intro pill ───────────────────────────────────────────────
         AnimatedVisibility(
             visible = activeSkipInterval != null && !locked &&
-                !showNextEpisodeDialog && !showTvPlaybackDetails,
+                !showNextEpisodeDialog,
             enter = fadeIn() + scaleIn(),
             exit = fadeOut() + scaleOut(),
             modifier = Modifier.align(Alignment.BottomStart).padding(start = 28.dp, bottom = 110.dp),
@@ -2718,7 +2780,7 @@ private fun PlayerToolbarPill(
     effectiveUrl: String = "", effectiveHeaders: Map<String, String> = emptyMap(),
     context: Context? = null, hasBinge: Boolean = false, onBingeClick: () -> Unit = {},
     isTv: Boolean = false, isPlaying: Boolean = false, onTogglePlayback: () -> Unit = {},
-    onPartyClick: (() -> Unit)? = null, onDetailsClick: (() -> Unit)? = null,
+    onPartyClick: (() -> Unit)? = null,
     primaryFocusRequester: FocusRequester? = null,
 ) {
     val speedLabel = if (currentSpeed % 1f == 0f) "${currentSpeed.toInt()}x" else "${currentSpeed}x"
@@ -2749,9 +2811,6 @@ private fun PlayerToolbarPill(
             }
             if (onPartyClick != null) {
                 ToolbarItem(Icons.Default.Group, "Watch party", iconOnly = true, onClick = onPartyClick)
-            }
-            if (onDetailsClick != null) {
-                ToolbarItem(Icons.Default.Info, "Details", iconOnly = true, onClick = onDetailsClick)
             }
             if (effectiveUrl.startsWith("http", true) && context != null) {
                 ToolbarItem(Icons.Default.OpenInNew, "External", iconOnly = true) {
