@@ -103,6 +103,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -910,6 +913,7 @@ fun NativePlayerScreen(
     var seekPreviewFrames by remember { mutableStateOf<List<SeekPreviewFrame>>(emptyList()) }
     var seekPreviewLoading by remember { mutableStateOf(false) }
     var seekPreviewUnavailable by remember { mutableStateOf(false) }
+    var seekPreviewLoadGeneration by remember { mutableStateOf(0) }
     var seekPreviewRecommendations by remember { mutableStateOf<List<com.streamcloud.app.data.api.TmdbMovie>>(emptyList()) }
     var seekPreviewRecommendationsLoading by remember { mutableStateOf(false) }
     var seekPreviewStats by remember(ex) {
@@ -965,7 +969,6 @@ fun NativePlayerScreen(
         resolvedUrl,
         effectiveHeaders,
         durationMs,
-        seekPreviewPositionMs,
         ex,
         playbackDataSourceFactory,
         playbackMediaItem,
@@ -988,30 +991,55 @@ fun NativePlayerScreen(
             return@LaunchedEffect
         }
 
-        val centerPositionMs = seekPreviewPosition.coerceIn(0L, (durationMs - 1L).coerceAtLeast(0L))
-        seekPreviewFrames = seekPreviewPositions(durationMs, centerPositionMs)
-            .map { SeekPreviewFrame(positionMs = it, bitmap = null) }
-        seekPreviewUnavailable = false
-        seekPreviewLoading = true
-        delay(450L)
-        val frames = try {
-            seekPreviewLoader.loadFrames(
-                sourceUrl = sourceUrl,
-                dataSourceFactory = dataSourceFactory,
-                isManifest = mediaItem.localConfiguration?.mimeType == MimeTypes.APPLICATION_M3U8 ||
-                    mediaItem.localConfiguration?.mimeType == MimeTypes.APPLICATION_MPD,
-                headers = effectiveHeaders,
-                durationMs = durationMs,
-                centerPositionMs = centerPositionMs,
-            )
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            emptyList()
-        }
-        seekPreviewFrames = frames
-        seekPreviewUnavailable = frames.none { it.bitmap != null }
-        seekPreviewLoading = false
+        snapshotFlow { seekPreviewPosition }
+            .distinctUntilChanged()
+            .collect { requestedPositionMs ->
+                seekPreviewLoading = true
+                delay(450L)
+                if (!showSeekPreview || seekPreviewPosition != requestedPositionMs) {
+                    return@collect
+                }
+
+                val centerPositionMs = requestedPositionMs
+                    .coerceIn(0L, (durationMs - 1L).coerceAtLeast(0L))
+                val loadGeneration = seekPreviewLoadGeneration + 1
+                seekPreviewLoadGeneration = loadGeneration
+                seekPreviewFrames = seekPreviewPositions(durationMs, centerPositionMs)
+                    .map { SeekPreviewFrame(positionMs = it, bitmap = null) }
+                seekPreviewUnavailable = false
+
+                try {
+                    val frames = withTimeoutOrNull(20_000L) {
+                        seekPreviewLoader.loadFrames(
+                            sourceUrl = sourceUrl,
+                            dataSourceFactory = dataSourceFactory,
+                            isManifest = mediaItem.localConfiguration?.mimeType == MimeTypes.APPLICATION_M3U8 ||
+                                mediaItem.localConfiguration?.mimeType == MimeTypes.APPLICATION_MPD,
+                            headers = effectiveHeaders,
+                            durationMs = durationMs,
+                            centerPositionMs = centerPositionMs,
+                        )
+                    }.orEmpty()
+                    if (
+                        loadGeneration == seekPreviewLoadGeneration &&
+                        seekPreviewPosition == centerPositionMs
+                    ) {
+                        seekPreviewFrames = frames
+                        seekPreviewUnavailable = frames.none { it.bitmap != null }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    Log.w("NativePlayerScreen", "Seek preview request failed (${failure.javaClass.simpleName})")
+                    if (loadGeneration == seekPreviewLoadGeneration) {
+                        seekPreviewUnavailable = true
+                    }
+                } finally {
+                    if (loadGeneration == seekPreviewLoadGeneration) {
+                        seekPreviewLoading = false
+                    }
+                }
+            }
     }
 
     LaunchedEffect(
