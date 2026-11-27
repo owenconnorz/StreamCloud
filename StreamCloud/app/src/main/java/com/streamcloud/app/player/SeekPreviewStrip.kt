@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -65,6 +67,14 @@ internal data class SeekPreviewFrame(
     val positionMs: Long,
     val bitmap: Bitmap?,
 )
+
+internal fun nearestLoadedSeekPreviewFrame(
+    frames: List<SeekPreviewFrame>,
+    centerPositionMs: Long,
+): SeekPreviewFrame? = frames
+    .asSequence()
+    .filter { it.bitmap != null }
+    .minByOrNull { abs(it.positionMs - centerPositionMs) }
 
 internal fun seekPreviewPositions(durationMs: Long, centerPositionMs: Long): List<Long> {
     if (durationMs <= 0L) return emptyList()
@@ -399,6 +409,73 @@ internal fun SeekPreviewStrip(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+@Composable
+internal fun FloatingSeekPreviewCard(
+    frames: List<SeekPreviewFrame>,
+    centerPositionMs: Long,
+    isLoading: Boolean,
+    previewUnavailable: Boolean,
+    isTv: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val nearestFrame = nearestLoadedSeekPreviewFrame(frames, centerPositionMs)
+    if (nearestFrame == null && !isLoading && !previewUnavailable) return
+
+    val cardWidth = if (isTv) 184.dp else 148.dp
+    val imageHeight = if (isTv) 100.dp else 80.dp
+    Column(
+        modifier = modifier
+            .width(cardWidth)
+            .shadow(12.dp, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xF21A1A1A))
+            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(8.dp))
+            .semantics {
+                contentDescription = "Frame preview at ${formatPreviewTime(centerPositionMs)}"
+            },
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(imageHeight)
+                .background(Color.White.copy(alpha = 0.10f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            nearestFrame?.bitmap?.let { bitmap ->
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.matchParentSize(),
+                )
+            } ?: if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    color = Color.White.copy(alpha = 0.85f),
+                    strokeWidth = 1.7.dp,
+                )
+            } else {
+                Text(
+                    "Preview unavailable",
+                    color = Color.White.copy(alpha = 0.72f),
+                    fontSize = if (isTv) 10.sp else 9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Text(
+            text = formatPreviewTime(centerPositionMs),
+            color = Color.White,
+            fontSize = if (isTv) 12.sp else 11.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .padding(horizontal = 8.dp, vertical = 5.dp),
+        )
     }
 }
 

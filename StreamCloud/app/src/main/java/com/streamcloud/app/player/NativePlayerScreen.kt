@@ -951,6 +951,7 @@ fun NativePlayerScreen(
         (seekPreviewExpandedTv || progressBarFocused || seekPreviewStripFocused ||
             seekPreviewDragging || seekPreviewHold)
     val showSeekPreviewPanel = showSeekPreview && isTv && seekPreviewExpandedTv
+    val showFloatingSeekPreview = showSeekPreview && !showSeekPreviewPanel
 
     LaunchedEffect(progressBarFocused) {
         if (progressBarFocused) {
@@ -1580,48 +1581,71 @@ fun NativePlayerScreen(
                             )
                             Spacer(Modifier.height(2.dp))
                         }
-                        Slider(
-                            value = if (durationMs > 0) positionMs / durationMs.toFloat() else 0f,
-                            onValueChange = { value ->
-                                val targetPosition = (value * durationMs).toLong()
-                                    .coerceIn(0L, (durationMs - 1L).coerceAtLeast(0L))
-                                seekPreviewPositionMs = targetPosition
-                                seekPreviewFrames = seekPreviewPositions(durationMs, targetPosition)
-                                    .map { SeekPreviewFrame(positionMs = it, bitmap = null) }
-                                seekPreviewUnavailable = false
-                                seekPreviewLoading = true
-                                seekPreviewDragging = true
-                                seekPreviewHold = true
-                                ex?.seekTo(targetPosition)
-                                bumpInteraction()
-                            },
-                            onValueChangeFinished = {
-                                seekPreviewDragging = false
-                            },
-                            colors = SliderDefaults.colors(
-                                thumbColor = MaterialTheme.colorScheme.primary,
-                                activeTrackColor = MaterialTheme.colorScheme.primary,
-                                inactiveTrackColor = Color.White.copy(alpha = 0.30f),
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .focusRequester(seekBarFocusRequester)
-                                .onFocusChanged {
-                                    progressBarFocused = it.isFocused
-                                    if (it.isFocused) {
-                                        seekPreviewPositionMs = positionMs
-                                        seekPreviewFrames = seekPreviewPositions(durationMs, positionMs)
-                                            .map { position -> SeekPreviewFrame(positionMs = position, bitmap = null) }
-                                        seekPreviewUnavailable = false
-                                        seekPreviewLoading = true
-                                    }
-                                }
-                                .then(if (isTv) Modifier.focusable() else Modifier)
-                                .graphicsLayer {
-                                    scaleX = progressBarScale
-                                    scaleY = progressBarScale
+                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                            val previewWidth = if (isTv) 184.dp else 148.dp
+                            val fraction = if (durationMs > 0L) {
+                                seekPreviewPosition.toFloat() / durationMs.toFloat()
+                            } else {
+                                0f
+                            }.coerceIn(0f, 1f)
+                            val previewX = (
+                                maxWidth * fraction - previewWidth / 2
+                            ).coerceIn(0.dp, (maxWidth - previewWidth).coerceAtLeast(0.dp))
+                            Slider(
+                                value = if (durationMs > 0) positionMs / durationMs.toFloat() else 0f,
+                                onValueChange = { value ->
+                                    val targetPosition = (value * durationMs).toLong()
+                                        .coerceIn(0L, (durationMs - 1L).coerceAtLeast(0L))
+                                    seekPreviewPositionMs = targetPosition
+                                    seekPreviewFrames = seekPreviewPositions(durationMs, targetPosition)
+                                        .map { SeekPreviewFrame(positionMs = it, bitmap = null) }
+                                    seekPreviewUnavailable = false
+                                    seekPreviewLoading = true
+                                    seekPreviewDragging = true
+                                    seekPreviewHold = true
+                                    ex?.seekTo(targetPosition)
+                                    bumpInteraction()
                                 },
-                        )
+                                onValueChangeFinished = {
+                                    seekPreviewDragging = false
+                                },
+                                colors = SliderDefaults.colors(
+                                    thumbColor = MaterialTheme.colorScheme.primary,
+                                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                                    inactiveTrackColor = Color.White.copy(alpha = 0.30f),
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(seekBarFocusRequester)
+                                    .onFocusChanged {
+                                        progressBarFocused = it.isFocused
+                                        if (it.isFocused) {
+                                            seekPreviewPositionMs = positionMs
+                                            seekPreviewFrames = seekPreviewPositions(durationMs, positionMs)
+                                                .map { position -> SeekPreviewFrame(positionMs = position, bitmap = null) }
+                                            seekPreviewUnavailable = false
+                                            seekPreviewLoading = true
+                                        }
+                                    }
+                                    .then(if (isTv) Modifier.focusable() else Modifier)
+                                    .graphicsLayer {
+                                        scaleX = progressBarScale
+                                        scaleY = progressBarScale
+                                    },
+                            )
+                            if (showFloatingSeekPreview) {
+                                FloatingSeekPreviewCard(
+                                    frames = seekPreviewFrames,
+                                    centerPositionMs = seekPreviewPosition,
+                                    isLoading = seekPreviewLoading,
+                                    previewUnavailable = seekPreviewUnavailable,
+                                    isTv = isTv,
+                                    modifier = Modifier
+                                        .align(Alignment.TopStart)
+                                        .offset(x = previewX, y = (-96).dp),
+                                )
+                            }
+                        }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             if (isTv) {
                                 Text(formatTime(positionMs), color = Color.White, style = MaterialTheme.typography.titleMedium)
@@ -1670,35 +1694,6 @@ fun NativePlayerScreen(
                                         }
                                     },
                                     initialFocusRequester = seekPreviewTabsFocusRequester,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                            }
-                        } else {
-                            AnimatedVisibility(
-                                visible = showSeekPreview,
-                                enter = fadeIn(),
-                                exit = fadeOut(),
-                            ) {
-                                SeekPreviewStrip(
-                                    frames = seekPreviewFrames,
-                                    centerPositionMs = seekPreviewPosition,
-                                    isLoading = seekPreviewLoading,
-                                    previewUnavailable = seekPreviewUnavailable,
-                                    isTv = false,
-                                    onFocusChanged = { focused ->
-                                        seekPreviewStripFocused = focused
-                                        if (focused) bumpInteraction()
-                                    },
-                                    onSeek = { targetPosition ->
-                                        val boundedPosition = targetPosition.coerceIn(
-                                            0L,
-                                            (durationMs - 1L).coerceAtLeast(0L),
-                                        )
-                                        ex?.seekTo(boundedPosition)
-                                        seekPreviewPositionMs = boundedPosition
-                                        seekPreviewHold = true
-                                        bumpInteraction()
-                                    },
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                             }

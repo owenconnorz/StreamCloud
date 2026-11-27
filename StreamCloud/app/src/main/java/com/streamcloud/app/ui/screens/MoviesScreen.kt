@@ -448,6 +448,7 @@ fun MoviesScreen(
     }
     val openCwEntry: (WatchProgressEntity) -> Unit = { entry ->
         val sr = entry.sourceRoute
+        val resumeTarget = continueWatchingResumeTarget(entry)
         if (sr != null && sr.startsWith("cs:")) {
             val parts = sr.removePrefix("cs:").split("|||", limit = 4)
             val plugin = parts.getOrElse(0) { "" }
@@ -460,13 +461,27 @@ fun MoviesScreen(
                 if (entry.mediaType == "tv") onTvClick(entry.tmdbId) else onMovieClick(entry.tmdbId)
             }
         } else if (sr != null && sr.startsWith("sources:") && onOpenSourcePage != null) {
-            val parts = sr.removePrefix("sources:").split("|||", limit = 3)
-            val type = parts.getOrElse(0) { entry.mediaType }
-            val season = parts.getOrElse(1) { "" }.toIntOrNull()
-            val episode = parts.getOrElse(2) { "" }.toIntOrNull()
-            onOpenSourcePage(entry.tmdbId, type, season, episode)
+            onOpenSourcePage(
+                entry.tmdbId,
+                resumeTarget.mediaType,
+                resumeTarget.seasonNumber,
+                resumeTarget.episodeNumber,
+            )
+        } else if (
+            onOpenSourcePage != null &&
+            resumeTarget.mediaType in setOf("movie", "tv")
+        ) {
+            // Older progress rows may not have a sourceRoute. Open the correct
+            // title/episode's source picker instead of leaving the user on details.
+            onOpenSourcePage(
+                entry.tmdbId,
+                resumeTarget.mediaType,
+                resumeTarget.seasonNumber,
+                resumeTarget.episodeNumber,
+            )
         } else {
-            if (entry.mediaType == "tv") onTvClick(entry.tmdbId) else onMovieClick(entry.tmdbId)
+            if (resumeTarget.mediaType == "tv") onTvClick(entry.tmdbId)
+            else onMovieClick(entry.tmdbId)
         }
     }
     var posterSheet by remember { mutableStateOf<PosterSheetItem?>(null) }
