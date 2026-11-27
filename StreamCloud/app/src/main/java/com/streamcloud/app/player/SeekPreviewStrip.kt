@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -67,6 +68,11 @@ internal fun seekPreviewPositions(durationMs: Long, centerPositionMs: Long): Lis
  * preview failures never affect the ExoPlayer instance or interrupt playback.
  */
 internal class SeekPreviewLoader(context: Context) : Closeable {
+    private companion object {
+        const val FAILED_FRAME_RETRY_DELAY_MS = 20_000L
+        const val UNAVAILABLE_SOURCE_RETRY_DELAY_MS = 8_000L
+    }
+
     private val appContext = context.applicationContext
     private val dispatcher: ExecutorCoroutineDispatcher =
         Executors.newSingleThreadExecutor { runnable ->
@@ -77,8 +83,8 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
         override fun sizeOf(key: String, value: Bitmap): Int =
             (value.allocationByteCount / 1024).coerceAtLeast(1)
     }
-    private val failedFrames = mutableSetOf<String>()
-    private val unavailableSources = mutableSetOf<String>()
+    private val failedFrames = mutableMapOf<String, Long>()
+    private val unavailableSources = mutableMapOf<String, Long>()
 
     suspend fun loadFrames(
         sourceUrl: String,
@@ -90,14 +96,18 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
 
         val sourceKey = fingerprint(sourceUrl, headers)
         val positions = seekPreviewPositions(durationMs, centerPositionMs)
+        val now = SystemClock.elapsedRealtime()
 
         val keys = positions.associateWith { frameKey(sourceKey, it) }
         val missing = positions.filter { position ->
             val key = keys.getValue(position)
-            cache.get(key) == null && key !in failedFrames
+            cache.get(key) == null && (failedFrames[key] ?: 0L) <= now
         }
 
-        if (missing.isNotEmpty() && sourceKey !in unavailableSources) {
+        if (
+            missing.isNotEmpty() &&
+            (unavailableSources[sourceKey] ?: 0L) <= now
+        ) {
             val retriever = MediaMetadataRetriever()
             try {
                 val uri = Uri.parse(sourceUrl)
@@ -114,28 +124,30 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                             retriever.getScaledFrameAtTime(
                                 positionMs * 1_000L,
-                                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                                MediaMetadataRetriever.OPTION_CLOSEST,
                                 320,
                                 180,
                             )
                         } else {
                             retriever.getFrameAtTime(
                                 positionMs * 1_000L,
-                                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                                MediaMetadataRetriever.OPTION_CLOSEST,
                             )
                         }
                     } catch (_: RuntimeException) {
                         null
                     }
                     if (frame == null) {
-                        failedFrames += key
+                        failedFrames[key] = SystemClock.elapsedRealtime() + FAILED_FRAME_RETRY_DELAY_MS
                     } else {
                         val thumbnail = frame.toPreviewBitmap()
                         cache.put(key, thumbnail)
+                        failedFrames.remove(key)
                     }
                 }
             } catch (_: Exception) {
-                unavailableSources += sourceKey
+                unavailableSources[sourceKey] =
+                    SystemClock.elapsedRealtime() + UNAVAILABLE_SOURCE_RETRY_DELAY_MS
             } finally {
                 runCatching { retriever.release() }
             }

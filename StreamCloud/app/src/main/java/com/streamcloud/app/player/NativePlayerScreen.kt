@@ -920,7 +920,8 @@ fun NativePlayerScreen(
     val showSeekPreview = controlsVisible && !locked && !needsWebView &&
         !anyDeviceCasting && !showNextEpisodeDialog && durationMs > 0L &&
         ex?.isCurrentMediaItemSeekable == true &&
-        (progressBarFocused || seekPreviewStripFocused || seekPreviewDragging || seekPreviewHold)
+        (seekPreviewExpandedTv || progressBarFocused || seekPreviewStripFocused ||
+            seekPreviewDragging || seekPreviewHold)
     val showSeekPreviewPanel = showSeekPreview && isTv && seekPreviewExpandedTv
 
     LaunchedEffect(progressBarFocused) {
@@ -941,6 +942,7 @@ fun NativePlayerScreen(
     }
     LaunchedEffect(
         showSeekPreview,
+        seekPreviewExpandedTv,
         resolvedUrl,
         effectiveHeaders,
         durationMs,
@@ -1046,8 +1048,8 @@ fun NativePlayerScreen(
     // Keep TV focus on a visible control while controls are shown. When they
     // auto-hide, return focus to the full-screen key target so a remote press
     // can reveal the overlay again.
-    LaunchedEffect(isTv, controlsVisible, playerOverlayOpen) {
-        if (!isTv || playerOverlayOpen) return@LaunchedEffect
+    LaunchedEffect(isTv, controlsVisible, playerOverlayOpen, seekPreviewExpandedTv) {
+        if (!isTv || playerOverlayOpen || seekPreviewExpandedTv) return@LaunchedEffect
         repeat(10) {
             val requester = if (controlsVisible) primaryPlaybackFocusRequester else playerFocusRequester
             if (runCatching { requester.requestFocus() }.isSuccess) return@LaunchedEffect
@@ -1059,8 +1061,9 @@ fun NativePlayerScreen(
         lastInteractionTs,
         anyDeviceCasting,
         showCastDialog,
+        seekPreviewExpandedTv,
     ) {
-        if (controlsVisible && !anyDeviceCasting && !showCastDialog) {
+        if (controlsVisible && !anyDeviceCasting && !showCastDialog && !seekPreviewExpandedTv) {
             delay(5_000)
             if (System.currentTimeMillis() - lastInteractionTs >= 4_900) controlsVisible = false
         }
@@ -1115,7 +1118,19 @@ fun NativePlayerScreen(
                 // Any overlay sheet owns D-pad focus — don't intercept.
                 if (showSourcesSheet || showSpeedSheet || showSubsSheet || showAudioSheet || showSubtitleStyle) return@onPreviewKeyEvent false
                 val p = player.value ?: return@onPreviewKeyEvent false
-                if (isTv && event.key == Key.DirectionDown && progressBarFocused) {
+                if (
+                    isTv &&
+                    event.key == Key.DirectionDown &&
+                    !seekPreviewExpandedTv &&
+                    p.isCurrentMediaItemSeekable &&
+                    p.duration > 0L
+                ) {
+                    controlsVisible = true
+                    seekPreviewPositionMs = p.currentPosition.coerceIn(
+                        0L,
+                        (p.duration - 1L).coerceAtLeast(0L),
+                    )
+                    seekPreviewHold = true
                     seekPreviewTab = SeekPreviewTab.CHAPTERS
                     seekPreviewExpandedTv = true
                     bumpInteraction()
