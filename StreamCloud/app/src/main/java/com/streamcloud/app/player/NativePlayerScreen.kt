@@ -979,6 +979,7 @@ fun NativePlayerScreen(
         playbackMediaItem,
     ) {
         if (!showSeekPreview) {
+            seekPreviewLoader.releaseActiveExtractor()
             seekPreviewPositionMs = null
             seekPreviewFrames = emptyList()
             seekPreviewLoading = false
@@ -993,6 +994,7 @@ fun NativePlayerScreen(
             sourceUrl == null || mediaSourceFactory == null || mediaItem == null ||
             currentPlayer == null || !currentPlayer.isCurrentMediaItemSeekable || durationMs <= 0L
         ) {
+            seekPreviewLoader.releaseActiveExtractor()
             seekPreviewFrames = emptyList()
             seekPreviewLoading = false
             seekPreviewUnavailable = true
@@ -1043,6 +1045,12 @@ fun NativePlayerScreen(
                                     seekPreviewFrames = frames
                                     seekPreviewUnavailable =
                                         frames.none { it.bitmap != null }
+                                    if (
+                                        frames.count { it.bitmap != null } >=
+                                        minOf(3, frames.size)
+                                    ) {
+                                        seekPreviewLoading = false
+                                    }
                                 }
                             },
                         )

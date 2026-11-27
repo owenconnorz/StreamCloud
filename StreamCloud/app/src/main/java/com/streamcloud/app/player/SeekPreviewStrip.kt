@@ -44,6 +44,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.inspector.frame.FrameExtractor
+import androidx.media3.effect.Presentation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -57,6 +58,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.math.abs
 
 internal data class SeekPreviewFrame(
@@ -67,7 +69,7 @@ internal data class SeekPreviewFrame(
 internal fun seekPreviewPositions(durationMs: Long, centerPositionMs: Long): List<Long> {
     if (durationMs <= 0L) return emptyList()
     val lastFrameMs = (durationMs - 1L).coerceAtLeast(0L)
-    val gapMs = (durationMs / 18L).coerceIn(5_000L, 6 * 60_000L)
+    val gapMs = (durationMs / 30L).coerceIn(15_000L, 3 * 60_000L)
     val center = centerPositionMs.coerceIn(0L, lastFrameMs)
     return (-2..2)
         .map { center + it * gapMs }
@@ -98,6 +100,10 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
     }
     private val failedFrames = mutableMapOf<String, Long>()
     private val unavailableSources = mutableMapOf<String, Long>()
+    private var activeExtractor: FrameExtractor? = null
+    private var activeSourceKey: String? = null
+    private var activeMediaItem: MediaItem? = null
+    private var activeMediaSourceFactory: MediaSource.Factory? = null
 
     suspend fun loadFrames(
         sourceUrl: String,
@@ -127,12 +133,8 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
             missing.isNotEmpty() &&
             (unavailableSources[sourceKey] ?: 0L) <= now
         ) {
-            var extractor: FrameExtractor? = null
             try {
-                extractor = FrameExtractor.Builder(appContext, mediaItem)
-                    .setMediaSourceFactory(mediaSourceFactory)
-                    .setSeekParameters(SeekParameters.CLOSEST_SYNC)
-                    .build()
+                val extractor = extractorFor(sourceKey, mediaSourceFactory, mediaItem)
                 val deadline = SystemClock.elapsedRealtime() + MAX_FRAME_BATCH_MS
                 for (positionMs in missing) {
                     currentCoroutineContext().ensureActive()
@@ -158,6 +160,7 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
                             SystemClock.elapsedRealtime() + UNAVAILABLE_SOURCE_RETRY_DELAY_MS
                         failedFrames[key] =
                             SystemClock.elapsedRealtime() + FAILED_FRAME_RETRY_DELAY_MS
+                        releaseActiveExtractorOnDispatcher()
                         break
                     } catch (failure: ExecutionException) {
                         Log.w(
@@ -193,6 +196,7 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
                     }
                 }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                releaseActiveExtractorOnDispatcher()
                 throw cancelled
             } catch (error: Exception) {
                 Log.w(
@@ -201,8 +205,7 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
                 )
                 unavailableSources[sourceKey] =
                     SystemClock.elapsedRealtime() + UNAVAILABLE_SOURCE_RETRY_DELAY_MS
-            } finally {
-                runCatching { extractor?.close() }
+                releaseActiveExtractorOnDispatcher()
             }
         }
 
@@ -212,8 +215,54 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
     }
 
     override fun close() {
-        cache.evictAll()
+        dispatcher.dispatch(EmptyCoroutineContext, Runnable {
+            releaseActiveExtractorOnDispatcher()
+            cache.evictAll()
+        })
         dispatcher.close()
+    }
+
+    suspend fun releaseActiveExtractor() {
+        withContext(dispatcher) {
+            releaseActiveExtractorOnDispatcher()
+        }
+    }
+
+    private fun extractorFor(
+        sourceKey: String,
+        mediaSourceFactory: MediaSource.Factory,
+        mediaItem: MediaItem,
+    ): FrameExtractor {
+        activeExtractor?.let { existing ->
+            if (
+                activeSourceKey == sourceKey &&
+                activeMediaItem == mediaItem &&
+                activeMediaSourceFactory === mediaSourceFactory
+            ) {
+                return existing
+            }
+        }
+
+        releaseActiveExtractorOnDispatcher()
+        return FrameExtractor.Builder(appContext, mediaItem)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .setSeekParameters(SeekParameters.CLOSEST_SYNC)
+            .setEffects(listOf(Presentation.createForHeight(180)))
+            .build()
+            .also {
+                activeExtractor = it
+                activeSourceKey = sourceKey
+                activeMediaItem = mediaItem
+                activeMediaSourceFactory = mediaSourceFactory
+            }
+    }
+
+    private fun releaseActiveExtractorOnDispatcher() {
+        runCatching { activeExtractor?.close() }
+        activeExtractor = null
+        activeSourceKey = null
+        activeMediaItem = null
+        activeMediaSourceFactory = null
     }
 
     private fun fingerprint(url: String, headers: Map<String, String>): String {
