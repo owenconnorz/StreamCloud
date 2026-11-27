@@ -110,6 +110,7 @@ import com.streamcloud.app.ui.components.tvHighResolutionTmdbArtworkUrl
 import com.streamcloud.app.ui.components.TmdbTrailerPreview
 import com.streamcloud.app.ui.components.WatchedPosterBadge
 import com.streamcloud.app.ui.viewmodel.CsPluginRow
+import com.streamcloud.app.ui.viewmodel.continueWatchingResumeTarget
 import com.streamcloud.app.ui.viewmodel.HeroBannerItem
 import com.streamcloud.app.ui.viewmodel.MoviesViewModel
 import com.streamcloud.app.ui.viewmodel.PinnedCollectionRow

@@ -1,6 +1,7 @@
 package com.streamcloud.app.player
 
 import com.streamcloud.app.data.library.WatchProgressEntity
+import com.streamcloud.app.ui.viewmodel.continueWatchingResumeTarget
 import com.streamcloud.app.ui.viewmodel.latestContinueWatchingByTitle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -164,12 +165,53 @@ class WatchProgressRestorePolicyTest {
         )
     }
 
+    @Test
+    fun continueWatchingRecoversLegacyEpisodeIdentityFromTitle() {
+        val target = continueWatchingResumeTarget(
+            progress(
+                title = "From S01E01 · Long Day's Journey Into Night",
+                mediaType = "tv",
+            ),
+        )
+
+        assertEquals("tv", target.mediaType)
+        assertEquals(1, target.seasonNumber)
+        assertEquals(1, target.episodeNumber)
+    }
+
+    @Test
+    fun continueWatchingRecoversEpisodeIdentityFromSourceRoute() {
+        val target = continueWatchingResumeTarget(
+            progress(
+                title = "From",
+                mediaType = "tv",
+                sourceRoute = "sources:tv|||2|||8",
+            ),
+        )
+
+        assertEquals("tv", target.mediaType)
+        assertEquals(2, target.seasonNumber)
+        assertEquals(8, target.episodeNumber)
+    }
+
+    @Test
+    fun continueWatchingKeepsMovieTargetWithoutEpisodeNumbers() {
+        val target = continueWatchingResumeTarget(
+            progress(title = "Meet the Parents", mediaType = "movie"),
+        )
+
+        assertEquals("movie", target.mediaType)
+        assertNull(target.seasonNumber)
+        assertNull(target.episodeNumber)
+    }
+
     private fun progress(
         tmdbId: Long = episodeKey.tmdbId,
         title: String = episodeKey.title,
         mediaType: String = episodeKey.mediaType,
         positionMs: Long = 40_000L,
         durationMs: Long = 100_000L,
+        sourceRoute: String? = null,
         seasonNumber: Int = 0,
         episodeNumber: Int = 0,
         updatedAt: Long = 0L,
@@ -181,6 +223,7 @@ class WatchProgressRestorePolicyTest {
         positionMs = positionMs,
         durationMs = durationMs,
         updatedAt = updatedAt,
+        sourceRoute = sourceRoute,
         seasonNumber = seasonNumber,
         episodeNumber = episodeNumber,
     )
