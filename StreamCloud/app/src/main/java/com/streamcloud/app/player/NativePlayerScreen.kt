@@ -970,7 +970,7 @@ fun NativePlayerScreen(
         effectiveHeaders,
         durationMs,
         ex,
-        playbackDataSourceFactory,
+        playbackMediaSourceFactory,
         playbackMediaItem,
     ) {
         if (!showSeekPreview) {
@@ -978,11 +978,11 @@ fun NativePlayerScreen(
             return@LaunchedEffect
         }
         val sourceUrl = resolvedUrl?.takeIf { it.isNotBlank() }
-        val dataSourceFactory = playbackDataSourceFactory
+        val mediaSourceFactory = playbackMediaSourceFactory
         val mediaItem = playbackMediaItem
         val currentPlayer = ex
         if (
-            sourceUrl == null || dataSourceFactory == null || mediaItem == null ||
+            sourceUrl == null || mediaSourceFactory == null || mediaItem == null ||
             currentPlayer == null || !currentPlayer.isCurrentMediaItemSeekable || durationMs <= 0L
         ) {
             seekPreviewFrames = emptyList()
@@ -1012,9 +1012,8 @@ fun NativePlayerScreen(
                     val frames = withTimeoutOrNull(20_000L) {
                         seekPreviewLoader.loadFrames(
                             sourceUrl = sourceUrl,
-                            dataSourceFactory = dataSourceFactory,
-                            isManifest = mediaItem.localConfiguration?.mimeType == MimeTypes.APPLICATION_M3U8 ||
-                                mediaItem.localConfiguration?.mimeType == MimeTypes.APPLICATION_MPD,
+                            mediaSourceFactory = mediaSourceFactory,
+                            mediaItem = mediaItem,
                             headers = effectiveHeaders,
                             durationMs = durationMs,
                             centerPositionMs = centerPositionMs,

@@ -2,10 +2,6 @@ package com.streamcloud.app.player
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.media.MediaDataSource
-import android.media.MediaMetadataRetriever
-import android.net.Uri
-import android.os.Build
 import android.os.SystemClock
 import android.util.LruCache
 import android.util.Log
@@ -43,23 +39,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DataSource
-import androidx.media3.datasource.DataSpec
+import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.inspector.frame.FrameExtractor
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import java.io.Closeable
-import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
 
 internal data class SeekPreviewFrame(
     val positionMs: Long,
@@ -93,12 +89,7 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
         Executors.newSingleThreadExecutor { runnable ->
             Thread(runnable, "StreamCloud-frame-previews").apply { isDaemon = true }
         }.asCoroutineDispatcher()
-    private val extractionExecutor = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "StreamCloud-frame-extraction").apply { isDaemon = true }
-    }
-    private val extractionInFlight = AtomicBoolean(false)
-    private val activeRetriever = AtomicReference<MediaMetadataRetriever?>(null)
-
+    private val appContext = context.applicationContext
     private val cache = object : LruCache<String, Bitmap>(8 * 1024) {
         override fun sizeOf(key: String, value: Bitmap): Int =
             (value.allocationByteCount / 1024).coerceAtLeast(1)
@@ -108,15 +99,18 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
 
     suspend fun loadFrames(
         sourceUrl: String,
-        dataSourceFactory: DataSource.Factory,
-        isManifest: Boolean,
+        mediaSourceFactory: MediaSource.Factory,
+        mediaItem: MediaItem,
         headers: Map<String, String>,
         durationMs: Long,
         centerPositionMs: Long,
     ): List<SeekPreviewFrame> = withContext(dispatcher) {
         if (sourceUrl.isBlank() || durationMs <= 0L) return@withContext emptyList()
 
-        val sourceKey = fingerprint("$sourceUrl\n$isManifest", headers)
+        val sourceKey = fingerprint(
+            "$sourceUrl\n${mediaItem.localConfiguration?.mimeType.orEmpty()}",
+            headers,
+        )
         val positions = seekPreviewPositions(durationMs, centerPositionMs)
         val now = SystemClock.elapsedRealtime()
 
@@ -130,91 +124,72 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
             missing.isNotEmpty() &&
             (unavailableSources[sourceKey] ?: 0L) <= now
         ) {
-            if (extractionInFlight.compareAndSet(false, true)) {
-                val frameFuture = extractionExecutor.submit<Map<Long, Bitmap?>> {
-                    val retriever = MediaMetadataRetriever()
-                    var mediaDataSource: Media3RetrieverDataSource? = null
-                    activeRetriever.set(retriever)
-                    try {
-                        if (isManifest) {
-                            retriever.setDataSource(sourceUrl, headers)
-                        } else {
-                            val source = Media3RetrieverDataSource(
-                                dataSourceFactory,
-                                Uri.parse(sourceUrl),
-                            )
-                            mediaDataSource = source
-                            retriever.setDataSource(source)
-                        }
-                        missing.associateWith { positionMs ->
-                            runCatching {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                                    retriever.getScaledFrameAtTime(
-                                        positionMs * 1_000L,
-                                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                                        320,
-                                        180,
-                                    )
-                                } else {
-                                    retriever.getFrameAtTime(
-                                        positionMs * 1_000L,
-                                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                                    )
-                                }
-                            }.getOrNull()
-                        }
-                    } finally {
-                        runCatching { mediaDataSource?.close() }
-                        if (activeRetriever.compareAndSet(retriever, null)) {
-                            runCatching { retriever.release() }
-                        }
-                        extractionInFlight.set(false)
-                    }
-                }
-
-                try {
-                    val extracted = runInterruptible {
-                        frameFuture.get(MAX_FRAME_BATCH_MS, TimeUnit.MILLISECONDS)
-                    }
-                    extracted.forEach { (positionMs, bitmap) ->
-                        val key = keys.getValue(positionMs)
-                        if (bitmap == null) {
-                            failedFrames[key] =
-                                SystemClock.elapsedRealtime() + FAILED_FRAME_RETRY_DELAY_MS
-                        } else {
-                            cache.put(key, bitmap.toPreviewBitmap())
-                            failedFrames.remove(key)
-                        }
-                    }
-                    if (extracted.values.none { it != null }) {
+            var extractor: FrameExtractor? = null
+            try {
+                extractor = FrameExtractor.Builder(appContext, mediaItem)
+                    .setMediaSourceFactory(mediaSourceFactory)
+                    .setSeekParameters(SeekParameters.CLOSEST_SYNC)
+                    .build()
+                val deadline = SystemClock.elapsedRealtime() + MAX_FRAME_BATCH_MS
+                for (positionMs in missing) {
+                    currentCoroutineContext().ensureActive()
+                    val key = keys.getValue(positionMs)
+                    val remainingMs = deadline - SystemClock.elapsedRealtime()
+                    if (remainingMs <= 0L) {
+                        failedFrames[key] =
+                            SystemClock.elapsedRealtime() + FAILED_FRAME_RETRY_DELAY_MS
                         unavailableSources[sourceKey] =
                             SystemClock.elapsedRealtime() + UNAVAILABLE_SOURCE_RETRY_DELAY_MS
+                        break
                     }
-                } catch (timeout: TimeoutException) {
-                    frameFuture.cancel(true)
-                    releaseActiveRetriever()
-                    Log.w(TAG, "Frame extraction timed out")
-                    unavailableSources[sourceKey] =
-                        SystemClock.elapsedRealtime() + UNAVAILABLE_SOURCE_RETRY_DELAY_MS
-                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                    frameFuture.cancel(true)
-                    releaseActiveRetriever()
-                    throw cancelled
-                } catch (failure: ExecutionException) {
-                    Log.w(
-                        TAG,
-                        "Frame extraction failed (${failure.cause?.javaClass?.simpleName ?: "unknown"})",
-                    )
-                    unavailableSources[sourceKey] =
-                        SystemClock.elapsedRealtime() + UNAVAILABLE_SOURCE_RETRY_DELAY_MS
-                } catch (failure: Exception) {
-                    Log.w(TAG, "Frame extraction failed (${failure.javaClass.simpleName})")
-                    unavailableSources[sourceKey] =
-                        SystemClock.elapsedRealtime() + UNAVAILABLE_SOURCE_RETRY_DELAY_MS
+
+                    val frameFuture = extractor.getFrame(positionMs)
+                    val bitmap = try {
+                        runInterruptible {
+                            frameFuture.get(remainingMs, TimeUnit.MILLISECONDS).bitmap
+                        }
+                    } catch (timeout: TimeoutException) {
+                        frameFuture.cancel(true)
+                        Log.w(TAG, "Frame extraction timed out")
+                        unavailableSources[sourceKey] =
+                            SystemClock.elapsedRealtime() + UNAVAILABLE_SOURCE_RETRY_DELAY_MS
+                        failedFrames[key] =
+                            SystemClock.elapsedRealtime() + FAILED_FRAME_RETRY_DELAY_MS
+                        break
+                    } catch (failure: ExecutionException) {
+                        Log.w(
+                            TAG,
+                            "Frame extraction failed (${failure.cause?.javaClass?.simpleName ?: "unknown"})",
+                        )
+                        null
+                    } catch (failure: Exception) {
+                        if (failure is kotlinx.coroutines.CancellationException) {
+                            frameFuture.cancel(true)
+                            throw failure
+                        }
+                        Log.w(TAG, "Frame extraction failed (${failure.javaClass.simpleName})")
+                        null
+                    }
+
+                    if (bitmap == null) {
+                        failedFrames[key] =
+                            SystemClock.elapsedRealtime() + FAILED_FRAME_RETRY_DELAY_MS
+                    } else {
+                        cache.put(key, bitmap.toPreviewBitmap())
+                        failedFrames.remove(key)
+                    }
                 }
-            } else {
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w(
+                    TAG,
+                    "Could not open playback source for frame extraction (${error.javaClass.simpleName})",
+                )
                 unavailableSources[sourceKey] =
                     SystemClock.elapsedRealtime() + UNAVAILABLE_SOURCE_RETRY_DELAY_MS
+            } finally {
+                runCatching { extractor?.close() }
             }
         }
 
@@ -224,16 +199,8 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
     }
 
     override fun close() {
-        releaseActiveRetriever()
-        extractionExecutor.shutdownNow()
         cache.evictAll()
         dispatcher.close()
-    }
-
-    private fun releaseActiveRetriever() {
-        activeRetriever.getAndSet(null)?.let { retriever ->
-            runCatching { retriever.release() }
-        }
     }
 
     private fun fingerprint(url: String, headers: Map<String, String>): String {
@@ -251,83 +218,6 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
 
     private fun frameKey(sourceKey: String, positionMs: Long) =
         "$sourceKey:${positionMs / 1_000L}"
-}
-
-@OptIn(UnstableApi::class)
-private class Media3RetrieverDataSource(
-    private val factory: DataSource.Factory,
-    private val uri: Uri,
-) : MediaDataSource() {
-    private var activeSource: DataSource? = null
-    private var nextPosition = -1L
-    private var knownSize: Long? = null
-
-    @Synchronized
-    @Throws(IOException::class)
-    override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
-        if (size == 0) return 0
-        if (position < 0L) return -1
-        if (activeSource == null || nextPosition != position) {
-            closeActiveSource()
-            val source = factory.createDataSource()
-            val remaining = knownSize?.minus(position)?.coerceAtLeast(0L)
-            val spec = DataSpec.Builder()
-                .setUri(uri)
-                .setPosition(position)
-                .apply { remaining?.let { setLength(it) } }
-                .build()
-            source.open(spec)
-            activeSource = source
-            nextPosition = position
-        }
-
-        val source = activeSource ?: return -1
-        val bytesAvailable = knownSize
-            ?.minus(position)
-            ?.coerceAtLeast(0L)
-            ?.coerceAtMost(size.toLong())
-            ?.toInt()
-            ?: size
-        if (bytesAvailable <= 0) return -1
-
-        var totalRead = 0
-        while (totalRead < bytesAvailable) {
-            val count = source.read(buffer, offset + totalRead, bytesAvailable - totalRead)
-            if (count == C.RESULT_END_OF_INPUT) break
-            if (count <= 0) break
-            totalRead += count
-            nextPosition += count
-        }
-        return if (totalRead == 0) -1 else totalRead
-    }
-
-    @Synchronized
-    @Throws(IOException::class)
-    override fun getSize(): Long {
-        knownSize?.let { return it }
-        val probe = factory.createDataSource()
-        return try {
-            probe.open(DataSpec.Builder().setUri(uri).build()).also { length ->
-                if (length >= 0L) knownSize = length
-            }
-        } catch (_: IOException) {
-            C.LENGTH_UNSET.toLong()
-        } finally {
-            runCatching { probe.close() }
-        }
-    }
-
-    @Synchronized
-    @Throws(IOException::class)
-    override fun close() {
-        closeActiveSource()
-    }
-
-    private fun closeActiveSource() {
-        runCatching { activeSource?.close() }
-        activeSource = null
-        nextPosition = -1L
-    }
 }
 
 private fun Bitmap.toPreviewBitmap(): Bitmap {

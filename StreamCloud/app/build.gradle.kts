@@ -171,7 +171,7 @@ val prepareNuvioEngine = tasks.register("prepareNuvioEngine") {
 
 android {
     namespace = "com.streamcloud.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.streamcloud.app"
@@ -313,7 +313,7 @@ tasks.configureEach {
 // what this project's compileSdk / toolchain supports.
 //
 // haze 1.5.4 (via org.jetbrains.compose) pulls in:
-//   - androidx.activity 1.10.x  → requires compileSdk 35 (now supported)
+//   - androidx.activity 1.10.x  → requires compileSdk 35+ (now supported)
 //   - kotlin-stdlib    2.1.0    → compiler emits metadata 2.1.0; Room kapt
 //                                  (kotlinx-metadata-jvm bundled in Room) caps
 //                                  at 2.0.0 and crashes. Kotlin compiler plugin
@@ -367,7 +367,7 @@ dependencies {
     // Networking (Retrofit + OkHttp + official Kotlinx serialization converter)
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-kotlinx-serialization:2.11.0")
-    // OkHttp 4.12 is compatible with the app's Kotlin 2.0 compiler and compileSdk 34.
+    // OkHttp 4.12 stays compatible with the app's Kotlin 2.0 compiler baseline.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
     // CloudStream extensions may call URLUtilsKt.Url(...) from their compiled provider code.
@@ -384,17 +384,18 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
     // Media3 ExoPlayer (audio + video)
-    implementation("androidx.media3:media3-exoplayer:1.9.2")
-    implementation("androidx.media3:media3-exoplayer-hls:1.9.2")
-    implementation("androidx.media3:media3-exoplayer-dash:1.9.2")
-    implementation("androidx.media3:media3-ui:1.9.2")
-    implementation("androidx.media3:media3-session:1.9.2")
-    implementation("androidx.media3:media3-common:1.9.2")
+    implementation("androidx.media3:media3-exoplayer:1.10.0")
+    implementation("androidx.media3:media3-exoplayer-hls:1.10.0")
+    implementation("androidx.media3:media3-exoplayer-dash:1.10.0")
+    implementation("androidx.media3:media3-inspector-frame:1.10.0")
+    implementation("androidx.media3:media3-ui:1.10.0")
+    implementation("androidx.media3:media3-session:1.10.0")
+    implementation("androidx.media3:media3-common:1.10.0")
     implementation("com.google.android.gms:play-services-wearable:18.2.0")
     // OkHttp-backed data source for Media3 — replaces DefaultHttpDataSource in the
     // download pipeline so downloads get HTTP/2, connection pooling, and socket-level
     // buffer tuning instead of bare HttpURLConnection.
-    implementation("androidx.media3:media3-datasource-okhttp:1.9.2")
+    implementation("androidx.media3:media3-datasource-okhttp:1.10.0")
 
     // Nuvio Engine's pinned wrapper sources and verified ABI libraries are
     // prepared by prepareNuvioEngine; the upstream Kotlin 2.3 AAR classes are not linked.
@@ -407,8 +408,8 @@ dependencies {
         exclude(group = "org.mozilla", module = "rhino-engine")
         exclude(group = "org.mozilla", module = "rhino-runtime")
         // PipePipe uses StreamCloud's Downloader implementation, not OkHttp directly. Its
-        // packaged OkHttp 5.4 runtime requires Android SDK 36 and Kotlin 2.2 metadata, neither
-        // of which is compatible with StreamCloud's existing Android/Kotlin toolchain.
+        // packaged OkHttp 5.4 runtime requires Kotlin 2.2 metadata, which is incompatible with
+        // StreamCloud's Kotlin 2.0 / Room KAPT baseline.
         exclude(group = "com.squareup.okhttp3", module = "okhttp")
         exclude(group = "com.squareup.okhttp3", module = "okhttp-android")
     }
