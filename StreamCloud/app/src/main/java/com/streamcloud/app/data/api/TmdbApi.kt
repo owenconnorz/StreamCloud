@@ -324,6 +324,13 @@ interface TmdbApi {
         @Query("page") page: Int = 1,
     ): TmdbListResponse
 
+    @GET("3/movie/{id}/recommendations")
+    suspend fun movieRecommendations(
+        @retrofit2.http.Path("id") id: Long,
+        @Query("api_key") apiKey: String,
+        @Query("page") page: Int = 1,
+    ): TmdbListResponse
+
     @GET("3/movie/{id}/release_dates")
     suspend fun movieReleaseDates(
         @retrofit2.http.Path("id") id: Long,
@@ -378,6 +385,13 @@ interface TmdbApi {
 
     @GET("3/tv/{id}/similar")
     suspend fun tvSimilar(
+        @retrofit2.http.Path("id") id: Long,
+        @Query("api_key") apiKey: String,
+        @Query("page") page: Int = 1,
+    ): TmdbListResponse
+
+    @GET("3/tv/{id}/recommendations")
+    suspend fun tvRecommendations(
         @retrofit2.http.Path("id") id: Long,
         @Query("api_key") apiKey: String,
         @Query("page") page: Int = 1,

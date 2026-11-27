@@ -2231,6 +2231,9 @@ fun StreamCloudApp(
                     com.streamcloud.app.ui.theme.SelectedAppPaletteTheme {
                     NativePlayerScreen(
                         streamUrl = currentUrl,
+                        onOpenRecommendation = { mediaType, tmdbId ->
+                            nav.navigate("$mediaType/$tmdbId")
+                        },
                         onWatchPartyMedia = { media ->
                             nav.navigate("${media.mediaType}/${media.tmdbId}?openSources=true&season=${media.season}&episode=${media.episode}")
                         },
