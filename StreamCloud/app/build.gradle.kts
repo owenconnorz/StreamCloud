@@ -384,18 +384,17 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
     // Media3 ExoPlayer (audio + video)
-    implementation("androidx.media3:media3-exoplayer:1.10.0")
-    implementation("androidx.media3:media3-exoplayer-hls:1.10.0")
-    implementation("androidx.media3:media3-exoplayer-dash:1.10.0")
-    implementation("androidx.media3:media3-inspector-frame:1.10.0")
-    implementation("androidx.media3:media3-ui:1.10.0")
-    implementation("androidx.media3:media3-session:1.10.0")
-    implementation("androidx.media3:media3-common:1.10.0")
+    implementation("androidx.media3:media3-exoplayer:1.9.2")
+    implementation("androidx.media3:media3-exoplayer-hls:1.9.2")
+    implementation("androidx.media3:media3-exoplayer-dash:1.9.2")
+    implementation("androidx.media3:media3-ui:1.9.2")
+    implementation("androidx.media3:media3-session:1.9.2")
+    implementation("androidx.media3:media3-common:1.9.2")
     implementation("com.google.android.gms:play-services-wearable:18.2.0")
     // OkHttp-backed data source for Media3 — replaces DefaultHttpDataSource in the
     // download pipeline so downloads get HTTP/2, connection pooling, and socket-level
     // buffer tuning instead of bare HttpURLConnection.
-    implementation("androidx.media3:media3-datasource-okhttp:1.10.0")
+    implementation("androidx.media3:media3-datasource-okhttp:1.9.2")
 
     // Nuvio Engine's pinned wrapper sources and verified ABI libraries are
     // prepared by prepareNuvioEngine; the upstream Kotlin 2.3 AAR classes are not linked.
