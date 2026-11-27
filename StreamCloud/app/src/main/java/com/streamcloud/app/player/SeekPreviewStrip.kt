@@ -2,11 +2,9 @@ package com.streamcloud.app.player
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.media.MediaMetadataRetriever
-import android.net.Uri
-import android.os.Build
 import android.os.SystemClock
 import android.util.LruCache
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -41,12 +39,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.inspector.frame.FrameExtractor
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import java.io.Closeable
 import java.security.MessageDigest
 import java.util.concurrent.Executors
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 internal data class SeekPreviewFrame(
     val positionMs: Long,
@@ -67,10 +76,13 @@ internal fun seekPreviewPositions(durationMs: Long, centerPositionMs: Long): Lis
  * Extracts small preview frames from the active stream. Work is serialized off the UI thread;
  * preview failures never affect the ExoPlayer instance or interrupt playback.
  */
+@OptIn(UnstableApi::class)
 internal class SeekPreviewLoader(context: Context) : Closeable {
     private companion object {
         const val FAILED_FRAME_RETRY_DELAY_MS = 20_000L
         const val UNAVAILABLE_SOURCE_RETRY_DELAY_MS = 8_000L
+        const val MAX_FRAME_BATCH_MS = 18_000L
+        const val TAG = "SeekPreviewLoader"
     }
 
     private val appContext = context.applicationContext
@@ -88,13 +100,18 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
 
     suspend fun loadFrames(
         sourceUrl: String,
+        mediaSourceFactory: MediaSource.Factory,
+        mediaItem: MediaItem,
         headers: Map<String, String>,
         durationMs: Long,
         centerPositionMs: Long,
     ): List<SeekPreviewFrame> = withContext(dispatcher) {
         if (sourceUrl.isBlank() || durationMs <= 0L) return@withContext emptyList()
 
-        val sourceKey = fingerprint(sourceUrl, headers)
+        val sourceKey = fingerprint(
+            "$sourceUrl\n${mediaItem.localConfiguration?.mimeType.orEmpty()}",
+            headers,
+        )
         val positions = seekPreviewPositions(durationMs, centerPositionMs)
         val now = SystemClock.elapsedRealtime()
 
@@ -108,48 +125,68 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
             missing.isNotEmpty() &&
             (unavailableSources[sourceKey] ?: 0L) <= now
         ) {
-            val retriever = MediaMetadataRetriever()
+            var extractor: FrameExtractor? = null
             try {
-                val uri = Uri.parse(sourceUrl)
-                when (uri.scheme?.lowercase()) {
-                    "content" -> retriever.setDataSource(appContext, uri)
-                    "file" -> retriever.setDataSource(uri.path ?: sourceUrl)
-                    null -> retriever.setDataSource(sourceUrl)
-                    else -> retriever.setDataSource(sourceUrl, headers)
-                }
-
-                missing.forEach { positionMs ->
+                extractor = FrameExtractor.Builder(appContext, mediaItem)
+                    .setMediaSourceFactory(mediaSourceFactory)
+                    .setSeekParameters(SeekParameters.CLOSEST_SYNC)
+                    .build()
+                val deadline = SystemClock.elapsedRealtime() + MAX_FRAME_BATCH_MS
+                for (positionMs in missing) {
+                    currentCoroutineContext().ensureActive()
                     val key = keys.getValue(positionMs)
-                    val frame = try {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-                            retriever.getScaledFrameAtTime(
-                                positionMs * 1_000L,
-                                MediaMetadataRetriever.OPTION_CLOSEST,
-                                320,
-                                180,
-                            )
-                        } else {
-                            retriever.getFrameAtTime(
-                                positionMs * 1_000L,
-                                MediaMetadataRetriever.OPTION_CLOSEST,
-                            )
+                    val remainingMs = deadline - SystemClock.elapsedRealtime()
+                    if (remainingMs <= 0L) {
+                        failedFrames[key] =
+                            SystemClock.elapsedRealtime() + FAILED_FRAME_RETRY_DELAY_MS
+                        break
+                    }
+                    val frameFuture = extractor.getFrame(positionMs)
+                    val bitmap = try {
+                        runInterruptible {
+                            frameFuture.get(remainingMs, TimeUnit.MILLISECONDS).bitmap
                         }
-                    } catch (_: RuntimeException) {
+                    } catch (timeout: TimeoutException) {
+                        frameFuture.cancel(true)
+                        Log.w(TAG, "Frame extraction timed out")
+                        unavailableSources[sourceKey] =
+                            SystemClock.elapsedRealtime() + UNAVAILABLE_SOURCE_RETRY_DELAY_MS
+                        failedFrames[key] =
+                            SystemClock.elapsedRealtime() + FAILED_FRAME_RETRY_DELAY_MS
+                        break
+                    } catch (failure: ExecutionException) {
+                        Log.w(
+                            TAG,
+                            "Frame extraction failed (${failure.cause?.javaClass?.simpleName ?: "unknown"})",
+                        )
+                        null
+                    } catch (failure: Exception) {
+                        if (failure is kotlinx.coroutines.CancellationException) {
+                            frameFuture.cancel(true)
+                            throw failure
+                        }
+                        Log.w(TAG, "Frame extraction failed (${failure.javaClass.simpleName})")
                         null
                     }
-                    if (frame == null) {
+                    if (bitmap == null) {
                         failedFrames[key] = SystemClock.elapsedRealtime() + FAILED_FRAME_RETRY_DELAY_MS
                     } else {
-                        val thumbnail = frame.toPreviewBitmap()
+                        val thumbnail = bitmap.toPreviewBitmap()
                         cache.put(key, thumbnail)
                         failedFrames.remove(key)
                     }
                 }
-            } catch (_: Exception) {
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w(
+                    TAG,
+                    "Could not open playback source for frame extraction (${error.javaClass.simpleName})",
+                )
                 unavailableSources[sourceKey] =
                     SystemClock.elapsedRealtime() + UNAVAILABLE_SOURCE_RETRY_DELAY_MS
             } finally {
-                runCatching { retriever.release() }
+                runCatching { extractor?.close() }
             }
         }
 

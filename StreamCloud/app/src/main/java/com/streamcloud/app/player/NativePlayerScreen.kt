@@ -66,22 +66,18 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.dash.DashMediaSource
-import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.exoplayer.source.MediaSource
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.session.MediaSession
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.CaptionStyleCompat
@@ -179,7 +175,47 @@ fun NativePlayerScreen(
     val activeAutoSource = if (autoSwitchIdx.value >= 0) sources.getOrNull(autoSwitchIdx.value) else null
     val effectiveUrl     = activeAutoSource?.url ?: streamUrl
     val effectiveHeaders = activeAutoSource?.headers?.takeIf { it.isNotEmpty() } ?: headers
-
+    val playbackDataSourceFactory = remember(context, effectiveHeaders, addonSubtitles) {
+        val playerUserAgent = effectiveHeaders["User-Agent"] ?: "StreamCloud/1.0 (ExoPlayer)"
+        val requestHeaders = effectiveHeaders - "User-Agent"
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setUserAgent(playerUserAgent)
+            .also { factory ->
+                if (requestHeaders.isNotEmpty()) {
+                    factory.setDefaultRequestProperties(requestHeaders)
+                }
+            }
+        val subtitleHeaders = addonSubtitles
+            .filter { it.headers.isNotEmpty() }
+            .associate { it.url to it.headers }
+        val resolvingHttpFactory = ResolvingDataSource.Factory(httpFactory) { dataSpec ->
+            val extraHeaders = subtitleHeaders[dataSpec.uri.toString()].orEmpty()
+            if (extraHeaders.isEmpty()) dataSpec
+            else dataSpec.buildUpon()
+                .setHttpRequestHeaders(dataSpec.httpRequestHeaders + extraHeaders)
+                .build()
+        }
+        DefaultDataSource.Factory(context, resolvingHttpFactory)
+    }
+    val playbackMediaSourceFactory = remember(playbackDataSourceFactory) {
+        DefaultMediaSourceFactory(playbackDataSourceFactory)
+    }
+    val playbackMediaItem = remember(resolvedUrl, forceHls) {
+        resolvedUrl?.takeIf { it.isNotBlank() }?.let { url ->
+            MediaItem.Builder()
+                .setUri(url)
+                .apply {
+                    when {
+                        forceHls || url.contains(".m3u8", ignoreCase = true) ->
+                            setMimeType(MimeTypes.APPLICATION_M3U8)
+                        url.contains(".mpd", ignoreCase = true) ->
+                            setMimeType(MimeTypes.APPLICATION_MPD)
+                    }
+                }
+                .build()
+        }
+    }
     LaunchedEffect(effectiveUrl, restartKey) {
         resolvedUrl  = null
         resolveError = null
@@ -292,36 +328,19 @@ fun NativePlayerScreen(
         hwDecodingEnabled,
         decoderFallbackEnabled,
         tunneledPlaybackEnabled,
+        playbackDataSourceFactory,
+        playbackMediaSourceFactory,
+        playbackMediaItem,
     ) {
         player.value?.release()
         player.value = null
         playbackError = null
         if (needsWebView) return@LaunchedEffect
-        val url = resolvedUrl ?: return@LaunchedEffect
-        val playerUserAgent = effectiveHeaders["User-Agent"] ?: "StreamCloud/1.0 (ExoPlayer)"
-        val requestHeaders = effectiveHeaders - "User-Agent"
-        val httpFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setUserAgent(playerUserAgent)
-            .also { f -> if (requestHeaders.isNotEmpty()) f.setDefaultRequestProperties(requestHeaders) }
-        val subtitleHeaders = addonSubtitles
-            .filter { it.headers.isNotEmpty() }
-            .associate { it.url to it.headers }
-        val resolvingHttpFactory = ResolvingDataSource.Factory(httpFactory) { dataSpec ->
-            val extraHeaders = subtitleHeaders[dataSpec.uri.toString()].orEmpty()
-            if (extraHeaders.isEmpty()) dataSpec
-            else dataSpec.buildUpon()
-                .setHttpRequestHeaders(dataSpec.httpRequestHeaders + extraHeaders)
-                .build()
-        }
-        val dsFactory: DataSource.Factory = DefaultDataSource.Factory(context, resolvingHttpFactory)
-        val mediaItem = MediaItem.fromUri(url)
-        val source: MediaSource = when {
-            forceHls || url.contains(".m3u8", true) ->
-                HlsMediaSource.Factory(dsFactory).createMediaSource(mediaItem)
-            url.contains(".mpd", true)  -> DashMediaSource.Factory(dsFactory).createMediaSource(mediaItem)
-            else -> ProgressiveMediaSource.Factory(dsFactory).createMediaSource(mediaItem)
-        }
+        if (resolvedUrl == null) return@LaunchedEffect
+        val mediaSourceFactory = playbackMediaSourceFactory
+        val mediaItem = playbackMediaItem
+        if (mediaSourceFactory == null || mediaItem == null) return@LaunchedEffect
+        val source = mediaSourceFactory.createMediaSource(mediaItem)
         val videoAudioAttrs = androidx.media3.common.AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build()
         val renderersFactory = androidx.media3.exoplayer.DefaultRenderersFactory(context)
@@ -359,7 +378,7 @@ fun NativePlayerScreen(
         val ex = ExoPlayer.Builder(context)
             .setRenderersFactory(renderersFactory)
             .setTrackSelector(trackSelector)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dsFactory))
+            .setMediaSourceFactory(mediaSourceFactory)
             .setAudioAttributes(videoAudioAttrs, true)
             .setHandleAudioBecomingNoisy(true)
             .build()
@@ -948,15 +967,26 @@ fun NativePlayerScreen(
         durationMs,
         seekPreviewPositionMs,
         ex,
+        playbackMediaSourceFactory,
+        playbackMediaItem,
     ) {
         if (!showSeekPreview) {
             seekPreviewLoading = false
             return@LaunchedEffect
         }
         val sourceUrl = resolvedUrl?.takeIf { it.isNotBlank() }
-            ?: return@LaunchedEffect
-        val currentPlayer = ex ?: return@LaunchedEffect
-        if (!currentPlayer.isCurrentMediaItemSeekable || durationMs <= 0L) return@LaunchedEffect
+        val mediaSourceFactory = playbackMediaSourceFactory
+        val mediaItem = playbackMediaItem
+        val currentPlayer = ex
+        if (
+            sourceUrl == null || mediaSourceFactory == null || mediaItem == null ||
+            currentPlayer == null || !currentPlayer.isCurrentMediaItemSeekable || durationMs <= 0L
+        ) {
+            seekPreviewFrames = emptyList()
+            seekPreviewLoading = false
+            seekPreviewUnavailable = true
+            return@LaunchedEffect
+        }
 
         val centerPositionMs = seekPreviewPosition.coerceIn(0L, (durationMs - 1L).coerceAtLeast(0L))
         seekPreviewFrames = seekPreviewPositions(durationMs, centerPositionMs)
@@ -967,6 +997,8 @@ fun NativePlayerScreen(
         val frames = try {
             seekPreviewLoader.loadFrames(
                 sourceUrl = sourceUrl,
+                mediaSourceFactory = mediaSourceFactory,
+                mediaItem = mediaItem,
                 headers = effectiveHeaders,
                 durationMs = durationMs,
                 centerPositionMs = centerPositionMs,
