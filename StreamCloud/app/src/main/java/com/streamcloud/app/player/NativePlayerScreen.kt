@@ -105,7 +105,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -219,6 +221,7 @@ fun NativePlayerScreen(
                 .build()
         }
     }
+
     LaunchedEffect(effectiveUrl, restartKey) {
         resolvedUrl  = null
         resolveError = null
@@ -613,7 +616,9 @@ fun NativePlayerScreen(
     var positionMs        by remember { mutableStateOf(0L) }
     var durationMs        by remember { mutableStateOf(0L) }
     var progressBarFocused by remember { mutableStateOf(false) }
-    var seekPreviewPositionMs by remember { mutableStateOf<Long?>(null) }
+    var seekPreviewPositionMs by remember(resolvedUrl, restartKey) {
+        mutableStateOf<Long?>(null)
+    }
     var playbackEnded     by remember(streamUrl, restartKey) { mutableStateOf(false) }
     var controlsVisible   by remember { mutableStateOf(true) }
     var lastInteractionTs by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -974,7 +979,10 @@ fun NativePlayerScreen(
         playbackMediaItem,
     ) {
         if (!showSeekPreview) {
+            seekPreviewPositionMs = null
+            seekPreviewFrames = emptyList()
             seekPreviewLoading = false
+            seekPreviewUnavailable = false
             return@LaunchedEffect
         }
         val sourceUrl = resolvedUrl?.takeIf { it.isNotBlank() }
@@ -991,15 +999,25 @@ fun NativePlayerScreen(
             return@LaunchedEffect
         }
 
-        snapshotFlow { seekPreviewPosition }
+        if (seekPreviewPositionMs == null) {
+            seekPreviewPositionMs = currentPlayer.currentPosition.coerceIn(
+                0L,
+                (durationMs - 1L).coerceAtLeast(0L),
+            )
+        }
+
+        snapshotFlow { seekPreviewPositionMs }
+            .filterNotNull()
             .distinctUntilChanged()
+            .conflate()
             .collect { requestedPositionMs ->
-                seekPreviewLoading = true
                 delay(450L)
-                if (!showSeekPreview || seekPreviewPosition != requestedPositionMs) {
+                if (!showSeekPreview || seekPreviewPositionMs != requestedPositionMs) {
+                    if (!showSeekPreview) seekPreviewLoading = false
                     return@collect
                 }
 
+                seekPreviewLoading = true
                 val centerPositionMs = requestedPositionMs
                     .coerceIn(0L, (durationMs - 1L).coerceAtLeast(0L))
                 val loadGeneration = seekPreviewLoadGeneration + 1
@@ -1017,11 +1035,21 @@ fun NativePlayerScreen(
                             headers = effectiveHeaders,
                             durationMs = durationMs,
                             centerPositionMs = centerPositionMs,
+                            onFramesUpdated = { frames ->
+                                if (
+                                    loadGeneration == seekPreviewLoadGeneration &&
+                                    seekPreviewPositionMs == centerPositionMs
+                                ) {
+                                    seekPreviewFrames = frames
+                                    seekPreviewUnavailable =
+                                        frames.none { it.bitmap != null }
+                                }
+                            },
                         )
                     }.orEmpty()
                     if (
                         loadGeneration == seekPreviewLoadGeneration &&
-                        seekPreviewPosition == centerPositionMs
+                        seekPreviewPositionMs == centerPositionMs
                     ) {
                         seekPreviewFrames = frames
                         seekPreviewUnavailable = frames.none { it.bitmap != null }

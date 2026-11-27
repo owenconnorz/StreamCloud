@@ -44,6 +44,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.inspector.frame.FrameExtractor
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.currentCoroutineContext
@@ -56,6 +57,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import kotlin.math.abs
 
 internal data class SeekPreviewFrame(
     val positionMs: Long,
@@ -104,6 +106,7 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
         headers: Map<String, String>,
         durationMs: Long,
         centerPositionMs: Long,
+        onFramesUpdated: suspend (List<SeekPreviewFrame>) -> Unit,
     ): List<SeekPreviewFrame> = withContext(dispatcher) {
         if (sourceUrl.isBlank() || durationMs <= 0L) return@withContext emptyList()
 
@@ -118,7 +121,7 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
         val missing = positions.filter { position ->
             val key = keys.getValue(position)
             cache.get(key) == null && (failedFrames[key] ?: 0L) <= now
-        }
+        }.sortedBy { abs(it - centerPositionMs) }
 
         if (
             missing.isNotEmpty() &&
@@ -177,6 +180,16 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
                     } else {
                         cache.put(key, bitmap.toPreviewBitmap())
                         failedFrames.remove(key)
+                        withContext(Dispatchers.Main.immediate) {
+                            onFramesUpdated(
+                                positions.map { position ->
+                                    SeekPreviewFrame(
+                                        positionMs = position,
+                                        bitmap = cache.get(keys.getValue(position)),
+                                    )
+                                },
+                            )
+                        }
                     }
                 }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
