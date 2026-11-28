@@ -45,6 +45,7 @@ import com.streamcloud.app.data.plugins.PluginRuntime
 import com.streamcloud.app.player.PlayerSource
 import com.streamcloud.app.player.WatchProgressKey
 import com.lagradost.cloudstream3.Episode
+import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.MovieLoadResponse
@@ -107,6 +108,9 @@ fun CloudStreamDetailScreen(
     url: String,
     initialTitle: String,
     initialPoster: String?,
+    autoPlayOnStart: Boolean = false,
+    initialSeasonNumber: Int? = null,
+    initialEpisodeNumber: Int? = null,
     onBack: () -> Unit,
     onPlay: (initialUrl: String, title: String, sources: List<PlayerSource>, progressKey: WatchProgressKey) -> Unit,
 ) {
@@ -249,6 +253,63 @@ fun CloudStreamDetailScreen(
             } finally {
                 resolvingData = null
             }
+        }
+    }
+
+    LaunchedEffect(
+        autoPlayOnStart,
+        state,
+        initialSeasonNumber,
+        initialEpisodeNumber,
+        sourcesState,
+    ) {
+        if (!autoPlayOnStart) return@LaunchedEffect
+        val response = (state as? CsDetailState.Ready)?.response ?: return@LaunchedEffect
+        when (response) {
+            is MovieLoadResponse -> {
+                if (sourcesState == SourcesState.Fetching) return@LaunchedEffect
+                resolveAndPlay(response.dataUrl, null)
+            }
+            is TvSeriesLoadResponse -> {
+                val episode = response.episodes.firstOrNull {
+                    (initialSeasonNumber == null || it.season == initialSeasonNumber) &&
+                        (initialEpisodeNumber == null || it.episode == initialEpisodeNumber)
+                } ?: if (initialSeasonNumber == null && initialEpisodeNumber == null) {
+                    response.episodes.firstOrNull()
+                } else {
+                    null
+                }
+                episode?.let {
+                    resolveAndPlay(
+                        data = it.data,
+                        episodeTitle = it.name,
+                        seasonNumber = it.season,
+                        episodeNumber = it.episode,
+                        episodeName = it.name,
+                    )
+                }
+            }
+            is AnimeLoadResponse -> {
+                val episodes = response.episodes.values.flatten()
+                val episode = episodes.firstOrNull {
+                    (initialSeasonNumber == null || it.season == initialSeasonNumber) &&
+                        (initialEpisodeNumber == null || it.episode == initialEpisodeNumber)
+                } ?: if (initialSeasonNumber == null && initialEpisodeNumber == null) {
+                    episodes.firstOrNull()
+                } else {
+                    null
+                }
+                episode?.let {
+                    resolveAndPlay(
+                        data = it.data,
+                        episodeTitle = it.name,
+                        seasonNumber = it.season,
+                        episodeNumber = it.episode,
+                        episodeName = it.name,
+                    )
+                }
+            }
+            else -> Unit
         }
     }
 

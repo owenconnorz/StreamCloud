@@ -830,12 +830,32 @@ fun StreamCloudApp(
                             val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
                             nav.navigate("cs-detail/$p/$u/$n/$po")
                         },
+                        onResumeCsItem = { plugin, itemUrl, itemName, poster, season, episode ->
+                            val p = URLEncoder.encode(plugin, "UTF-8")
+                            val u = URLEncoder.encode(itemUrl, "UTF-8")
+                            val n = URLEncoder.encode(itemName, "UTF-8")
+                            val po = URLEncoder.encode(poster.orEmpty().ifBlank { " " }, "UTF-8")
+                            nav.navigate(
+                                "cs-detail/$p/$u/$n/$po?autoPlayResume=true" +
+                                    "&season=${season?.toString().orEmpty()}" +
+                                    "&episode=${episode?.toString().orEmpty()}",
+                            )
+                        },
                         onOpenSourcePage = { id, mediaType, season, episode ->
                             val route = if (mediaType == "tv") "tv" else "movie"
                             nav.navigate(
                                 "$route/$id?openSources=true" +
                                     "&season=${season?.toString().orEmpty()}" +
                                     "&episode=${episode?.toString().orEmpty()}",
+                            )
+                        },
+                        onResumeSourcePage = { id, mediaType, season, episode ->
+                            val route = if (mediaType == "tv") "tv" else "movie"
+                            nav.navigate(
+                                "$route/$id?openSources=true" +
+                                    "&season=${season?.toString().orEmpty()}" +
+                                    "&episode=${episode?.toString().orEmpty()}" +
+                                    "&autoPlayResume=true",
                             )
                         },
                         onViewAllCsSection = { plugin, section, displayName ->
@@ -1049,12 +1069,19 @@ fun StreamCloudApp(
                     )
                 }
                 composable(
-                    "cs-detail/{plugin}/{url}/{name}/{poster}",
+                    "cs-detail/{plugin}/{url}/{name}/{poster}?autoPlayResume={autoPlayResume}&season={season}&episode={episode}",
                     arguments = listOf(
                         navArgument("plugin") { type = NavType.StringType },
                         navArgument("url") { type = NavType.StringType },
                         navArgument("name") { type = NavType.StringType },
                         navArgument("poster") { type = NavType.StringType },
+                        navArgument("autoPlayResume") { type = NavType.BoolType; defaultValue = false },
+                        navArgument("season") {
+                            type = NavType.StringType; nullable = true; defaultValue = null
+                        },
+                        navArgument("episode") {
+                            type = NavType.StringType; nullable = true; defaultValue = null
+                        },
                     ),
                 ) { entry ->
                     val plugin = URLDecoder.decode(entry.arguments!!.getString("plugin")!!, "UTF-8")
@@ -1066,6 +1093,12 @@ fun StreamCloudApp(
                         url = itemUrl,
                         initialTitle = itemName,
                         initialPoster = poster.takeIf { it.isNotBlank() },
+                        autoPlayOnStart =
+                            entry.arguments?.getBoolean("autoPlayResume") == true,
+                        initialSeasonNumber =
+                            entry.arguments?.getString("season")?.toIntOrNull(),
+                        initialEpisodeNumber =
+                            entry.arguments?.getString("episode")?.toIntOrNull(),
                         onBack = { nav.popBackStack() },
                         onPlay = { initialUrl, title, sources, progressKey ->
                             com.streamcloud.app.player.MoviePlayerSession.set(
@@ -1080,7 +1113,7 @@ fun StreamCloudApp(
                     )
                 }
                 composable(
-                    "movie/{id}?openSources={openSources}&season={season}&episode={episode}",
+                    "movie/{id}?openSources={openSources}&season={season}&episode={episode}&autoPlayResume={autoPlayResume}",
                     arguments = listOf(
                         navArgument("id") { type = NavType.LongType },
                         navArgument("openSources") { type = NavType.BoolType; defaultValue = false },
@@ -1089,6 +1122,9 @@ fun StreamCloudApp(
                         },
                         navArgument("episode") {
                             type = NavType.StringType; nullable = true; defaultValue = null
+                        },
+                        navArgument("autoPlayResume") {
+                            type = NavType.BoolType; defaultValue = false
                         },
                     ),
                 ) { entry ->
@@ -1102,6 +1138,8 @@ fun StreamCloudApp(
                             entry.arguments?.getString("season")?.toIntOrNull(),
                         initialPickerEpisode =
                             entry.arguments?.getString("episode")?.toIntOrNull(),
+                        autoPlayResumeOnStart =
+                            entry.arguments?.getBoolean("autoPlayResume") == true,
                         onBack = { nav.popBackStack() },
                         onPlay = { initialUrl, title, sources, progressKey, bingeEpisodes, currentBingeIndex, pauseOverlayMetadata ->
                             com.streamcloud.app.player.MoviePlayerSession.set(
@@ -1150,7 +1188,7 @@ fun StreamCloudApp(
                     )
                 }
                 composable(
-                    "tv/{id}?openSources={openSources}&season={season}&episode={episode}",
+                    "tv/{id}?openSources={openSources}&season={season}&episode={episode}&autoPlayResume={autoPlayResume}",
                     arguments = listOf(
                         navArgument("id") { type = NavType.LongType },
                         navArgument("openSources") { type = NavType.BoolType; defaultValue = false },
@@ -1159,6 +1197,9 @@ fun StreamCloudApp(
                         },
                         navArgument("episode") {
                             type = NavType.StringType; nullable = true; defaultValue = null
+                        },
+                        navArgument("autoPlayResume") {
+                            type = NavType.BoolType; defaultValue = false
                         },
                     ),
                 ) { entry ->
@@ -1172,6 +1213,8 @@ fun StreamCloudApp(
                             entry.arguments?.getString("season")?.toIntOrNull(),
                         initialPickerEpisode =
                             entry.arguments?.getString("episode")?.toIntOrNull(),
+                        autoPlayResumeOnStart =
+                            entry.arguments?.getBoolean("autoPlayResume") == true,
                         onBack = { nav.popBackStack() },
                         onPlay = { initialUrl, title, sources, progressKey, bingeEpisodes, currentBingeIndex, pauseOverlayMetadata ->
                             com.streamcloud.app.player.MoviePlayerSession.set(

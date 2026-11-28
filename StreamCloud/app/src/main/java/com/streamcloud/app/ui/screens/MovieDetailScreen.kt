@@ -256,6 +256,7 @@ fun MovieDetailScreen(
     openSourcePickerOnStart: Boolean = false,
     initialPickerSeason: Int? = null,
     initialPickerEpisode: Int? = null,
+    autoPlayResumeOnStart: Boolean = false,
     tvNavDownFocusHandoffVersion: Int = 0,
 ) {
     val context = LocalContext.current
@@ -309,6 +310,14 @@ fun MovieDetailScreen(
     var pickerForDownload by remember { mutableStateOf(false) }
     var openInitialSourcePicker by rememberSaveable(movieId, mediaType, openSourcePickerOnStart) {
         mutableStateOf(openSourcePickerOnStart)
+    }
+    var autoPlayResumePending by rememberSaveable(
+        movieId,
+        mediaType,
+        openSourcePickerOnStart,
+        autoPlayResumeOnStart,
+    ) {
+        mutableStateOf(openSourcePickerOnStart && autoPlayResumeOnStart)
     }
     var showDownloadEpisodePicker by remember { mutableStateOf(false) }
     var pickerSeason by remember { mutableStateOf<Int?>(null) }
@@ -558,6 +567,7 @@ fun MovieDetailScreen(
             resolverMessage = "No Stremio addons, Nuvio providers or CloudStream plugins installed."
             return
         }
+        autoPlayResumePending = false
         restartFromBeginning = restart
         resolverMessage = null; pickerForDownload = false
         pickerSeason = null; pickerEpisode = null; pickerEpTitle = null
@@ -570,6 +580,7 @@ fun MovieDetailScreen(
             resolverMessage = "No Stremio addons, Nuvio providers or CloudStream plugins installed."
             return
         }
+        autoPlayResumePending = false
         restartFromBeginning = restart
         pickerForDownload = false
         pickerSeason = seasonNum; pickerEpisode = episodeNum; pickerEpTitle = episodeTitle
@@ -2200,13 +2211,14 @@ fun MovieDetailScreen(
             installedAddons = installedAddons, installedNuvio = installedNuvio, installedCsPlugins = installedCsPlugins,
             // Direct source-page routes honor auto-play too; downloads stay explicit.
             autoPlayBest = shouldAutoPlayBestStream(
-                autoPlayEnabled = autoplayBestStream,
+                autoPlayEnabled = autoplayBestStream || autoPlayResumePending,
                 isDownloadRequest = pickerForDownload,
             ),
             onBack = {
                 showStreamPicker = false
                 pickerForDownload = false
                 openInitialSourcePicker = false
+                autoPlayResumePending = false
                 restartFromBeginning = false
             },
             onPlay = { url, sources ->
@@ -2220,6 +2232,7 @@ fun MovieDetailScreen(
                 } else {
                     showStreamPicker = false
                     openInitialSourcePicker = false
+                    autoPlayResumePending = false
                     val m = movie
                     val displayTitle = buildString {
                         append(m?.displayTitle ?: "Playback")

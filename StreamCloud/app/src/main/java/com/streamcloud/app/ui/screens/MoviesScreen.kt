@@ -218,7 +218,16 @@ fun MoviesScreen(
         { _, _, _, _, _ -> },
     onOpenCsItem: (pluginInternalName: String, url: String, name: String, poster: String?) -> Unit =
         { _, _, _, _ -> },
+    onResumeCsItem: ((
+        pluginInternalName: String,
+        url: String,
+        name: String,
+        poster: String?,
+        season: Int?,
+        episode: Int?,
+    ) -> Unit)? = null,
     onOpenSourcePage: ((tmdbId: Long, mediaType: String, season: Int?, episode: Int?) -> Unit)? = null,
+    onResumeSourcePage: ((tmdbId: Long, mediaType: String, season: Int?, episode: Int?) -> Unit)? = null,
     onViewAllCsSection: (pluginInternalName: String, sectionName: String, pluginDisplayName: String) -> Unit =
         { _, _, _ -> },
     onOpenCollectionFolder: (Long) -> Unit = {},
@@ -450,6 +459,24 @@ fun MoviesScreen(
     val openCwEntry: (WatchProgressEntity) -> Unit = { entry ->
         val sr = entry.sourceRoute
         val resumeTarget = continueWatchingResumeTarget(entry)
+        val openResumeSourcePage = {
+            val openSources = onResumeSourcePage ?: onOpenSourcePage
+            if (
+                openSources != null &&
+                resumeTarget.mediaType in setOf("movie", "tv")
+            ) {
+                openSources(
+                    entry.tmdbId,
+                    resumeTarget.mediaType,
+                    resumeTarget.seasonNumber,
+                    resumeTarget.episodeNumber,
+                )
+            } else if (resumeTarget.mediaType == "tv") {
+                onTvClick(entry.tmdbId)
+            } else {
+                onMovieClick(entry.tmdbId)
+            }
+        }
         if (sr != null && sr.startsWith("cs:")) {
             val parts = sr.removePrefix("cs:").split("|||", limit = 4)
             val plugin = parts.getOrElse(0) { "" }
@@ -457,32 +484,32 @@ fun MoviesScreen(
             val name   = parts.getOrElse(2) { entry.title }
             val poster = parts.getOrElse(3) { "" }.takeIf { it.isNotBlank() }
             if (plugin.isNotBlank() && url.isNotBlank()) {
-                onOpenCsItem(plugin, url, name, poster)
+                if (onResumeCsItem != null) {
+                    onResumeCsItem(
+                        plugin,
+                        url,
+                        name,
+                        poster,
+                        resumeTarget.seasonNumber.takeIf { it > 0 },
+                        resumeTarget.episodeNumber.takeIf { it > 0 },
+                    )
+                } else {
+                    onOpenCsItem(plugin, url, name, poster)
+                }
             } else {
-                if (entry.mediaType == "tv") onTvClick(entry.tmdbId) else onMovieClick(entry.tmdbId)
+                openResumeSourcePage()
             }
-        } else if (sr != null && sr.startsWith("sources:") && onOpenSourcePage != null) {
-            onOpenSourcePage(
-                entry.tmdbId,
-                resumeTarget.mediaType,
-                resumeTarget.seasonNumber,
-                resumeTarget.episodeNumber,
-            )
+        } else if (sr != null && sr.startsWith("sources:") && onResumeSourcePage != null) {
+            openResumeSourcePage()
         } else if (
-            onOpenSourcePage != null &&
+            (onResumeSourcePage != null || onOpenSourcePage != null) &&
             resumeTarget.mediaType in setOf("movie", "tv")
         ) {
-            // Older progress rows may not have a sourceRoute. Open the correct
-            // title/episode's source picker instead of leaving the user on details.
-            onOpenSourcePage(
-                entry.tmdbId,
-                resumeTarget.mediaType,
-                resumeTarget.seasonNumber,
-                resumeTarget.episodeNumber,
-            )
+            // Resume cards use an explicit auto-play route. Do not stop at the
+            // title details page or the source picker.
+            openResumeSourcePage()
         } else {
-            if (resumeTarget.mediaType == "tv") onTvClick(entry.tmdbId)
-            else onMovieClick(entry.tmdbId)
+            openResumeSourcePage()
         }
     }
     var posterSheet by remember { mutableStateOf<PosterSheetItem?>(null) }
