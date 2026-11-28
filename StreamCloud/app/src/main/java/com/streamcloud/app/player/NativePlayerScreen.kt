@@ -112,6 +112,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicLong
 
 private val playerClockTimeFormatter = SimpleDateFormat("HH:mm", Locale.getDefault())
 private val playerClockDateFormatter = SimpleDateFormat("EEE, d MMM", Locale.getDefault())
@@ -921,6 +922,7 @@ fun NativePlayerScreen(
     var seekPreviewLoading by remember { mutableStateOf(false) }
     var seekPreviewUnavailable by remember { mutableStateOf(false) }
     var seekPreviewLoadGeneration by remember { mutableStateOf(0) }
+    val latestSeekPreviewPositionMs = remember { AtomicLong(-1L) }
     var seekPreviewRecommendations by remember { mutableStateOf<List<com.streamcloud.app.data.api.TmdbMovie>>(emptyList()) }
     var seekPreviewRecommendationsLoading by remember { mutableStateOf(false) }
     var seekPreviewStats by remember(ex) {
@@ -981,6 +983,9 @@ fun NativePlayerScreen(
             seekPreviewActive = false
         }
     }
+    LaunchedEffect(seekPreviewPositionMs) {
+        latestSeekPreviewPositionMs.set(seekPreviewPositionMs ?: -1L)
+    }
     LaunchedEffect(
         showSeekPreview,
         seekPreviewExpandedTv,
@@ -1035,10 +1040,16 @@ fun NativePlayerScreen(
                 seekPreviewLoading = true
                 val centerPositionMs = requestedPositionMs
                     .coerceIn(0L, (durationMs - 1L).coerceAtLeast(0L))
+                val requestId = latestSeekPreviewPositionMs.get()
                 val loadGeneration = seekPreviewLoadGeneration + 1
                 seekPreviewLoadGeneration = loadGeneration
-                seekPreviewFrames = seekPreviewPositions(durationMs, centerPositionMs)
-                    .map { SeekPreviewFrame(positionMs = it, bitmap = null) }
+                seekPreviewFrames = seekPreviewLoader.cachedFrames(
+                    sourceUrl = sourceUrl,
+                    mediaItem = mediaItem,
+                    headers = effectiveHeaders,
+                    durationMs = durationMs,
+                    centerPositionMs = centerPositionMs,
+                )
                 seekPreviewUnavailable = false
 
                 try {
@@ -1053,6 +1064,7 @@ fun NativePlayerScreen(
                             onFramesUpdated = { frames ->
                                 if (
                                     loadGeneration == seekPreviewLoadGeneration &&
+                                    latestSeekPreviewPositionMs.get() == requestId &&
                                     seekPreviewPositionMs == centerPositionMs
                                 ) {
                                     seekPreviewFrames = frames
@@ -1066,10 +1078,14 @@ fun NativePlayerScreen(
                                     }
                                 }
                             },
+                            shouldContinue = {
+                                latestSeekPreviewPositionMs.get() == requestId
+                            },
                         )
                     }.orEmpty()
                     if (
                         loadGeneration == seekPreviewLoadGeneration &&
+                        latestSeekPreviewPositionMs.get() == requestId &&
                         seekPreviewPositionMs == centerPositionMs
                     ) {
                         seekPreviewFrames = frames
@@ -1175,6 +1191,58 @@ fun NativePlayerScreen(
         if (controlsVisible && !anyDeviceCasting && !showCastDialog && !seekPreviewExpandedTv) {
             delay(5_000)
             if (System.currentTimeMillis() - lastInteractionTs >= 4_900) controlsVisible = false
+        }
+    }
+
+    LaunchedEffect(
+        resolvedUrl,
+        effectiveHeaders,
+        durationMs,
+        ex,
+        playbackMediaSourceFactory,
+        playbackMediaItem,
+        needsWebView,
+        anyDeviceCasting,
+    ) {
+        val sourceUrl = resolvedUrl?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        val mediaSourceFactory = playbackMediaSourceFactory ?: return@LaunchedEffect
+        val mediaItem = playbackMediaItem ?: return@LaunchedEffect
+        val currentPlayer = ex ?: return@LaunchedEffect
+        if (
+            needsWebView || anyDeviceCasting || durationMs <= 0L ||
+            !currentPlayer.isCurrentMediaItemSeekable
+        ) {
+            return@LaunchedEffect
+        }
+
+        val warmPositionMs = currentPlayer.currentPosition.coerceIn(
+            0L,
+            (durationMs - 1L).coerceAtLeast(0L),
+        )
+        try {
+            val warmedFrames = withTimeoutOrNull(12_000L) {
+                seekPreviewLoader.prewarmFrame(
+                    sourceUrl = sourceUrl,
+                    mediaSourceFactory = mediaSourceFactory,
+                    mediaItem = mediaItem,
+                    headers = effectiveHeaders,
+                    durationMs = durationMs,
+                    positionMs = warmPositionMs,
+                )
+            }.orEmpty()
+            if (
+                warmedFrames.any { it.bitmap != null } &&
+                seekPreviewFrames.none { it.bitmap != null }
+            ) {
+                seekPreviewFrames = warmedFrames
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            Log.w(
+                "NativePlayerScreen",
+                "Could not prewarm seek preview (${failure.javaClass.simpleName})",
+            )
         }
     }
 
@@ -1633,16 +1701,26 @@ fun NativePlayerScreen(
                         } else {
                             positionMs
                         }
+                        val previewTitle = when {
+                            seasonNumber != null && episodeNumber != null ->
+                                episodeLabel?.takeIf { it.isNotBlank() } ?: title
+                            !episodeTitle.isNullOrBlank() -> episodeTitle
+                            else -> title
+                        }
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
-                            val previewWidth = if (isTv) 184.dp else 148.dp
                             val fraction = if (durationMs > 0L) {
                                 seekPreviewPosition.toFloat() / durationMs.toFloat()
                             } else {
                                 0f
                             }.coerceIn(0f, 1f)
+                            val previewCardWidth = if (isTv) 248.dp else 190.dp
+                            val previewActionWidth = if (isTv) 62.dp else 46.dp
+                            val previewSpacing = if (isTv) 8.dp else 6.dp
+                            val previewGroupWidth =
+                                previewCardWidth + 2 * (previewActionWidth + previewSpacing)
                             val previewX = (
-                                maxWidth * fraction - previewWidth / 2
-                            ).coerceIn(0.dp, (maxWidth - previewWidth).coerceAtLeast(0.dp))
+                                maxWidth * fraction - previewGroupWidth / 2
+                            ).coerceIn(0.dp, (maxWidth - previewGroupWidth).coerceAtLeast(0.dp))
                             Slider(
                                 value = if (durationMs > 0) {
                                     visiblePositionMs / durationMs.toFloat()
@@ -1652,9 +1730,22 @@ fun NativePlayerScreen(
                                 onValueChange = { value ->
                                     val targetPosition = (value * durationMs).toLong()
                                         .coerceIn(0L, (durationMs - 1L).coerceAtLeast(0L))
+                                    if (!seekPreviewDragging) {
+                                        val previewSourceUrl = resolvedUrl
+                                            ?.takeIf { it.isNotBlank() }
+                                        val previewMediaItem = playbackMediaItem
+                                        if (previewSourceUrl != null && previewMediaItem != null) {
+                                            seekPreviewFrames = seekPreviewLoader.cachedFrames(
+                                                sourceUrl = previewSourceUrl,
+                                                mediaItem = previewMediaItem,
+                                                headers = effectiveHeaders,
+                                                durationMs = durationMs,
+                                                centerPositionMs = targetPosition,
+                                            )
+                                        }
+                                    }
+                                    latestSeekPreviewPositionMs.set(targetPosition)
                                     seekPreviewPositionMs = targetPosition
-                                    seekPreviewFrames = seekPreviewPositions(durationMs, targetPosition)
-                                        .map { SeekPreviewFrame(positionMs = it, bitmap = null) }
                                     seekPreviewUnavailable = false
                                     seekPreviewLoading = true
                                     seekPreviewDragging = true
@@ -1693,12 +1784,26 @@ fun NativePlayerScreen(
                                     FloatingSeekPreviewCard(
                                         frames = seekPreviewFrames,
                                         centerPositionMs = seekPreviewPosition,
+                                        title = previewTitle,
                                         isLoading = seekPreviewLoading,
                                         previewUnavailable = seekPreviewUnavailable,
                                         isTv = isTv,
+                                        onSeekBy = { deltaMs ->
+                                            val targetPosition = (seekPreviewPosition + deltaMs)
+                                                .coerceIn(0L, (durationMs - 1L).coerceAtLeast(0L))
+                                            latestSeekPreviewPositionMs.set(targetPosition)
+                                            seekPreviewPositionMs = targetPosition
+                                            seekPreviewActive = true
+                                            seekPreviewUnavailable = false
+                                            ex?.seekTo(targetPosition)
+                                            bumpInteraction()
+                                        },
                                         modifier = Modifier
                                             .align(Alignment.TopStart)
-                                            .offset(x = previewX, y = (-96).dp),
+                                            .offset(
+                                                x = previewX,
+                                                y = if (isTv) (-130).dp else (-108).dp,
+                                            ),
                                     )
                                 }
                             }
