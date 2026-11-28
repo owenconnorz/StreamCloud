@@ -106,6 +106,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import java.text.SimpleDateFormat
@@ -1023,9 +1024,9 @@ fun NativePlayerScreen(
         snapshotFlow { seekPreviewPositionMs }
             .filterNotNull()
             .distinctUntilChanged()
+            .debounce(80L)
             .conflate()
             .collect { requestedPositionMs ->
-                delay(450L)
                 if (!showSeekPreview || seekPreviewPositionMs != requestedPositionMs) {
                     if (!showSeekPreview) seekPreviewLoading = false
                     return@collect

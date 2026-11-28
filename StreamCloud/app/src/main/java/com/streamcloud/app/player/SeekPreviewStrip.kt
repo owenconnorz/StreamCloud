@@ -96,6 +96,7 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
         const val FAILED_FRAME_RETRY_DELAY_MS = 20_000L
         const val UNAVAILABLE_SOURCE_RETRY_DELAY_MS = 8_000L
         const val MAX_FRAME_BATCH_MS = 18_000L
+        const val NEARBY_FRAME_CACHE_TOLERANCE_MS = 5_000L
         const val TAG = "SeekPreviewLoader"
     }
 
@@ -136,7 +137,8 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
         val keys = positions.associateWith { frameKey(sourceKey, it) }
         val missing = positions.filter { position ->
             val key = keys.getValue(position)
-            cache.get(key) == null && (failedFrames[key] ?: 0L) <= now
+            cachedBitmap(sourceKey, position) == null &&
+                (failedFrames[key] ?: 0L) <= now
         }.sortedBy { abs(it - centerPositionMs) }
 
         if (
@@ -198,7 +200,7 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
                                 positions.map { position ->
                                     SeekPreviewFrame(
                                         positionMs = position,
-                                        bitmap = cache.get(keys.getValue(position)),
+                                        bitmap = cachedBitmap(sourceKey, position),
                                     )
                                 },
                             )
@@ -220,8 +222,28 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
         }
 
         positions.map { positionMs ->
-            SeekPreviewFrame(positionMs, cache.get(keys.getValue(positionMs)))
+            SeekPreviewFrame(positionMs, cachedBitmap(sourceKey, positionMs))
         }
+    }
+
+    private fun cachedBitmap(sourceKey: String, positionMs: Long): Bitmap? {
+        val exactKey = frameKey(sourceKey, positionMs)
+        cache.get(exactKey)?.let { return it }
+
+        val targetSecond = positionMs / 1_000L
+        val prefix = "$sourceKey:"
+        val nearestKey = cache.snapshot().keys.asSequence()
+            .filter { it.startsWith(prefix) }
+            .mapNotNull { key ->
+                key.substring(prefix.length).toLongOrNull()?.let { key to it }
+            }
+            .filter { (_, second) ->
+                abs(second - targetSecond) * 1_000L <= NEARBY_FRAME_CACHE_TOLERANCE_MS
+            }
+            .minByOrNull { (_, second) -> abs(second - targetSecond) }
+            ?.first
+
+        return nearestKey?.let(cache::get)
     }
 
     override fun close() {
