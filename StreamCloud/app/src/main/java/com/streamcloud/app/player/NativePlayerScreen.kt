@@ -1717,7 +1717,7 @@ fun NativePlayerScreen(
                             val previewActionWidth = if (isTv) 62.dp else 46.dp
                             val previewSpacing = if (isTv) 8.dp else 6.dp
                             val previewGroupWidth =
-                                previewCardWidth + 2 * (previewActionWidth + previewSpacing)
+                                previewCardWidth + (previewActionWidth + previewSpacing) * 2f
                             val previewX = (
                                 maxWidth * fraction - previewGroupWidth / 2
                             ).coerceIn(0.dp, (maxWidth - previewGroupWidth).coerceAtLeast(0.dp))
