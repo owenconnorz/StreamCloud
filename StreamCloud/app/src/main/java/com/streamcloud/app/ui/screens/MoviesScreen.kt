@@ -490,8 +490,8 @@ fun MoviesScreen(
                         url,
                         name,
                         poster,
-                        resumeTarget.seasonNumber.takeIf { it > 0 },
-                        resumeTarget.episodeNumber.takeIf { it > 0 },
+                        resumeTarget.seasonNumber?.takeIf { it > 0 },
+                        resumeTarget.episodeNumber?.takeIf { it > 0 },
                     )
                 } else {
                     onOpenCsItem(plugin, url, name, poster)
