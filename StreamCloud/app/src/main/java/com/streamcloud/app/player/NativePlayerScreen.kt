@@ -619,6 +619,7 @@ fun NativePlayerScreen(
     var seekPreviewPositionMs by remember(resolvedUrl, restartKey) {
         mutableStateOf<Long?>(null)
     }
+    var seekPreviewActive by remember(resolvedUrl, restartKey) { mutableStateOf(false) }
     var playbackEnded     by remember(streamUrl, restartKey) { mutableStateOf(false) }
     var controlsVisible   by remember { mutableStateOf(true) }
     var lastInteractionTs by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -809,7 +810,8 @@ fun NativePlayerScreen(
                 direction = direction,
             )
             p.seekTo(targetPosition)
-            if (progressBarFocused) seekPreviewPositionMs = targetPosition
+            seekPreviewPositionMs = targetPosition
+            seekPreviewActive = true
             bumpInteraction()
             delay(250)
         }
@@ -911,7 +913,6 @@ fun NativePlayerScreen(
     val seekPreviewTabsFocusRequester = remember { FocusRequester() }
     var seekPreviewStripFocused by remember { mutableStateOf(false) }
     var seekPreviewDragging by remember { mutableStateOf(false) }
-    var seekPreviewHold by remember { mutableStateOf(false) }
     var seekPreviewExpandedTv by remember { mutableStateOf(false) }
     var requestSeekBarFocusAfterPreview by remember { mutableStateOf(false) }
     var seekPreviewTab by remember { mutableStateOf(SeekPreviewTab.CHAPTERS) }
@@ -948,25 +949,35 @@ fun NativePlayerScreen(
     val showSeekPreview = controlsVisible && !locked && !needsWebView &&
         !anyDeviceCasting && !showNextEpisodeDialog && durationMs > 0L &&
         ex?.isCurrentMediaItemSeekable == true &&
-        (seekPreviewExpandedTv || progressBarFocused || seekPreviewStripFocused ||
-            seekPreviewDragging || seekPreviewHold)
+        (seekPreviewExpandedTv || seekPreviewDragging || seekPreviewActive)
     val showSeekPreviewPanel = showSeekPreview && isTv && seekPreviewExpandedTv
-    val showFloatingSeekPreview = showSeekPreview && !showSeekPreviewPanel
+    val showFloatingSeekPreview =
+        showSeekPreview && !showSeekPreviewPanel && seekPreviewActive
 
-    LaunchedEffect(progressBarFocused) {
-        if (progressBarFocused) {
-            seekPreviewPositionMs = positionMs
-            seekPreviewHold = true
-        }
-    }
-    LaunchedEffect(progressBarFocused, seekPreviewStripFocused, seekPreviewDragging) {
-        if (progressBarFocused || seekPreviewStripFocused || seekPreviewDragging) {
-            seekPreviewHold = true
+    LaunchedEffect(
+        seekPreviewPositionMs,
+        seekPreviewActive,
+        seekPreviewDragging,
+        seekPreviewExpandedTv,
+        controlsVisible,
+        seekPreviewLoading,
+    ) {
+        if (!controlsVisible) {
+            seekPreviewActive = false
             return@LaunchedEffect
         }
-        delay(700L)
-        if (!progressBarFocused && !seekPreviewStripFocused && !seekPreviewDragging) {
-            seekPreviewHold = false
+        if (
+            !seekPreviewActive || seekPreviewDragging || seekPreviewExpandedTv ||
+            seekPreviewLoading
+        ) {
+            return@LaunchedEffect
+        }
+        delay(1_500L)
+        if (
+            controlsVisible && !seekPreviewDragging && !seekPreviewExpandedTv &&
+            !seekPreviewLoading
+        ) {
+            seekPreviewActive = false
         }
     }
     LaunchedEffect(
@@ -1227,7 +1238,6 @@ fun NativePlayerScreen(
                         0L,
                         (p.duration - 1L).coerceAtLeast(0L),
                     )
-                    seekPreviewHold = true
                     seekPreviewTab = SeekPreviewTab.CHAPTERS
                     seekPreviewExpandedTv = true
                     bumpInteraction()
@@ -1254,7 +1264,8 @@ fun NativePlayerScreen(
                                 direction = seekDirection,
                             )
                             p.seekTo(targetPosition)
-                            if (progressBarFocused) seekPreviewPositionMs = targetPosition
+                            seekPreviewPositionMs = targetPosition
+                            seekPreviewActive = true
                             bumpInteraction()
                         }
                         return@onPreviewKeyEvent true
@@ -1268,8 +1279,23 @@ fun NativePlayerScreen(
                     Key.MediaPlayPause   -> { if (p.isPlaying) p.pause() else p.play(); bumpInteraction(); true }
                     Key.MediaPlay        -> { p.play(); bumpInteraction(); true }
                     Key.MediaPause       -> { p.pause(); bumpInteraction(); true }
-                    Key.MediaFastForward -> { p.seekTo((p.currentPosition + 30_000L).coerceAtMost(p.duration.coerceAtLeast(0L))); bumpInteraction(); true }
-                    Key.MediaRewind      -> { p.seekTo((p.currentPosition - 10_000L).coerceAtLeast(0L)); bumpInteraction(); true }
+                    Key.MediaFastForward -> {
+                        val targetPosition = (p.currentPosition + 30_000L)
+                            .coerceAtMost(p.duration.coerceAtLeast(0L))
+                        p.seekTo(targetPosition)
+                        seekPreviewPositionMs = targetPosition
+                        seekPreviewActive = true
+                        bumpInteraction()
+                        true
+                    }
+                    Key.MediaRewind -> {
+                        val targetPosition = (p.currentPosition - 10_000L).coerceAtLeast(0L)
+                        p.seekTo(targetPosition)
+                        seekPreviewPositionMs = targetPosition
+                        seekPreviewActive = true
+                        bumpInteraction()
+                        true
+                    }
                     else -> false
                 }
             }
@@ -1344,7 +1370,11 @@ fun NativePlayerScreen(
                                         ex?.let { p ->
                                             val seekMs = (seekIncrementSec.toIntOrNull() ?: 10) * 1_000L
                                             val dir = if (startX < widthPx / 2f) -seekMs else +seekMs
-                                            p.seekTo((p.currentPosition + dir).coerceAtLeast(0L))
+                                            val targetPosition = (p.currentPosition + dir)
+                                                .coerceIn(0L, p.duration.coerceAtLeast(0L))
+                                            p.seekTo(targetPosition)
+                                            seekPreviewPositionMs = targetPosition
+                                            seekPreviewActive = true
                                         }
                                         bumpInteraction(); lastTapTime = 0L
                                     } else { bumpInteraction(); lastTapTime = now; lastTapX = startX }
@@ -1541,7 +1571,15 @@ fun NativePlayerScreen(
                     Row(Modifier.align(Alignment.Center).tvFocusGroup(), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(56.dp)) {
                         OutlinedPlayIcon(Icons.Default.Replay10, "Rewind") {
-                            ex?.seekTo((ex.currentPosition - (seekIncrementSec.toIntOrNull() ?: 10) * 1_000L).coerceAtLeast(0L))
+                            ex?.let { player ->
+                                val targetPosition = (
+                                    player.currentPosition -
+                                        (seekIncrementSec.toIntOrNull() ?: 10) * 1_000L
+                                    ).coerceAtLeast(0L)
+                                player.seekTo(targetPosition)
+                                seekPreviewPositionMs = targetPosition
+                                seekPreviewActive = true
+                            }
                             bumpInteraction()
                         }
                         OutlinedPlayIcon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -1551,7 +1589,15 @@ fun NativePlayerScreen(
                             if (ex.isPlaying) ex.pause() else ex.play(); bumpInteraction()
                         }
                         OutlinedPlayIcon(Icons.Default.Forward10, "Forward") {
-                            ex?.seekTo((ex.currentPosition + (seekIncrementSec.toIntOrNull() ?: 10) * 1_000L).coerceAtMost(durationMs))
+                            ex?.let { player ->
+                                val targetPosition = (
+                                    player.currentPosition +
+                                        (seekIncrementSec.toIntOrNull() ?: 10) * 1_000L
+                                    ).coerceAtMost(durationMs)
+                                player.seekTo(targetPosition)
+                                seekPreviewPositionMs = targetPosition
+                                seekPreviewActive = true
+                            }
                             bumpInteraction()
                         }
                     }
@@ -1602,7 +1648,7 @@ fun NativePlayerScreen(
                                     seekPreviewUnavailable = false
                                     seekPreviewLoading = true
                                     seekPreviewDragging = true
-                                    seekPreviewHold = true
+                                    seekPreviewActive = true
                                     ex?.seekTo(targetPosition)
                                     bumpInteraction()
                                 },
@@ -1619,13 +1665,6 @@ fun NativePlayerScreen(
                                     .focusRequester(seekBarFocusRequester)
                                     .onFocusChanged {
                                         progressBarFocused = it.isFocused
-                                        if (it.isFocused) {
-                                            seekPreviewPositionMs = positionMs
-                                            seekPreviewFrames = seekPreviewPositions(durationMs, positionMs)
-                                                .map { position -> SeekPreviewFrame(positionMs = position, bitmap = null) }
-                                            seekPreviewUnavailable = false
-                                            seekPreviewLoading = true
-                                        }
                                     }
                                     .then(if (isTv) Modifier.focusable() else Modifier)
                                     .graphicsLayer {
@@ -1682,7 +1721,7 @@ fun NativePlayerScreen(
                                         )
                                         ex?.seekTo(boundedPosition)
                                         seekPreviewPositionMs = boundedPosition
-                                        seekPreviewHold = true
+                                        seekPreviewActive = true
                                         bumpInteraction()
                                     },
                                     onOpenRecommendation = { item ->
@@ -1760,6 +1799,8 @@ fun NativePlayerScreen(
                     type = interval.type,
                     onClick = {
                         ex?.seekTo(interval.endMs)
+                        seekPreviewPositionMs = interval.endMs
+                        seekPreviewActive = true
                         dismissedIntervalEnd = interval.endMs
                         bumpInteraction()
                     },
