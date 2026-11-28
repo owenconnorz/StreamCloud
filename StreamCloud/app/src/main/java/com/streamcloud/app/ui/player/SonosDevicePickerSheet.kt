@@ -139,7 +139,7 @@ fun SonosDevicePickerSheet(
         remoteConnecting != null -> remoteConnecting.name
         sonosCasting != null -> sonosCasting.displayName
         remoteCasting != null -> remoteCasting.name
-        selectedDlnaDevice != null -> selectedDlnaDevice.name
+        selectedDlnaDevice != null -> selectedDlnaDevice?.name
         selectedRoute != null -> selectedRoute.name.toString()
         else -> null
     }
