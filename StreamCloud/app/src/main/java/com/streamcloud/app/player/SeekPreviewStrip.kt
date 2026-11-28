@@ -6,9 +6,11 @@ import android.os.SystemClock
 import android.util.LruCache
 import android.util.Log
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,6 +27,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -33,7 +39,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -124,6 +132,8 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
         durationMs: Long,
         centerPositionMs: Long,
         onFramesUpdated: suspend (List<SeekPreviewFrame>) -> Unit,
+        requestedPositions: List<Long> = seekPreviewPositions(durationMs, centerPositionMs),
+        shouldContinue: () -> Boolean = { true },
     ): List<SeekPreviewFrame> = withContext(dispatcher) {
         if (sourceUrl.isBlank() || durationMs <= 0L) return@withContext emptyList()
 
@@ -131,7 +141,11 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
             "$sourceUrl\n${mediaItem.localConfiguration?.mimeType.orEmpty()}",
             headers,
         )
-        val positions = seekPreviewPositions(durationMs, centerPositionMs)
+        val lastFrameMs = (durationMs - 1L).coerceAtLeast(0L)
+        val positions = requestedPositions
+            .map { it.coerceIn(0L, lastFrameMs) }
+            .distinct()
+            .sortedBy { abs(it - centerPositionMs) }
         val now = SystemClock.elapsedRealtime()
 
         val keys = positions.associateWith { frameKey(sourceKey, it) }
@@ -150,6 +164,7 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
                 val deadline = SystemClock.elapsedRealtime() + MAX_FRAME_BATCH_MS
                 for (positionMs in missing) {
                     currentCoroutineContext().ensureActive()
+                    if (!shouldContinue()) break
                     val key = keys.getValue(positionMs)
                     val remainingMs = deadline - SystemClock.elapsedRealtime()
                     if (remainingMs <= 0L) {
@@ -206,6 +221,7 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
                             )
                         }
                     }
+                    if (!shouldContinue()) break
                 }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 releaseActiveExtractorOnDispatcher()
@@ -226,13 +242,60 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
         }
     }
 
+    suspend fun prewarmFrame(
+        sourceUrl: String,
+        mediaSourceFactory: MediaSource.Factory,
+        mediaItem: MediaItem,
+        headers: Map<String, String>,
+        durationMs: Long,
+        positionMs: Long,
+    ): List<SeekPreviewFrame> = loadFrames(
+        sourceUrl = sourceUrl,
+        mediaSourceFactory = mediaSourceFactory,
+        mediaItem = mediaItem,
+        headers = headers,
+        durationMs = durationMs,
+        centerPositionMs = positionMs,
+        onFramesUpdated = {},
+        requestedPositions = listOf(positionMs),
+    )
+
+    fun cachedFrames(
+        sourceUrl: String,
+        mediaItem: MediaItem,
+        headers: Map<String, String>,
+        durationMs: Long,
+        centerPositionMs: Long,
+    ): List<SeekPreviewFrame> {
+        if (sourceUrl.isBlank() || durationMs <= 0L) return emptyList()
+        val sourceKey = fingerprint(
+            "$sourceUrl\n${mediaItem.localConfiguration?.mimeType.orEmpty()}",
+            headers,
+        )
+        val snapshot = cache.snapshot()
+        return seekPreviewPositions(durationMs, centerPositionMs).map { positionMs ->
+            SeekPreviewFrame(
+                positionMs = positionMs,
+                bitmap = cachedBitmap(sourceKey, positionMs, snapshot),
+            )
+        }
+    }
+
     private fun cachedBitmap(sourceKey: String, positionMs: Long): Bitmap? {
+        return cachedBitmap(sourceKey, positionMs, cache.snapshot())
+    }
+
+    private fun cachedBitmap(
+        sourceKey: String,
+        positionMs: Long,
+        cacheSnapshot: Map<String, Bitmap>,
+    ): Bitmap? {
         val exactKey = frameKey(sourceKey, positionMs)
-        cache.get(exactKey)?.let { return it }
+        cacheSnapshot[exactKey]?.let { return it }
 
         val targetSecond = positionMs / 1_000L
         val prefix = "$sourceKey:"
-        val nearestKey = cache.snapshot().keys.asSequence()
+        val nearestKey = cacheSnapshot.keys.asSequence()
             .filter { it.startsWith(prefix) }
             .mapNotNull { key ->
                 key.substring(prefix.length).toLongOrNull()?.let { key to it }
@@ -243,7 +306,7 @@ internal class SeekPreviewLoader(context: Context) : Closeable {
             .minByOrNull { (_, second) -> abs(second - targetSecond) }
             ?.first
 
-        return nearestKey?.let(cache::get)
+        return nearestKey?.let(cacheSnapshot::get)
     }
 
     override fun close() {
@@ -438,65 +501,157 @@ internal fun SeekPreviewStrip(
 internal fun FloatingSeekPreviewCard(
     frames: List<SeekPreviewFrame>,
     centerPositionMs: Long,
+    title: String,
     isLoading: Boolean,
     previewUnavailable: Boolean,
     isTv: Boolean,
+    onSeekBy: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val nearestFrame = nearestLoadedSeekPreviewFrame(frames, centerPositionMs)
     if (nearestFrame == null && !isLoading && !previewUnavailable) return
 
-    val cardWidth = if (isTv) 184.dp else 148.dp
-    val imageHeight = if (isTv) 100.dp else 80.dp
-    Column(
+    val cardWidth = if (isTv) 248.dp else 190.dp
+    val imageHeight = if (isTv) 94.dp else 72.dp
+    val actionWidth = if (isTv) 62.dp else 46.dp
+    val spacing = if (isTv) 8.dp else 6.dp
+    val cardBackground = Color(0xF21A1A1A)
+
+    Row(
         modifier = modifier
-            .width(cardWidth)
-            .shadow(12.dp, RoundedCornerShape(8.dp))
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xF21A1A1A))
-            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(8.dp))
             .semantics {
                 contentDescription = "Frame preview at ${formatPreviewTime(centerPositionMs)}"
             },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(spacing),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(imageHeight)
-                .background(Color.White.copy(alpha = 0.10f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            nearestFrame?.bitmap?.let { bitmap ->
-                Image(
-                    bitmap = bitmap.asImageBitmap(),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.matchParentSize(),
-                )
-            } ?: if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    color = Color.White.copy(alpha = 0.85f),
-                    strokeWidth = 1.7.dp,
-                )
-            } else {
-                Text(
-                    "Preview unavailable",
-                    color = Color.White.copy(alpha = 0.72f),
-                    fontSize = if (isTv) 10.sp else 9.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+        PreviewSeekButton(
+            isForward = false,
+            width = actionWidth,
+            isTv = isTv,
+            onClick = { onSeekBy(-10_000L) },
+        )
+        Box(Modifier.width(cardWidth)) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .shadow(12.dp, RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(cardBackground)
+                    .border(1.5.dp, Color.White.copy(alpha = 0.88f), RoundedCornerShape(12.dp)),
+            ) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.34f))
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = formatPreviewTime(centerPositionMs),
+                        color = Color.White,
+                        fontSize = if (isTv) 14.sp else 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = title,
+                        color = Color.White.copy(alpha = 0.94f),
+                        fontSize = if (isTv) 10.sp else 9.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(imageHeight)
+                        .background(Color.White.copy(alpha = 0.10f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    nearestFrame?.bitmap?.let { bitmap ->
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.matchParentSize(),
+                        )
+                    } ?: if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = Color.White.copy(alpha = 0.85f),
+                            strokeWidth = 1.7.dp,
+                        )
+                    } else {
+                        Text(
+                            "Preview unavailable",
+                            color = Color.White.copy(alpha = 0.72f),
+                            fontSize = if (isTv) 10.sp else 9.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+            Canvas(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .offset(y = 7.dp)
+                    .size(width = 18.dp, height = 9.dp),
+            ) {
+                val notchWidth = size.width
+                val notchHeight = size.height
+                val notch = Path().apply {
+                    moveTo(0f, 0f)
+                    lineTo(notchWidth, 0f)
+                    lineTo(notchWidth / 2f, notchHeight)
+                    close()
+                }
+                drawPath(notch, cardBackground)
+                drawPath(notch, Color.White.copy(alpha = 0.88f), style = Stroke(1.dp.toPx()))
             }
         }
+        PreviewSeekButton(
+            isForward = true,
+            width = actionWidth,
+            isTv = isTv,
+            onClick = { onSeekBy(10_000L) },
+        )
+    }
+}
+
+@Composable
+private fun PreviewSeekButton(
+    isForward: Boolean,
+    width: androidx.compose.ui.unit.Dp,
+    isTv: Boolean,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(50)
+    Row(
+        modifier = Modifier
+            .width(width)
+            .clip(shape)
+            .background(Color(0xCC202020))
+            .border(1.dp, Color.White.copy(alpha = 0.52f), shape)
+            .clickable(onClick = onClick)
+            .focusable()
+            .padding(horizontal = 3.dp, vertical = if (isTv) 8.dp else 6.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = if (isForward) Icons.Default.Forward10 else Icons.Default.Replay10,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(if (isTv) 18.dp else 15.dp),
+        )
+        Spacer(Modifier.width(1.dp))
         Text(
-            text = formatPreviewTime(centerPositionMs),
+            text = if (isForward) "+10s" else "−10s",
             color = Color.White,
-            fontSize = if (isTv) 12.sp else 11.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .padding(horizontal = 8.dp, vertical = 5.dp),
+            fontSize = if (isTv) 9.sp else 8.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
         )
     }
 }
