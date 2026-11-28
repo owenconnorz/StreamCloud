@@ -1689,16 +1689,18 @@ fun NativePlayerScreen(
                                     },
                             )
                             if (showFloatingSeekPreview) {
-                                FloatingSeekPreviewCard(
-                                    frames = seekPreviewFrames,
-                                    centerPositionMs = seekPreviewPosition,
-                                    isLoading = seekPreviewLoading,
-                                    previewUnavailable = seekPreviewUnavailable,
-                                    isTv = isTv,
-                                    modifier = Modifier
-                                        .align(Alignment.TopStart)
-                                        .offset(x = previewX, y = (-96).dp),
-                                )
+                                Box(Modifier.matchParentSize()) {
+                                    FloatingSeekPreviewCard(
+                                        frames = seekPreviewFrames,
+                                        centerPositionMs = seekPreviewPosition,
+                                        isLoading = seekPreviewLoading,
+                                        previewUnavailable = seekPreviewUnavailable,
+                                        isTv = isTv,
+                                        modifier = Modifier
+                                            .align(Alignment.TopStart)
+                                            .offset(x = previewX, y = (-96).dp),
+                                    )
+                                }
                             }
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
