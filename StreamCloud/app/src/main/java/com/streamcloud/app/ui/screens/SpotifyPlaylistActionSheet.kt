@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
@@ -65,6 +66,7 @@ internal enum class SpotifyPlaylistMenuAction(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 internal fun SpotifyPlaylistActionSheet(
     playlist: SpotifyPlaylist,
     onDismiss: () -> Unit,
