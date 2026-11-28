@@ -29,8 +29,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Forward10
-import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -506,7 +504,6 @@ internal fun FloatingSeekPreviewCard(
     isLoading: Boolean,
     previewUnavailable: Boolean,
     isTv: Boolean,
-    onSeekBy: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val nearestFrame = nearestLoadedSeekPreviewFrame(frames, centerPositionMs)
@@ -514,146 +511,90 @@ internal fun FloatingSeekPreviewCard(
 
     val cardWidth = if (isTv) 248.dp else 190.dp
     val imageHeight = if (isTv) 94.dp else 72.dp
-    val actionWidth = if (isTv) 62.dp else 46.dp
-    val spacing = if (isTv) 8.dp else 6.dp
     val cardBackground = Color(0xF21A1A1A)
 
-    Row(
-        modifier = modifier
-            .semantics {
-                contentDescription = "Frame preview at ${formatPreviewTime(centerPositionMs)}"
-            },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(spacing),
+    Box(
+        modifier = modifier.semantics {
+            contentDescription = "Frame preview at ${formatPreviewTime(centerPositionMs)}"
+        },
     ) {
-        PreviewSeekButton(
-            isForward = false,
-            width = actionWidth,
-            isTv = isTv,
-            onClick = { onSeekBy(-10_000L) },
-        )
-        Box(Modifier.width(cardWidth)) {
+        Column(
+            Modifier
+                .width(cardWidth)
+                .shadow(12.dp, RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(12.dp))
+                .background(cardBackground)
+                .border(1.5.dp, Color.White.copy(alpha = 0.88f), RoundedCornerShape(12.dp)),
+        ) {
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .shadow(12.dp, RoundedCornerShape(12.dp))
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(cardBackground)
-                    .border(1.5.dp, Color.White.copy(alpha = 0.88f), RoundedCornerShape(12.dp)),
+                    .background(Color.Black.copy(alpha = 0.34f))
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.34f))
-                        .padding(horizontal = 8.dp, vertical = 5.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        text = formatPreviewTime(centerPositionMs),
-                        color = Color.White,
-                        fontSize = if (isTv) 14.sp else 12.sp,
-                        fontWeight = FontWeight.SemiBold,
+                Text(
+                    text = formatPreviewTime(centerPositionMs),
+                    color = Color.White,
+                    fontSize = if (isTv) 14.sp else 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = title,
+                    color = Color.White.copy(alpha = 0.94f),
+                    fontSize = if (isTv) 10.sp else 9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(imageHeight)
+                    .background(Color.White.copy(alpha = 0.10f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                nearestFrame?.bitmap?.let { bitmap ->
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.matchParentSize(),
                     )
+                } ?: if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        color = Color.White.copy(alpha = 0.85f),
+                        strokeWidth = 1.7.dp,
+                    )
+                } else {
                     Text(
-                        text = title,
-                        color = Color.White.copy(alpha = 0.94f),
+                        "Preview unavailable",
+                        color = Color.White.copy(alpha = 0.72f),
                         fontSize = if (isTv) 10.sp else 9.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(imageHeight)
-                        .background(Color.White.copy(alpha = 0.10f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    nearestFrame?.bitmap?.let { bitmap ->
-                        Image(
-                            bitmap = bitmap.asImageBitmap(),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.matchParentSize(),
-                        )
-                    } ?: if (isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = Color.White.copy(alpha = 0.85f),
-                            strokeWidth = 1.7.dp,
-                        )
-                    } else {
-                        Text(
-                            "Preview unavailable",
-                            color = Color.White.copy(alpha = 0.72f),
-                            fontSize = if (isTv) 10.sp else 9.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            }
-            Canvas(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .offset(y = 7.dp)
-                    .size(width = 18.dp, height = 9.dp),
-            ) {
-                val notchWidth = size.width
-                val notchHeight = size.height
-                val notch = Path().apply {
-                    moveTo(0f, 0f)
-                    lineTo(notchWidth, 0f)
-                    lineTo(notchWidth / 2f, notchHeight)
-                    close()
-                }
-                drawPath(notch, cardBackground)
-                drawPath(notch, Color.White.copy(alpha = 0.88f), style = Stroke(1.dp.toPx()))
             }
         }
-        PreviewSeekButton(
-            isForward = true,
-            width = actionWidth,
-            isTv = isTv,
-            onClick = { onSeekBy(10_000L) },
-        )
-    }
-}
-
-@Composable
-private fun PreviewSeekButton(
-    isForward: Boolean,
-    width: androidx.compose.ui.unit.Dp,
-    isTv: Boolean,
-    onClick: () -> Unit,
-) {
-    val shape = RoundedCornerShape(50)
-    Row(
-        modifier = Modifier
-            .width(width)
-            .clip(shape)
-            .background(Color(0xCC202020))
-            .border(1.dp, Color.White.copy(alpha = 0.52f), shape)
-            .clickable(onClick = onClick)
-            .focusable()
-            .padding(horizontal = 3.dp, vertical = if (isTv) 8.dp else 6.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = if (isForward) Icons.Default.Forward10 else Icons.Default.Replay10,
-            contentDescription = null,
-            tint = Color.White,
-            modifier = Modifier.size(if (isTv) 18.dp else 15.dp),
-        )
-        Spacer(Modifier.width(1.dp))
-        Text(
-            text = if (isForward) "+10s" else "−10s",
-            color = Color.White,
-            fontSize = if (isTv) 9.sp else 8.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-        )
+        Canvas(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .offset(y = 7.dp)
+                .size(width = 18.dp, height = 9.dp),
+        ) {
+            val notchWidth = size.width
+            val notchHeight = size.height
+            val notch = Path().apply {
+                moveTo(0f, 0f)
+                lineTo(notchWidth, 0f)
+                lineTo(notchWidth / 2f, notchHeight)
+                close()
+            }
+            drawPath(notch, cardBackground)
+            drawPath(notch, Color.White.copy(alpha = 0.88f), style = Stroke(1.dp.toPx()))
+        }
     }
 }
 

@@ -1714,13 +1714,9 @@ fun NativePlayerScreen(
                                 0f
                             }.coerceIn(0f, 1f)
                             val previewCardWidth = if (isTv) 248.dp else 190.dp
-                            val previewActionWidth = if (isTv) 62.dp else 46.dp
-                            val previewSpacing = if (isTv) 8.dp else 6.dp
-                            val previewGroupWidth =
-                                previewCardWidth + (previewActionWidth + previewSpacing) * 2f
                             val previewX = (
-                                maxWidth * fraction - previewGroupWidth / 2
-                            ).coerceIn(0.dp, (maxWidth - previewGroupWidth).coerceAtLeast(0.dp))
+                                maxWidth * fraction - previewCardWidth / 2
+                            ).coerceIn(0.dp, (maxWidth - previewCardWidth).coerceAtLeast(0.dp))
                             Slider(
                                 value = if (durationMs > 0) {
                                     visiblePositionMs / durationMs.toFloat()
@@ -1788,18 +1784,12 @@ fun NativePlayerScreen(
                                         isLoading = seekPreviewLoading,
                                         previewUnavailable = seekPreviewUnavailable,
                                         isTv = isTv,
-                                        onSeekBy = { deltaMs ->
-                                            val targetPosition = (seekPreviewPosition + deltaMs)
-                                                .coerceIn(0L, (durationMs - 1L).coerceAtLeast(0L))
-                                            latestSeekPreviewPositionMs.set(targetPosition)
-                                            seekPreviewPositionMs = targetPosition
-                                            seekPreviewActive = true
-                                            seekPreviewUnavailable = false
-                                            ex?.seekTo(targetPosition)
-                                            bumpInteraction()
-                                        },
                                         modifier = Modifier
                                             .align(Alignment.TopStart)
+                                            .wrapContentSize(
+                                                align = Alignment.TopStart,
+                                                unbounded = true,
+                                            )
                                             .offset(
                                                 x = previewX,
                                                 y = if (isTv) (-130).dp else (-108).dp,

@@ -6,23 +6,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.streamcloud.app.ui.icons.AppIcons as Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Speaker
-import androidx.compose.material.icons.filled.SpeakerGroup
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Tv
-import androidx.compose.material.icons.filled.VolumeDown
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -33,13 +21,16 @@ import com.google.android.gms.cast.framework.CastContext
 import com.streamcloud.app.cast.MusicRemoteCast
 import com.streamcloud.app.cast.dlna.DlnaDevice
 import com.streamcloud.app.cast.dlna.DlnaRepository
-import com.streamcloud.app.data.sonos.SonosDevice
 import com.streamcloud.app.data.sonos.SonosGroup
 import com.streamcloud.app.data.sonos.SonosRepository
-import com.streamcloud.app.ui.theme.LocalUiFormFactor
-import com.streamcloud.app.ui.theme.UiFormFactor
 import com.streamcloud.app.ui.theme.tvFocusBorder
 import com.streamcloud.app.ui.theme.tvFocusGroup
+
+private val PickerBackground = Color(0xFF101318)
+private val PickerRowBackground = Color(0xFF030405)
+private val PickerIconBackground = Color(0xFF263345)
+private val PickerMuted = Color(0xFFADB8C9)
+private val PickerAccent = Color(0xFF8DA9D1)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,588 +43,589 @@ fun SonosDevicePickerSheet(
     artworkUrl: String? = null,
     onDismiss: () -> Unit,
 ) {
-    val context   = LocalContext.current
-    val castState by SonosRepository.castState.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val sonosState by SonosRepository.castState.collectAsState()
     val sonosDevices by SonosRepository.devices.collectAsState()
-    val remoteCastState by MusicRemoteCast.state.collectAsState()
+    val sonosVolume by SonosRepository.sonosVolume.collectAsState()
+    val remoteState by MusicRemoteCast.state.collectAsState()
     val dlnaState by DlnaRepository.state.collectAsState()
-    val dlnaDevices = (dlnaState as? DlnaRepository.State.Ready)?.devices.orEmpty()
+    val selectedDlnaDevice by DlnaRepository.selectedDevice.collectAsState()
+    val dlnaDevices =
+        (dlnaState as? DlnaRepository.State.Ready)?.devices.orEmpty()
     val castContext = remember(context) {
-        runCatching { CastContext.getSharedInstance(context.applicationContext) }.getOrNull()
+        runCatching {
+            CastContext.getSharedInstance(context.applicationContext)
+        }.getOrNull()
     }
-    val mediaRouter = remember(context) { MediaRouter.getInstance(context.applicationContext) }
+    val mediaRouter = remember(context) {
+        MediaRouter.getInstance(context.applicationContext)
+    }
     val routeSelector = remember(castContext) {
         castContext?.mergedSelector ?: MediaRouteSelector.EMPTY
     }
     val mediaRoutes = remember { mutableStateListOf<MediaRouter.RouteInfo>() }
-    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
-    val isTv = LocalUiFormFactor.current == UiFormFactor.Tv
-    val tabFocusRequesters = remember { List(3) { FocusRequester() } }
-    LaunchedEffect(isTv, selectedTab) {
-        if (isTv) runCatching { tabFocusRequesters[selectedTab].requestFocus() }
+    var selectedRouteId by remember { mutableStateOf<String?>(null) }
+    var volumeSliderValue by remember(sonosVolume) {
+        mutableFloatStateOf(sonosVolume / 100f)
     }
 
     LaunchedEffect(Unit) {
-        if (castState !is SonosRepository.CastState.Casting) {
+        if (sonosState !is SonosRepository.CastState.Casting) {
             SonosRepository.startDiscovery(context)
         }
         DlnaRepository.discover(context)
     }
 
     DisposableEffect(routeSelector) {
+        fun updateSelectedRoute() {
+            val route = mediaRouter.selectedRoute
+            selectedRouteId = route.id.takeUnless { route.isDefault }
+        }
+
         val callback = object : MediaRouter.Callback() {
-            override fun onRouteAdded(router: MediaRouter, route: MediaRouter.RouteInfo) =
+            override fun onRouteAdded(router: MediaRouter, route: MediaRouter.RouteInfo) {
                 refreshDeviceRoutes(router, routeSelector, mediaRoutes)
+            }
 
-            override fun onRouteRemoved(router: MediaRouter, route: MediaRouter.RouteInfo) =
+            override fun onRouteRemoved(router: MediaRouter, route: MediaRouter.RouteInfo) {
                 refreshDeviceRoutes(router, routeSelector, mediaRoutes)
+                updateSelectedRoute()
+            }
 
-            override fun onRouteChanged(router: MediaRouter, route: MediaRouter.RouteInfo) =
+            override fun onRouteChanged(router: MediaRouter, route: MediaRouter.RouteInfo) {
                 refreshDeviceRoutes(router, routeSelector, mediaRoutes)
+            }
+
+            override fun onRouteSelected(
+                router: MediaRouter,
+                route: MediaRouter.RouteInfo,
+                reason: Int,
+            ) {
+                selectedRouteId = route.id.takeUnless { route.isDefault }
+            }
+
+            override fun onRouteUnselected(
+                router: MediaRouter,
+                route: MediaRouter.RouteInfo,
+                reason: Int,
+            ) {
+                if (selectedRouteId == route.id) updateSelectedRoute()
+            }
         }
         mediaRouter.addCallback(
             routeSelector,
             callback,
-            MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY or MediaRouter.CALLBACK_FLAG_PERFORM_ACTIVE_SCAN,
+            MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY or
+                MediaRouter.CALLBACK_FLAG_PERFORM_ACTIVE_SCAN,
         )
         refreshDeviceRoutes(mediaRouter, routeSelector, mediaRoutes)
+        updateSelectedRoute()
         onDispose { mediaRouter.removeCallback(callback) }
     }
 
-    val googleRoutes = mediaRoutes.filter { route ->
-        !route.isBluetooth && route.matchesSelector(routeSelector)
+    val googleRoutes = mediaRoutes.filter {
+        !it.isBluetooth && it.matchesSelector(routeSelector)
     }
     val bluetoothRoutes = mediaRoutes.filter { it.isBluetooth }
+    val selectedRoute = mediaRoutes.firstOrNull { it.id == selectedRouteId }
+        ?: mediaRouter.selectedRoute.takeUnless { it.isDefault }
+    val sonosCasting = sonosState as? SonosRepository.CastState.Casting
+    val sonosConnecting = sonosState is SonosRepository.CastState.Connecting
+    val remoteCasting = remoteState as? MusicRemoteCast.State.Casting
+    val remoteConnecting = remoteState as? MusicRemoteCast.State.Connecting
+    val connecting = sonosConnecting || remoteConnecting != null
+    val connectedName = when {
+        sonosConnecting -> "Connecting to Sonos"
+        remoteConnecting != null -> remoteConnecting.name
+        sonosCasting != null -> sonosCasting.displayName
+        remoteCasting != null -> remoteCasting.name
+        selectedDlnaDevice != null -> selectedDlnaDevice.name
+        selectedRoute != null -> selectedRoute.name.toString()
+        else -> null
+    }
+    val connectedProvider = when {
+        sonosCasting != null || sonosConnecting -> "Sonos"
+        remoteConnecting?.destination == MusicRemoteCast.DestinationType.GoogleCast -> "Google Cast"
+        remoteConnecting?.destination == MusicRemoteCast.DestinationType.Dlna -> "DLNA"
+        remoteCasting?.destination == MusicRemoteCast.DestinationType.GoogleCast -> "Google Cast"
+        remoteCasting?.destination == MusicRemoteCast.DestinationType.Dlna -> "DLNA"
+        selectedDlnaDevice != null -> "DLNA"
+        selectedRoute?.isBluetooth == true -> "Bluetooth"
+        selectedRoute != null -> "Google Cast"
+        else -> null
+    }
+    val connectedSubtitle = when {
+        connecting -> "Connecting"
+        sonosCasting != null -> sonosCasting.title
+        remoteCasting != null -> remoteCasting.title
+        connectedProvider != null -> connectedProvider
+        else -> null
+    }
+    val connectedIcon = when (connectedProvider) {
+        "Sonos" -> Icons.Default.SpeakerGroup
+        "DLNA" -> Icons.Default.Tv
+        "Bluetooth" -> Icons.Default.Speaker
+        "Google Cast" -> Icons.Default.CastConnected
+        else -> Icons.Default.Cast
+    }
+    val sonosGroups =
+        (sonosState as? SonosRepository.CastState.DevicesFound)?.groups.orEmpty()
+    val sonosRefreshing =
+        sonosState is SonosRepository.CastState.Discovering ||
+            (sonosState as? SonosRepository.CastState.DevicesFound)?.isRefreshing == true
+    val sonosWarning =
+        (sonosState as? SonosRepository.CastState.DevicesFound)?.refreshWarning
+            ?: (sonosState as? SonosRepository.CastState.Error)?.message
+    val dlnaDiscovering = dlnaState is DlnaRepository.State.Discovering
+    val activeSonosUdn = sonosCasting?.device?.udn
+    val activeGoogleRouteId = selectedRouteId?.takeIf { selectedRoute?.isBluetooth == false }
+    val activeDlnaName = remoteCasting
+        ?.takeIf { it.destination == MusicRemoteCast.DestinationType.Dlna }
+        ?.name
+
+    fun refreshAllDevices() {
+        SonosRepository.startDiscovery(context)
+        DlnaRepository.discover(context)
+        refreshDeviceRoutes(mediaRouter, routeSelector, mediaRoutes)
+    }
 
     fun clearOtherDestination() {
-        if (castState is SonosRepository.CastState.Casting) {
-            SonosRepository.disconnect(resumeOnPhone = false)
+        when (sonosState) {
+            is SonosRepository.CastState.Casting ->
+                SonosRepository.disconnect(resumeOnPhone = false)
+            SonosRepository.CastState.Connecting ->
+                SonosRepository.cancelConnection(context)
+            else -> Unit
+        }
+    }
+
+    fun disconnectCurrent() {
+        when {
+            sonosCasting != null -> SonosRepository.disconnect()
+            sonosConnecting -> SonosRepository.cancelConnection(context)
+            remoteCasting != null || remoteConnecting != null ->
+                MusicRemoteCast.disconnect()
+            selectedDlnaDevice != null -> DlnaRepository.selectDevice(null)
+            selectedRoute != null ->
+                mediaRouter.unselect(MediaRouter.UNSELECT_REASON_DISCONNECTED)
+        }
+    }
+
+    fun connectSonos(group: SonosGroup) {
+        MusicRemoteCast.handOffToSonos {
+            SonosRepository.connect(
+                context = context,
+                device = group.coordinatorDevice,
+                videoId = videoId,
+                title = title,
+                watchUrl = watchUrl,
+                displayName = group.displayName,
+            )
         }
     }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface,
-        tonalElevation  = 0.dp,
+        containerColor = PickerBackground,
+        contentColor = Color.White,
+        tonalElevation = 0.dp,
     ) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 32.dp),
+                .fillMaxHeight(0.92f)
+                .padding(horizontal = 18.dp)
+                .padding(bottom = 18.dp),
         ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.SpeakerGroup,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp),
-                )
-                Spacer(Modifier.width(10.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    "Cast to devices",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    "Connected devices",
+                    color = Color(0xFFE3E8F1),
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = { SonosRepository.startDiscovery(context) }) {
+                IconButton(onClick = { refreshAllDevices() }) {
                     Icon(
                         Icons.Default.Refresh,
-                        contentDescription = "Refresh Sonos speakers",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        contentDescription = "Refresh devices",
+                        tint = PickerMuted,
                     )
                 }
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = PickerMuted,
+                    )
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
-
-            TabRow(
-                selectedTabIndex = selectedTab,
-                modifier = Modifier.tvFocusGroup(),
-                containerColor = Color.Transparent,
-                contentColor = MaterialTheme.colorScheme.primary,
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .tvFocusGroup(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 12.dp),
             ) {
-                Tab(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    modifier = Modifier
-                        .focusRequester(tabFocusRequesters[0])
-                        .tvFocusBorder(RoundedCornerShape(24.dp)),
-                    text = { Text("Sonos") },
-                )
-                Tab(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    modifier = Modifier
-                        .focusRequester(tabFocusRequesters[1])
-                        .tvFocusBorder(RoundedCornerShape(24.dp)),
-                    text = { Text("Cast & TV") },
-                )
-                Tab(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    modifier = Modifier
-                        .focusRequester(tabFocusRequesters[2])
-                        .tvFocusBorder(RoundedCornerShape(24.dp)),
-                    text = { Text("Bluetooth") },
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            when (selectedTab) {
-                0 -> when (val state = castState) {
-
-                is SonosRepository.CastState.Discovering ->
-                    if (sonosDevices.isEmpty()) {
-                        SheetStatus("Scanning for Sonos speakers…", showSpinner = true)
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.tvFocusGroup(),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            item(key = "cached_discovery_status") {
-                                SonosDiscoveryStatus(
-                                    refreshing = true,
-                                    warning = null,
-                                )
-                            }
-                            item(key = "cached_speakers_header") {
-                                SectionLabel("Choose a speaker")
-                                Spacer(Modifier.height(6.dp))
-                            }
-                            items(sonosDevices, key = { "cached_${it.udn}" }) { device ->
-                                DeviceRow(device = device) {
-                                    MusicRemoteCast.handOffToSonos {
-                                        SonosRepository.connect(
-                                            context = context,
-                                            device = device,
-                                            videoId = videoId,
-                                            title = title,
-                                            watchUrl = watchUrl,
-                                        )
-                                    }
-                                }
-                            }
-                        }
+                item(key = "connected_header") {
+                    PickerSectionTitle("Connected")
+                }
+                item(key = "connected_device") {
+                    PickerDeviceRow(
+                        name = connectedName ?: "No device connected",
+                        subtitle = connectedSubtitle,
+                        icon = connectedIcon,
+                        isConnected = connectedName != null && !connecting,
+                        isLoading = connecting,
+                        onClick = null,
+                    )
+                }
+                if (sonosCasting != null) {
+                    item(key = "sonos_volume") {
+                        SonosVolumeControl(
+                            volume = sonosVolume,
+                            value = volumeSliderValue,
+                            onValueChange = { volumeSliderValue = it },
+                            onValueChangeFinished = {
+                                SonosRepository.setVolume((volumeSliderValue * 100).toInt())
+                            },
+                        )
                     }
-
-                is SonosRepository.CastState.DevicesFound -> {
-                    LazyColumn(
-                        modifier = Modifier.tvFocusGroup(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        if (state.isRefreshing || state.refreshWarning != null) {
-                            item(key = "discovery_status") {
-                                SonosDiscoveryStatus(
-                                    refreshing = state.isRefreshing,
-                                    warning = state.refreshWarning,
-                                )
-                            }
-                        }
-                        // Groups section
-                        if (state.groups.isNotEmpty()) {
-                            item(key = "groups_header") {
-                                SectionLabel("Groups")
-                                Spacer(Modifier.height(6.dp))
-                            }
-                            items(state.groups, key = { "g_${it.id}" }) { group ->
-                                GroupRow(group = group) {
-                                    MusicRemoteCast.handOffToSonos {
-                                        SonosRepository.connect(
-                                            context     = context,
-                                            device      = group.coordinatorDevice,
-                                            videoId     = videoId,
-                                            title       = title,
-                                            watchUrl    = watchUrl,
-                                            displayName = group.displayName,
-                                        )
-                                    }
-                                }
-                            }
-                            item(key = "speakers_header") {
-                                Spacer(Modifier.height(10.dp))
-                                SectionLabel("Speakers")
-                                Spacer(Modifier.height(6.dp))
-                            }
-                        } else {
-                            item(key = "speakers_only_header") {
-                                SectionLabel("Choose a speaker")
-                                Spacer(Modifier.height(6.dp))
-                            }
-                        }
-                        // Individual speakers
-                        items(state.devices, key = { "d_${it.udn}" }) { device ->
-                            DeviceRow(device = device) {
-                                MusicRemoteCast.handOffToSonos {
-                                    SonosRepository.connect(
-                                        context  = context,
-                                        device   = device,
-                                        videoId  = videoId,
-                                        title    = title,
-                                        watchUrl = watchUrl,
-                                    )
-                                }
-                            }
+                }
+                if (connectedName != null || connecting) {
+                    item(key = "disconnect") {
+                        TextButton(
+                            onClick = { disconnectCurrent() },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(if (connecting) "Cancel connection" else "Disconnect")
                         }
                     }
                 }
-
-                is SonosRepository.CastState.Connecting ->
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        SheetStatus("Connecting…", showSpinner = true)
-                        OutlinedButton(
-                            onClick = { SonosRepository.cancelConnection(context) },
-                            shape = RoundedCornerShape(12.dp),
-                        ) {
-                            Text("Cancel", color = MaterialTheme.colorScheme.onSurface)
-                        }
-                    }
-
-                is SonosRepository.CastState.Casting -> {
-                    val vol by SonosRepository.sonosVolume.collectAsState()
-                    var volumeSliderValue by remember(vol) { mutableFloatStateOf(vol / 100f) }
-                    Column(
-                        Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Icon(
-                            Icons.Default.SpeakerGroup,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(48.dp),
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        Text(
-                            "Now casting to",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(
-                            state.displayName,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            state.title,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        state.warning?.let { warning ->
-                            Spacer(Modifier.height(8.dp))
+                remoteState.let { state ->
+                    if (state is MusicRemoteCast.State.Error) {
+                        item(key = "remote_error") {
                             Text(
-                                warning,
+                                state.message,
                                 color = MaterialTheme.colorScheme.error,
                                 style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(vertical = 4.dp),
                             )
-                        }
-                        Spacer(Modifier.height(24.dp))
-
-                        Text(
-                            "Volume",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                            style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.align(Alignment.Start),
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.VolumeDown,
-                                contentDescription = "Volume down",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Slider(
-                                value = volumeSliderValue,
-                                onValueChange = { volumeSliderValue = it },
-                                onValueChangeFinished = {
-                                    SonosRepository.setVolume((volumeSliderValue * 100).toInt())
-                                },
-                                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                                colors = SliderDefaults.colors(
-                                    thumbColor = MaterialTheme.colorScheme.primary,
-                                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                                    inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
-                                ),
-                            )
-                            Icon(
-                                Icons.Default.VolumeUp,
-                                contentDescription = "Volume up",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                        Text(
-                            "$vol%",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                            style = MaterialTheme.typography.labelSmall,
-                        )
-                        Spacer(Modifier.height(20.dp))
-                        Button(
-                            onClick = { SonosRepository.disconnect(); onDismiss() },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error,
-                                contentColor = MaterialTheme.colorScheme.onError,
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                        ) {
-                            Icon(Icons.Default.Stop, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Disconnect")
                         }
                     }
                 }
-
-                is SonosRepository.CastState.Error ->
-                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                sonosWarning?.let { warning ->
+                    item(key = "sonos_warning") {
                         Text(
-                            state.message,
+                            warning,
                             color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(vertical = 4.dp),
                         )
-                        Spacer(Modifier.height(16.dp))
-                        OutlinedButton(
-                            onClick = { SonosRepository.startDiscovery(context) },
-                            shape = RoundedCornerShape(12.dp),
-                        ) {
-                            Text("Try Again", color = MaterialTheme.colorScheme.onSurface)
-                        }
                     }
-
-                SonosRepository.CastState.Idle ->
-                    SheetStatus("Opening scanner…", showSpinner = true)
                 }
 
-                1 -> NetworkDestinationTab(
-                    remoteState = remoteCastState,
-                    googleRoutes = googleRoutes,
-                    dlnaDevices = dlnaDevices,
-                    isDlnaDiscovering = dlnaState is DlnaRepository.State.Discovering,
-                    onGoogleRoute = { route ->
-                        clearOtherDestination()
-                        MusicRemoteCast.connectGoogle(
-                            context = context,
-                            route = route,
-                            videoId = videoId,
-                            title = title,
-                            watchUrl = watchUrl,
-                            artist = artist,
-                            album = album,
-                            artworkUrl = artworkUrl,
-                        )
-                    },
-                    onDlnaDevice = { device ->
-                        clearOtherDestination()
-                        MusicRemoteCast.connectDlna(
-                            context = context,
-                            device = device,
-                            videoId = videoId,
-                            title = title,
-                            watchUrl = watchUrl,
-                            artist = artist,
-                            album = album,
-                            artworkUrl = artworkUrl,
-                        )
-                    },
-                    onRescan = {
-                        DlnaRepository.discover(context)
-                        refreshDeviceRoutes(mediaRouter, routeSelector, mediaRoutes)
-                    },
-                    onDisconnect = { MusicRemoteCast.disconnect() },
-                )
-
-                else -> BluetoothDestinationTab(
-                    routes = bluetoothRoutes,
-                    onPickRoute = { route ->
-                        clearOtherDestination()
-                        MusicRemoteCast.switchToBluetooth(context, route, onDismiss)
-                    },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun NetworkDestinationTab(
-    remoteState: MusicRemoteCast.State,
-    googleRoutes: List<MediaRouter.RouteInfo>,
-    dlnaDevices: List<DlnaDevice>,
-    isDlnaDiscovering: Boolean,
-    onGoogleRoute: (MediaRouter.RouteInfo) -> Unit,
-    onDlnaDevice: (DlnaDevice) -> Unit,
-    onRescan: () -> Unit,
-    onDisconnect: () -> Unit,
-) {
-    when (remoteState) {
-        is MusicRemoteCast.State.Connecting -> SheetStatus(
-            "Connecting to ${remoteState.name}…",
-            showSpinner = true,
-        )
-
-        is MusicRemoteCast.State.Casting -> {
-            Text(
-                "Now playing on ${remoteState.name}",
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                remoteState.title,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(16.dp))
-            OutlinedButton(onClick = onDisconnect, modifier = Modifier.fillMaxWidth()) {
-                Text("Disconnect", color = MaterialTheme.colorScheme.onSurface)
-            }
-        }
-
-        else -> {
-            Text("Google Cast / Google TV", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), style = MaterialTheme.typography.labelLarge)
-            if (googleRoutes.isEmpty()) {
-                Text(
-                    "No Google Cast devices found. Check that the device is on the same Wi-Fi.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
-            } else {
-                googleRoutes.forEach { route ->
-                    DestinationRouteRow(
-                        name = route.name.toString(),
-                        subtitle = route.description?.toString(),
-                        icon = Icons.Default.Tv,
-                        onClick = { onGoogleRoute(route) },
-                    )
+                item(key = "available_header") {
+                    Spacer(Modifier.height(6.dp))
+                    PickerSectionTitle("Available devices")
                 }
-            }
 
-            Spacer(Modifier.height(12.dp))
-            Text("Network speakers & TVs (DLNA)", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), style = MaterialTheme.typography.labelLarge)
-            when {
-                isDlnaDiscovering && dlnaDevices.isEmpty() ->
-                    SheetStatus("Scanning your Wi-Fi network…", showSpinner = true)
+                if (sonosRefreshing) {
+                    item(key = "sonos_refreshing") {
+                        ScanStatus("Showing saved Sonos speakers while refreshing")
+                    }
+                }
+                if (dlnaDiscovering) {
+                    item(key = "dlna_refreshing") {
+                        ScanStatus("Scanning your Wi-Fi for TVs and speakers")
+                    }
+                }
 
-                dlnaDevices.isEmpty() -> {
-                    Text(
-                        "No compatible network devices found.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(vertical = 8.dp),
+                items(
+                    items = sonosGroups.filter {
+                        it.coordinatorDevice.udn != activeSonosUdn &&
+                            it.displayName != sonosCasting?.displayName
+                    },
+                    key = { "sonos_group_${it.id}" },
+                ) { group ->
+                    PickerDeviceRow(
+                        name = group.displayName,
+                        subtitle = "Sonos group · ${group.memberNames.joinToString(" · ")}",
+                        icon = Icons.Default.SpeakerGroup,
+                        onClick = { connectSonos(group) },
                     )
                 }
 
-                else -> dlnaDevices.forEach { device ->
-                    DestinationRouteRow(
+                items(
+                    items = sonosDevices.filter { device ->
+                        device.udn != activeSonosUdn &&
+                            device.name != sonosCasting?.displayName
+                    },
+                    key = { "sonos_${it.udn}" },
+                ) { device ->
+                    PickerDeviceRow(
                         name = device.name,
-                        subtitle = device.host,
+                        subtitle = "Sonos",
                         icon = Icons.Default.Speaker,
-                        onClick = { onDlnaDevice(device) },
+                        onClick = {
+                            MusicRemoteCast.handOffToSonos {
+                                SonosRepository.connect(
+                                    context = context,
+                                    device = device,
+                                    videoId = videoId,
+                                    title = title,
+                                    watchUrl = watchUrl,
+                                )
+                            }
+                        },
+                    )
+                }
+
+                items(
+                    items = googleRoutes.filter {
+                        it.id != activeGoogleRouteId &&
+                            it.name.toString() != remoteCasting?.name
+                    },
+                    key = { "cast_${it.id}" },
+                ) { route ->
+                    PickerDeviceRow(
+                        name = route.name.toString(),
+                        subtitle = "Google Cast",
+                        icon = Icons.Default.Tv,
+                        onClick = {
+                            clearOtherDestination()
+                            MusicRemoteCast.connectGoogle(
+                                context = context,
+                                route = route,
+                                videoId = videoId,
+                                title = title,
+                                watchUrl = watchUrl,
+                                artist = artist,
+                                album = album,
+                                artworkUrl = artworkUrl,
+                            )
+                        },
+                    )
+                }
+
+                items(
+                    items = dlnaDevices.filter {
+                        it.udn != selectedDlnaDevice?.udn &&
+                            it.name != activeDlnaName
+                    },
+                    key = { "dlna_${it.udn}" },
+                ) { device ->
+                    PickerDeviceRow(
+                        name = device.name,
+                        subtitle = "DLNA · ${device.host}",
+                        icon = Icons.Default.Tv,
+                        onClick = {
+                            clearOtherDestination()
+                            MusicRemoteCast.connectDlna(
+                                context = context,
+                                device = device,
+                                videoId = videoId,
+                                title = title,
+                                watchUrl = watchUrl,
+                                artist = artist,
+                                album = album,
+                                artworkUrl = artworkUrl,
+                            )
+                        },
+                    )
+                }
+
+                items(
+                    items = bluetoothRoutes.filter { it.id != selectedRouteId },
+                    key = { "bluetooth_${it.id}" },
+                ) { route ->
+                    PickerDeviceRow(
+                        name = route.name.toString(),
+                        subtitle = "Bluetooth",
+                        icon = Icons.Default.Speaker,
+                        onClick = {
+                            clearOtherDestination()
+                            MusicRemoteCast.switchToBluetooth(context, route, onDismiss)
+                        },
+                    )
+                }
+
+                if (
+                    sonosDevices.isEmpty() && sonosGroups.isEmpty() &&
+                    googleRoutes.isEmpty() && dlnaDevices.isEmpty() &&
+                    bluetoothRoutes.isEmpty()
+                ) {
+                    item(key = "no_devices") {
+                        Text(
+                            if (sonosRefreshing || dlnaDiscovering) {
+                                "Searching for nearby devices…"
+                            } else {
+                                "No available devices found. Make sure they’re powered on and on the same network."
+                            },
+                            color = PickerMuted,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(vertical = 12.dp),
+                        )
+                    }
+                }
+
+                item(key = "pairing_hint") {
+                    Text(
+                        "To pair a new device, open Integrations in Settings. Bluetooth devices must be paired in Android Settings first.",
+                        color = PickerMuted.copy(alpha = 0.8f),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
                     )
                 }
             }
-
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "Alexa/Echo devices only appear if they expose a standard Cast or DLNA route. Direct Alexa playback requires Amazon account integration.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onRescan, modifier = Modifier.fillMaxWidth()) {
-                Text("Scan again", color = MaterialTheme.colorScheme.onSurface)
-            }
         }
     }
 }
 
 @Composable
-private fun BluetoothDestinationTab(
-    routes: List<MediaRouter.RouteInfo>,
-    onPickRoute: (MediaRouter.RouteInfo) -> Unit,
-) {
+private fun PickerSectionTitle(text: String) {
     Text(
-        "Bluetooth audio",
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-        style = MaterialTheme.typography.labelLarge,
+        text,
+        color = PickerAccent,
+        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+        modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
     )
-    Text(
-        "Connected Bluetooth speakers, headphones, and car audio appear here. Pair new devices in Android's Bluetooth settings first.",
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.48f),
-        style = MaterialTheme.typography.bodySmall,
-        modifier = Modifier.padding(top = 4.dp, bottom = 10.dp),
-    )
-    if (routes.isEmpty()) {
-        Text(
-            "No Bluetooth audio devices are currently connected.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(vertical = 14.dp),
-        )
-    } else {
-        routes.forEach { route ->
-            DestinationRouteRow(
-                name = route.name.toString(),
-                subtitle = route.description?.toString() ?: "Bluetooth audio",
-                icon = Icons.Default.Speaker,
-                onClick = { onPickRoute(route) },
-            )
-        }
-    }
 }
 
 @Composable
-private fun DestinationRouteRow(
+private fun PickerDeviceRow(
     name: String,
     subtitle: String?,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit,
+    isConnected: Boolean = false,
+    isLoading: Boolean = false,
+    onClick: (() -> Unit)?,
 ) {
+    val shape = RoundedCornerShape(18.dp)
     Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = PickerRowBackground,
+        shape = shape,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 3.dp)
-            .tvFocusBorder(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick),
+            .tvFocusBorder(shape)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
         Row(
-            Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(25.dp))
+            Surface(
+                color = PickerIconBackground,
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.size(46.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = PickerMuted,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(name, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
+                Text(
+                    name,
+                    color = Color(0xFFE5E9F1),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 subtitle?.takeIf { it.isNotBlank() }?.let {
                     Text(
                         it,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                        color = PickerMuted,
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
+            when {
+                isLoading -> CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = PickerAccent,
+                    strokeWidth = 2.dp,
+                )
+                isConnected -> Text(
+                    "Connected",
+                    color = PickerAccent,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun ScanStatus(text: String) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(14.dp),
+            color = PickerAccent,
+            strokeWidth = 1.6.dp,
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(text, color = PickerMuted, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun SonosVolumeControl(
+    volume: Int,
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Volume",
+                color = PickerMuted,
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Spacer(Modifier.weight(1f))
+            Text("$volume%", color = PickerMuted, style = MaterialTheme.typography.labelSmall)
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
+            colors = SliderDefaults.colors(
+                thumbColor = PickerAccent,
+                activeTrackColor = PickerAccent,
+                inactiveTrackColor = PickerMuted.copy(alpha = 0.25f),
+            ),
+        )
     }
 }
 
 private fun refreshDeviceRoutes(
     router: MediaRouter,
     selector: MediaRouteSelector,
-    out: SnapshotStateList<MediaRouter.RouteInfo>,
+    out: androidx.compose.runtime.snapshots.SnapshotStateList<MediaRouter.RouteInfo>,
 ) {
     val visible = router.routes.filter { route ->
         !route.isDefault && (route.isBluetooth || route.matchesSelector(selector))
@@ -641,134 +633,5 @@ private fun refreshDeviceRoutes(
     if (visible.map { it.id } != out.map { it.id }) {
         out.clear()
         out.addAll(visible)
-    }
-}
-
-@Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text,
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-        style = MaterialTheme.typography.labelLarge,
-    )
-}
-
-@Composable
-private fun GroupRow(group: SonosGroup, onClick: () -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.primaryContainer,
-        modifier = Modifier
-            .fillMaxWidth()
-            .tvFocusBorder(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick),
-    ) {
-        Row(
-            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Default.SpeakerGroup,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp),
-            )
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    group.displayName,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    group.memberNames.joinToString(" · "),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun DeviceRow(device: SonosDevice, onClick: () -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier
-            .fillMaxWidth()
-            .tvFocusBorder(RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick),
-    ) {
-        Row(
-            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Default.Speaker,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp),
-            )
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    device.name,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    device.host,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SonosDiscoveryStatus(refreshing: Boolean, warning: String?) {
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (refreshing) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                strokeWidth = 2.dp,
-            )
-            Spacer(Modifier.width(8.dp))
-        }
-        Text(
-            warning ?: "Showing saved speakers while refreshing",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodySmall,
-        )
-    }
-}
-
-@Composable
-private fun SheetStatus(text: String, showSpinner: Boolean) {
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 28.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (showSpinner) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(20.dp),
-                strokeWidth = 2.dp,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.width(12.dp))
-        }
-        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyMedium)
     }
 }
