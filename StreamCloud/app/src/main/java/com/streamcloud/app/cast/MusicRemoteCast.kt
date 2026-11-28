@@ -202,7 +202,7 @@ object MusicRemoteCast {
                 if (!isCurrent(generation)) return@launch
                 DlnaRepository.selectDevice(device)
                 DlnaRepository.startPolling()
-                MusicController.get(context.applicationContext).pause()
+                pausePhonePlayback(context.applicationContext)
                 activeContext = context.applicationContext
                 activeDestination = Destination.Dlna(device)
                 observeMusicQueue(context.applicationContext)
@@ -326,7 +326,7 @@ object MusicRemoteCast {
                                 !isCurrent(generation) ||
                                 activeDestination != destination
                             ) return@withLock
-                            MusicController.get(context.applicationContext).pause()
+                            pausePhonePlayback(context.applicationContext)
                             publishTrack(
                                 destination = DestinationType.Dlna,
                                 deviceName = destination.device.name,
@@ -756,6 +756,12 @@ object MusicRemoteCast {
 
     private fun fail(generation: Long, message: String) {
         if (isCurrent(generation)) _state.value = State.Error(message)
+    }
+
+    private suspend fun pausePhonePlayback(context: Context) {
+        withContext(Dispatchers.Main) {
+            MusicController.get(context.applicationContext).pause()
+        }
     }
 
     private suspend fun stopGoogleSession(
