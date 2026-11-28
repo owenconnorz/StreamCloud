@@ -1628,6 +1628,11 @@ fun NativePlayerScreen(
                             )
                             Spacer(Modifier.height(2.dp))
                         }
+                        val visiblePositionMs = if (seekPreviewActive || seekPreviewDragging) {
+                            seekPreviewPosition
+                        } else {
+                            positionMs
+                        }
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
                             val previewWidth = if (isTv) 184.dp else 148.dp
                             val fraction = if (durationMs > 0L) {
@@ -1639,7 +1644,11 @@ fun NativePlayerScreen(
                                 maxWidth * fraction - previewWidth / 2
                             ).coerceIn(0.dp, (maxWidth - previewWidth).coerceAtLeast(0.dp))
                             Slider(
-                                value = if (durationMs > 0) positionMs / durationMs.toFloat() else 0f,
+                                value = if (durationMs > 0) {
+                                    visiblePositionMs / durationMs.toFloat()
+                                } else {
+                                    0f
+                                },
                                 onValueChange = { value ->
                                     val targetPosition = (value * durationMs).toLong()
                                         .coerceIn(0L, (durationMs - 1L).coerceAtLeast(0L))
@@ -1650,11 +1659,17 @@ fun NativePlayerScreen(
                                     seekPreviewLoading = true
                                     seekPreviewDragging = true
                                     seekPreviewActive = true
-                                    ex?.seekTo(targetPosition)
                                     bumpInteraction()
                                 },
                                 onValueChangeFinished = {
+                                    val targetPosition = seekPreviewPositionMs
+                                        .takeIf { seekPreviewDragging }
+                                    if (targetPosition != null) {
+                                        ex?.seekTo(targetPosition)
+                                        seekPreviewActive = true
+                                    }
                                     seekPreviewDragging = false
+                                    bumpInteraction()
                                 },
                                 colors = SliderDefaults.colors(
                                     thumbColor = MaterialTheme.colorScheme.primary,
@@ -1688,54 +1703,11 @@ fun NativePlayerScreen(
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             if (isTv) {
-                                Text(formatTime(positionMs), color = Color.White, style = MaterialTheme.typography.titleMedium)
+                                Text(formatTime(visiblePositionMs), color = Color.White, style = MaterialTheme.typography.titleMedium)
                                 Text(formatTime(durationMs), color = Color.White, style = MaterialTheme.typography.titleMedium)
                             } else {
-                                TimestampChip(formatTime(positionMs))
-                                TimestampChip(formatTime((durationMs - positionMs).coerceAtLeast(0L)))
-                            }
-                        }
-                        if (isTv) {
-                            AnimatedVisibility(
-                                visible = showSeekPreviewPanel,
-                                enter = fadeIn(),
-                                exit = fadeOut(),
-                            ) {
-                                SeekPreviewPanel(
-                                    selectedTab = seekPreviewTab,
-                                    onTabSelected = { seekPreviewTab = it; bumpInteraction() },
-                                    frames = seekPreviewFrames,
-                                    centerPositionMs = seekPreviewPosition,
-                                    framesLoading = seekPreviewLoading,
-                                    framesUnavailable = seekPreviewUnavailable,
-                                    recommendations = seekPreviewRecommendations,
-                                    recommendationsLoading = seekPreviewRecommendationsLoading,
-                                    stats = seekPreviewStats,
-                                    onFocusChanged = { focused ->
-                                        seekPreviewStripFocused = focused
-                                        if (focused) bumpInteraction()
-                                    },
-                                    onSeek = { targetPosition ->
-                                        val boundedPosition = targetPosition.coerceIn(
-                                            0L,
-                                            (durationMs - 1L).coerceAtLeast(0L),
-                                        )
-                                        ex?.seekTo(boundedPosition)
-                                        seekPreviewPositionMs = boundedPosition
-                                        seekPreviewActive = true
-                                        bumpInteraction()
-                                    },
-                                    onOpenRecommendation = { item ->
-                                        val recommendationType = progressKey?.mediaType
-                                            ?.takeIf { it == "movie" || it == "tv" }
-                                            ?: "movie"
-                                        if (item.id > 0L) {
-                                            onOpenRecommendation?.invoke(recommendationType, item.id)
-                                        }
-                                    },
-                                    initialFocusRequester = seekPreviewTabsFocusRequester,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
+                                TimestampChip(formatTime(visiblePositionMs))
+                                TimestampChip(formatTime((durationMs - visiblePositionMs).coerceAtLeast(0L)))
                             }
                         }
                         Spacer(Modifier.height(14.dp))
@@ -1784,6 +1756,55 @@ fun NativePlayerScreen(
                         }
                     }
                 }
+            }
+        }
+
+        if (isTv && !locked) {
+            AnimatedVisibility(
+                visible = showSeekPreviewPanel,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 48.dp)
+                    .padding(bottom = 170.dp),
+            ) {
+                SeekPreviewPanel(
+                    selectedTab = seekPreviewTab,
+                    onTabSelected = { seekPreviewTab = it; bumpInteraction() },
+                    frames = seekPreviewFrames,
+                    centerPositionMs = seekPreviewPosition,
+                    framesLoading = seekPreviewLoading,
+                    framesUnavailable = seekPreviewUnavailable,
+                    recommendations = seekPreviewRecommendations,
+                    recommendationsLoading = seekPreviewRecommendationsLoading,
+                    stats = seekPreviewStats,
+                    onFocusChanged = { focused ->
+                        seekPreviewStripFocused = focused
+                        if (focused) bumpInteraction()
+                    },
+                    onSeek = { targetPosition ->
+                        val boundedPosition = targetPosition.coerceIn(
+                            0L,
+                            (durationMs - 1L).coerceAtLeast(0L),
+                        )
+                        ex?.seekTo(boundedPosition)
+                        seekPreviewPositionMs = boundedPosition
+                        seekPreviewActive = true
+                        bumpInteraction()
+                    },
+                    onOpenRecommendation = { item ->
+                        val recommendationType = progressKey?.mediaType
+                            ?.takeIf { it == "movie" || it == "tv" }
+                            ?: "movie"
+                        if (item.id > 0L) {
+                            onOpenRecommendation?.invoke(recommendationType, item.id)
+                        }
+                    },
+                    initialFocusRequester = seekPreviewTabsFocusRequester,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
 

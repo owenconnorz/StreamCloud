@@ -1,8 +1,11 @@
 package com.streamcloud.app.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -35,12 +38,14 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -101,6 +106,7 @@ internal fun SpotifyLibraryContent(
     spotifyCookie: String,
     onOpenCollection: (id: String, title: String) -> Unit,
     refreshGeneration: Int = 0,
+    isTv: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -122,6 +128,53 @@ internal fun SpotifyLibraryContent(
     var loadingMoreTab by remember { mutableStateOf<SpotifyLibraryTab?>(null) }
     var loadMoreError by remember { mutableStateOf<Pair<SpotifyLibraryTab, String>?>(null) }
     var playingTrack by remember { mutableStateOf<String?>(null) }
+    var playlistForMenu by remember { mutableStateOf<SpotifyPlaylist?>(null) }
+    var playlistForDetails by remember { mutableStateOf<SpotifyPlaylist?>(null) }
+    var playlistDetailsError by remember { mutableStateOf<String?>(null) }
+    var savingPlaylistDetails by remember { mutableStateOf(false) }
+
+    fun sharePlaylist(playlist: SpotifyPlaylist, inviteCollaborators: Boolean) {
+        val url = "https://open.spotify.com/playlist/${playlist.id}"
+        val shareText = if (inviteCollaborators) {
+            "Open \"${playlist.name}\" in Spotify and choose Invite collaborators:\n$url"
+        } else {
+            "${playlist.name}\n$url"
+        }
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, playlist.name)
+            putExtra(Intent.EXTRA_TEXT, shareText)
+        }
+        runCatching {
+            context.startActivity(
+                Intent.createChooser(
+                    shareIntent,
+                    if (inviteCollaborators) "Invite collaborators" else "Share playlist",
+                ),
+            )
+        }.onFailure {
+            Toast.makeText(context, "Could not open the share menu.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun continuePlaylistActionInSpotify(playlist: SpotifyPlaylist, actionLabel: String) {
+        playlistForMenu = null
+        Toast.makeText(
+            context,
+            "Continue \"$actionLabel\" in Spotify.",
+            Toast.LENGTH_SHORT,
+        ).show()
+        runCatching {
+            context.startActivity(
+                Intent(
+                    Intent.ACTION_VIEW,
+                    Uri.parse("https://open.spotify.com/playlist/${playlist.id}"),
+                ),
+            )
+        }.onFailure {
+            Toast.makeText(context, "Could not open Spotify.", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     LaunchedEffect(spotifyCookie, refreshGeneration) {
         if (refreshGeneration > 0) selectedTab = SpotifyLibraryTab.Playlists
@@ -328,7 +381,7 @@ internal fun SpotifyLibraryContent(
             }
         } else if (gridView) {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 156.dp),
+                columns = GridCells.Fixed(if (isTv) 5 else 3),
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 120.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -352,6 +405,7 @@ internal fun SpotifyLibraryContent(
                                 ).joinToString(" · "),
                                 icon = Icons.Default.QueueMusic,
                                 onClick = { onOpenCollection(playlist.id, playlist.name) },
+                                onLongClick = { playlistForMenu = playlist },
                             )
                         }
                     }
@@ -493,6 +547,7 @@ internal fun SpotifyLibraryContent(
                                 detail = playlist.description,
                                 icon = Icons.Default.QueueMusic,
                                 onClick = { onOpenCollection(playlist.id, playlist.name) },
+                                onLongClick = { playlistForMenu = playlist },
                             )
                         }
                     }
@@ -605,6 +660,74 @@ internal fun SpotifyLibraryContent(
             }
         }
     }
+
+    playlistForMenu?.let { playlist ->
+        SpotifyPlaylistActionSheet(
+            playlist = playlist,
+            onDismiss = { playlistForMenu = null },
+            onAction = { action ->
+                playlistForMenu = null
+                when (action) {
+                    SpotifyPlaylistMenuAction.SHARE ->
+                        sharePlaylist(playlist, inviteCollaborators = false)
+                    SpotifyPlaylistMenuAction.COLLABORATORS ->
+                        sharePlaylist(playlist, inviteCollaborators = true)
+                    SpotifyPlaylistMenuAction.DETAILS -> {
+                        playlistDetailsError = null
+                        playlistForDetails = playlist
+                    }
+                    else -> continuePlaylistActionInSpotify(playlist, action.label)
+                }
+            },
+        )
+    }
+
+    playlistForDetails?.let { playlist ->
+        SpotifyPlaylistDetailsDialog(
+            playlist = playlist,
+            isSaving = savingPlaylistDetails,
+            errorMessage = playlistDetailsError,
+            onDismiss = {
+                if (!savingPlaylistDetails) {
+                    playlistForDetails = null
+                    playlistDetailsError = null
+                }
+            },
+            onSave = { name, description ->
+                scope.launch {
+                    savingPlaylistDetails = true
+                    playlistDetailsError = null
+                    try {
+                        withContext(Dispatchers.IO) {
+                            com.streamcloud.app.data.spotify.SpotifyPlaylistRepository
+                                .updatePlaylistDetails(
+                                    spDc = spotifyCookie,
+                                    playlistId = playlist.id,
+                                    name = name,
+                                    description = description,
+                                )
+                        }
+                        playlists = playlists.map { current ->
+                            if (current.id == playlist.id) {
+                                current.copy(name = name.trim(), description = description.trim())
+                            } else {
+                                current
+                            }
+                        }
+                        playlistForDetails = null
+                        Toast.makeText(context, "Playlist details updated.", Toast.LENGTH_SHORT).show()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        playlistDetailsError =
+                            failure.message ?: "Spotify could not update this playlist."
+                    } finally {
+                        savingPlaylistDetails = false
+                    }
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -627,12 +750,22 @@ private fun SpotifyCollectionRow(
     detail: String = "",
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
     Row(
         Modifier.fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .then(
+                if (onClick != null || onLongClick != null) {
+                    Modifier.combinedClickable(
+                        onClick = { onClick?.invoke() },
+                        onLongClick = onLongClick,
+                    )
+                } else {
+                    Modifier
+                },
+            )
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -693,10 +826,20 @@ private fun SpotifyCollectionGridTile(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     circularImage: Boolean = false,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
     Column(
         Modifier.fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+            .then(
+                if (onClick != null || onLongClick != null) {
+                    Modifier.combinedClickable(
+                        onClick = { onClick?.invoke() },
+                        onLongClick = onLongClick,
+                    )
+                } else {
+                    Modifier
+                },
+            ),
     ) {
         Box(
             Modifier.fillMaxWidth()
@@ -844,4 +987,62 @@ private fun SpotifyTrackRow(track: SpotifyTrack, loading: Boolean, onClick: () -
             tint = MaterialTheme.colorScheme.onSurface,
         )
     }
+}
+
+@Composable
+private fun SpotifyPlaylistDetailsDialog(
+    playlist: SpotifyPlaylist,
+    isSaving: Boolean,
+    errorMessage: String?,
+    onDismiss: () -> Unit,
+    onSave: (name: String, description: String) -> Unit,
+) {
+    var name by remember(playlist.id) { mutableStateOf(playlist.name) }
+    var description by remember(playlist.id) { mutableStateOf(playlist.description) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Name and details") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it.take(100) },
+                    label = { Text("Playlist name") },
+                    singleLine = true,
+                    enabled = !isSaving,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it.take(300) },
+                    label = { Text("Description") },
+                    enabled = !isSaving,
+                    minLines = 2,
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (!errorMessage.isNullOrBlank()) {
+                    Text(
+                        errorMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(name, description) },
+                enabled = !isSaving && name.isNotBlank(),
+            ) {
+                Text(if (isSaving) "Saving…" else "Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isSaving) {
+                Text("Cancel")
+            }
+        },
+    )
 }

@@ -732,6 +732,7 @@ fun LibraryScreen(
                         spotifyCookie = spotifyCookie,
                         onOpenCollection = onOpenSpotifyPlaylist,
                         refreshGeneration = spotifyLibraryRefreshGeneration,
+                        isTv = isTv,
                         modifier = Modifier.weight(1f).background(SpotifyBlack),
                     )
                 }
